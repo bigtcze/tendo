@@ -304,7 +304,7 @@ describe('signed in', () => {
     expect(within(panel).getByText('Active household')).toBeVisible();
     // The same name is announced by the trigger; the panel repeats it once as the current row.
     expect(within(panel).getAllByText('Veselí')).toHaveLength(1);
-    await waitFor(() => expect(within(panel).queryByText('Checking your households…')).not.toBeInTheDocument());
+    await waitFor(() => expect(within(panel).queryByText('Loading your households…')).not.toBeInTheDocument());
     expect(within(panel).queryAllByRole('button'), 'the only membership is not offered as a switch').toHaveLength(0);
     await userEvent.click(within(panel).getByRole('link', { name: 'Admin center' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Admin center' })).toHaveFocus();

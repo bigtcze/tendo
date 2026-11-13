@@ -1,12 +1,12 @@
-import { useCallback, useContext, useId, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { useI18n, type MessageKey } from '../i18n';
 import { HouseholdNavigationContext } from './HouseholdNavigation';
 import { HouseholdSwitchContext } from './HouseholdSwitchContext';
 import type { HouseholdSummary } from './householdsApi';
 import { NavLink } from './NavLink';
 import { useDismiss } from './useDismiss';
-import { useHouseholdList, type HouseholdList } from './useHouseholdList';
-import { useHouseholdSwitch, type SwitchFailure } from './useHouseholdSwitch';
+import type { HouseholdList } from './useHouseholdList';
+import type { SwitchFailure } from './useHouseholdSwitch';
 
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 /** Closed trigger: unchanged, so the household name sits in the bar exactly as it always has. */
@@ -16,7 +16,7 @@ const TRIGGER = 'flex min-h-11 min-w-[6.5rem] max-w-[min(14rem,100%)] items-cent
 // instead of growing past the viewport, so the last household stays reachable.
 const PANEL = 'absolute left-0 top-[calc(100%+0.375rem)] z-30 max-h-[min(26rem,calc(100dvh-6rem))] w-[min(19rem,calc(100vw-4rem))] overflow-y-auto overscroll-contain max-sm:inset-x-4 max-sm:w-auto rounded-xl border border-line bg-raised p-1.5 shadow-[0_20px_50px_-32px_rgb(20_18_14/0.5)]';
 const ROW = `flex min-h-11 w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-small text-ink transition-colors ${FOCUS}`;
-const SHOW_MORE = `mt-1 flex min-h-11 w-full items-center rounded-lg border-t border-line px-2.5 text-meta font-medium text-muted transition-colors hover:bg-sand hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`;
+const SHOW_MORE = `mt-1 flex min-h-11 w-full items-center rounded-lg border-t border-line px-2.5 text-meta font-medium text-muted transition-colors hover:bg-sand hover:text-ink aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${FOCUS}`;
 const FAULT_ROW = `flex min-h-11 w-full items-center rounded-lg px-2.5 text-left text-meta font-medium text-ink transition-colors hover:bg-sand ${FOCUS}`;
 const ADMIN_ROW = `mt-1 flex min-h-11 items-center rounded-lg border-t border-line px-2.5 text-small font-medium text-ink transition-colors hover:bg-sand ${FOCUS}`;
 const HELP = 'mt-1 border-t border-line px-2.5 pb-1.5 pt-2.5 text-meta text-muted';
@@ -53,15 +53,20 @@ function ActiveRow({ name }: { name: string }) {
   </p>;
 }
 
-/** Another household: the whole name is the accessible name, and it wraps instead of clipping. */
+/**
+ * Another household: the whole name is the accessible name, and it wraps instead of clipping. A row on its way to
+ * another household is marked `aria-disabled` instead of `disabled`, so the reader's focus stays on the row (and
+ * with it the open panel and its explanation) while the request is out.
+ */
 function HouseholdOption({ household, disabled, onChoose }: {
   household: HouseholdSummary; disabled: boolean; onChoose: (household: HouseholdSummary) => void;
 }) {
   return <button
     type="button"
-    disabled={disabled}
+    data-household-id={household.id}
+    aria-disabled={disabled}
     onClick={() => onChoose(household)}
-    className={`${ROW} font-medium hover:bg-sand disabled:cursor-not-allowed disabled:opacity-60`}
+    className={`${ROW} font-medium hover:bg-sand aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
   >
     <span aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
     <span className="min-w-0 break-words">{household.name}</span>
@@ -98,8 +103,8 @@ function HouseholdChoices({ list, activeId, busy, onChoose }: {
     {list.moreFailed ? <FailureLine message={t('household.menu.loadFailed')} retryLabel={t('household.menu.retry')} onRetry={list.retryMore} /> : null}
     {list.nextCursor ? <button
       type="button"
-      disabled={list.loadingMore}
-      onClick={() => void list.more()}
+      aria-disabled={list.loadingMore}
+      onClick={() => { if (!list.loadingMore) void list.more(); }}
       className={SHOW_MORE}
     >
       {t('household.menu.more')}
@@ -112,6 +117,9 @@ function HouseholdChoices({ list, activeId, busy, onChoose }: {
  * it on the session and then adopts the returned session, so the screens and the address below the bar follow the
  * chosen household. The panel promises nothing optimistic: a refusal keeps it open and changes nothing.
  *
+ * The list and the request itself belong to HouseholdSwitchProvider: this menu may be unmounted by a screen change
+ * while a switch is out, and the answer is still adopted.
+ *
  * The trigger keeps a readable floor: at 320 px Czech the name may truncate, but the accessible name always
  * carries the whole thing.
  */
@@ -121,21 +129,35 @@ export function HouseholdMenu({ householdId, name, canManage }: { householdId: s
   const switching = useContext(HouseholdSwitchContext);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const label = t('household.menu.label', { name });
+  const list = switching?.list;
+  const added = list?.added;
   const close = useCallback(() => setOpen(false), []);
   useDismiss(open, close, rootRef, buttonRef);
-  const endSession = () => switching?.sessionEnded();
-  const list = useHouseholdList({ open: open && Boolean(switching), onSignedOut: endSession });
-  const chooser = useHouseholdSwitch({
-    onSwitched: (session, household) => { close(); switching?.switchTo(session, household.name); },
-    onSignedOut: endSession,
-    onGone: list.reload,
-  });
+  // The last page takes the row that asked for it with it, so the reader is handed to the first household it added
+  // rather than dropped back at the top of the document. A panel the reader closed meanwhile keeps its own focus.
+  useEffect(() => {
+    if (!added || panelRef.current?.hidden) return;
+    const rows = panelRef.current ? Array.from(panelRef.current.querySelectorAll<HTMLElement>('[data-household-id]')) : [];
+    const first = rows.find((row) => added.ids.includes(row.dataset.householdId ?? ''));
+    (first ?? buttonRef.current)?.focus();
+  }, [added]);
+  // A household the server refuses as gone is read away from the list, and that read takes the very row the reader
+  // pressed with it. Handing focus back to the trigger keeps the panel — and its explanation — open, instead of
+  // dropping a keyboard reader at the top of the document. A panel the reader closed meanwhile keeps its own focus.
+  useEffect(() => {
+    if (switching?.failure !== 'gone' || panelRef.current?.hidden) return;
+    buttonRef.current?.focus();
+  }, [switching?.failure]);
   const toggle = () => {
-    if (!open) chooser.dismiss();
+    if (!open) { switching?.dismiss(); switching?.openList(); }
     setOpen(!open);
+  };
+  const choose = async (household: HouseholdSummary) => {
+    if (await switching?.choose(household)) close();
   };
 
   return (
@@ -152,14 +174,14 @@ export function HouseholdMenu({ householdId, name, canManage }: { householdId: s
         <span className="min-w-0 truncate">{name}</span>
         <Chevron open={open} />
       </button>
-      <div id={panelId} role="group" aria-label={label} hidden={!open} className={PANEL}>
+      <div ref={panelRef} id={panelId} role="group" aria-label={label} hidden={!open} className={PANEL}>
         <ActiveRow name={name} />
-        {chooser.failure ? <p role="alert" className="px-2.5 py-1.5 text-meta text-danger">{t(FAILURE[chooser.failure])}</p> : null}
-        {switching ? <HouseholdChoices
+        {switching?.failure ? <p role="alert" className="px-2.5 py-1.5 text-meta text-danger">{t(FAILURE[switching.failure])}</p> : null}
+        {list ? <HouseholdChoices
           list={list}
           activeId={householdId}
-          busy={chooser.busy}
-          onChoose={(household) => void chooser.choose(household)}
+          busy={switching?.busy ?? false}
+          onChoose={(household) => void choose(household)}
         /> : null}
         {canManage && navigation ? (
           <NavLink

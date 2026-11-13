@@ -11,7 +11,7 @@ import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { ScreenTransitionContext } from './Heading';
-import { HouseholdSwitchContext } from './HouseholdSwitchContext';
+import { HouseholdSwitchProvider } from './HouseholdSwitchProvider';
 import { Layout } from './Layout';
 import { NotFoundScreen } from './StatusScreens';
 import { SignOutContext } from './SignOutContext';
@@ -52,19 +52,28 @@ export function SignedInApp(props: Props) {
   };
   // Adopting a household chosen in the top bar is the same transition as signing in: Home at '/', a new session
   // generation so callbacks from the previous household are ignored, and the returned session as the live one.
-  const switchTo = (next: Session, name: string) => {
+  const adopt = (next: Session, name: string) => {
     setAnnouncement(t('household.menu.switched', { name }));
     sessionActions.signedIn(next);
   };
   if (route.kind === 'invite') return renderInvite(props);
-  return <HouseholdSwitchContext value={{ switchTo, sessionEnded: sessionActions.sessionEnded }}>
-    {route.kind === 'notFound'
-      ? renderNotFound(props, householdId ?? null, navigationActions)
-      : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions)}
-    {/* WCAG 4.1.3: one polite host stays mounted above the screens, so a switch is spoken once Home has taken over.
-        It carries no status role, so it never competes with the screen's own mutation notice or action alert. */}
+  // The bar's household requests live here, above every screen, so a switch is still adopted when the menu that
+  // asked for it was replaced on the way. The key restarts them with the new session: the list read for the account
+  // that was left behind cannot land in the one that replaced it.
+  return <>
+    <HouseholdSwitchProvider
+      key={`${session.userId}:${householdId ?? 'none'}`}
+      onAdopt={adopt}
+      onSignedOut={sessionActions.sessionEnded}
+    >
+      {route.kind === 'notFound'
+        ? renderNotFound(props, householdId ?? null, navigationActions)
+        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions)}
+    </HouseholdSwitchProvider>
+    {/* WCAG 4.1.3: one polite host sits beside the screens and never remounts, so a switch is spoken once Home has
+        taken over. It carries no status role, so it never competes with the screen's own mutation notice. */}
     <p aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
-  </HouseholdSwitchContext>;
+  </>;
 }
 
 /** Unknown pages keep the signed-in shell (account actions and navigation); Home is the nearest destination. */

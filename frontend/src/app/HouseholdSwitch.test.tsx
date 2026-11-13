@@ -54,7 +54,7 @@ async function openPanel(label = 'Household: Veselí') {
 
 /** The household list arrives asynchronously; nothing below may race it. */
 async function householdsReady(panel: HTMLElement) {
-  await waitFor(() => expect(within(panel).queryByText('Checking your households…')).not.toBeInTheDocument());
+  await waitFor(() => expect(within(panel).queryByText('Loading your households…')).not.toBeInTheDocument());
 }
 
 beforeEach(() => {
@@ -112,7 +112,7 @@ describe('household switcher', () => {
     renderApp();
     const { panel } = await openPanel();
 
-    expect(await within(panel).findByText('We couldn’t check your households.')).toBeVisible();
+    expect(await within(panel).findByText('Your households couldn’t be loaded. Check your connection and try again.')).toBeVisible();
     await userEvent.click(within(panel).getByRole('button', { name: 'Try again' }));
 
     expect(await within(panel).findByRole('button', { name: 'Chalupa' })).toBeVisible();
@@ -191,14 +191,79 @@ describe('household switcher', () => {
     expect(window.location.pathname).toBe('/');
   });
 
-  it('keeps the panel open, explains and reloads the list when the household is gone', async () => {
+  it('adopts a switch that finishes after the reader moved to another screen', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fake = installFakeServer(appRoutes({
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+      'PATCH /api/v1/session': async () => { await gate; return json(200, { ...session(), defaultHouseholdId: OTHER_ID }); },
+    }));
+    renderApp();
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    const { panel } = await openPanel();
+    await householdsReady(panel);
+
+    await userEvent.click(within(panel).getByRole('button', { name: 'Chalupa' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Your account' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+    expect(fake.requests.filter((request) => request.method === 'PATCH')).toHaveLength(1);
+
+    release();
+
+    // The menu that asked was replaced on the way, yet the household the server stored is adopted, not dropped.
+    expect(await screen.findByRole('button', { name: 'Household: Chalupa' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toHaveFocus();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('reuses the households read for the account on another screen, without a loading line', async () => {
+    let reads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    installFakeServer(appRoutes({
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+      'GET /api/v1/households': async () => {
+        reads += 1;
+        if (reads > 1) await gate;
+        return json(200, { items: [household, other], nextCursor: null });
+      },
+    }));
+    renderApp();
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    const first = await openPanel();
+    await householdsReady(first.panel);
+    expect(reads).toBe(1);
+    await userEvent.keyboard('{Escape}');
+
+    await userEvent.click(screen.getByRole('link', { name: 'Your account' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+    const { panel } = await openPanel();
+
+    // The list belongs to the account, not to the screen: the same households are on screen straight away while
+    // the quiet read is still out, so nothing waits behind it and no loading line flashes.
+    expect(within(panel).queryByText('Loading your households…')).not.toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Chalupa' })).toHaveAttribute('aria-disabled', 'false');
+    await waitFor(() => expect(reads).toBe(2));
+    expect(within(panel).queryByText('Loading your households…')).not.toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Chalupa' })).toBeVisible());
+  });
+
+  it('keeps the panel open, explains and reads the list again when the household is gone', async () => {
+    let reads = 0;
     const fake = installFakeServer(appRoutes({
       'PATCH /api/v1/session': json(422, { type: 'about:blank', title: 'Unprocessable', status: 422, code: 'invalid_reference', field: 'defaultHouseholdId' }),
+      // The second read no longer offers the membership the server just refused.
+      'GET /api/v1/households': () => {
+        reads += 1;
+        return json(200, { items: reads === 1 ? [household, other] : [household], nextCursor: null });
+      },
     }));
     renderApp();
     const { trigger, panel } = await openPanel();
     await householdsReady(panel);
-    const reads = () => fake.requests.filter((request) => request.path === '/api/v1/households');
+    expect(within(panel).getByRole('button', { name: 'Chalupa' })).toBeVisible();
 
     await userEvent.click(within(panel).getByRole('button', { name: 'Chalupa' }));
 
@@ -206,31 +271,50 @@ describe('household switcher', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(trigger).toHaveAccessibleName('Household: Veselí');
     expect(window.location.pathname).toBe('/');
-    // The offered list is read again, so a membership that went away stops being offered.
-    await waitFor(() => expect(reads()).toHaveLength(2));
-    await householdsReady(panel);
+    // The list is read again, so a membership that went away stops being offered.
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(within(panel).queryByRole('button', { name: 'Chalupa' })).not.toBeInTheDocument());
+    expect(within(panel).getByText('Veselí')).toBeVisible();
+    expect(fake.requests.filter((request) => request.method === 'PATCH')).toHaveLength(1);
+    // The row that went away took the keyboard reader's focus with it, so the reader is handed back to the trigger:
+    // the panel, and the explanation in it, stay exactly where they were instead of closing behind a lost focus.
+    expect(trigger, 'focus lands on the trigger, not at the top of the document').toHaveFocus();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).toBeVisible();
+    expect(within(panel).getByRole('alert')).toHaveTextContent('That household is no longer available to you.');
   });
 
-  it('keeps everything as it was when the switch cannot be reached, and a second try works', async () => {
+  it('keeps the panel open when a keyboard switch cannot be reached, and a second try works', async () => {
     let attempts = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
     installFakeServer(appRoutes({
-      'PATCH /api/v1/session': () => {
+      'PATCH /api/v1/session': async () => {
         attempts += 1;
+        if (attempts === 1) await gate;
         return attempts === 1 ? problem(503) : json(200, { ...session(), defaultHouseholdId: OTHER_ID });
       },
     }));
     renderApp();
     const { trigger, panel } = await openPanel();
     await householdsReady(panel);
+    const option = within(panel).getByRole('button', { name: 'Chalupa' });
 
-    await userEvent.click(within(panel).getByRole('button', { name: 'Chalupa' }));
+    // A keyboard reader starts the switch from the row itself. The row stays mounted and marked `aria-disabled`
+    // while the request is out: a `disabled` row would drop the focus, and the open panel with it.
+    option.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Chalupa' })).toHaveAttribute('aria-disabled', 'true'));
+    expect(option, 'focus stays on the row that is on its way').toHaveFocus();
+    release();
 
     expect(await within(panel).findByRole('alert'))
       .toHaveTextContent('Couldn’t move to that household. Check your connection and try again.');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(trigger).toHaveAccessibleName('Household: Veselí');
     expect(window.location.pathname).toBe('/');
     const retry = within(panel).getByRole('button', { name: 'Chalupa' });
-    expect(retry, 'nothing changed, so the row is still there to try again').toBeEnabled();
+    expect(retry, 'nothing changed, so the row is still there to try again').toHaveAttribute('aria-disabled', 'false');
 
     await userEvent.click(retry);
     expect(await screen.findByRole('button', { name: 'Household: Chalupa' })).toBeVisible();
@@ -277,7 +361,44 @@ describe('household switcher', () => {
     expect(await within(panel).findByRole('button', { name: 'Dům u lesa a staré lípy' })).toBeVisible();
     expect(within(panel).getByRole('button', { name: 'Chalupa' }), 'the first page stays').toBeVisible();
     expect(within(panel).queryByRole('button', { name: 'Show more households' }), 'the last page offers no more').not.toBeInTheDocument();
+    // The row that asked for the page left with it, so the reader lands on the household it added.
+    expect(within(panel).getByRole('button', { name: 'Dům u lesa a staré lípy' })).toHaveFocus();
     expect(moreReads()).toHaveLength(1);
+  });
+
+  it('hands the reader back to the trigger when the last page adds no household', async () => {
+    installFakeServer(appRoutes({
+      'GET /api/v1/households': json(200, { items: [household, other], nextCursor: 'page-2' }),
+      'GET /api/v1/households?cursor=page-2': json(200, { items: [], nextCursor: null }),
+    }));
+    renderApp();
+    const { trigger, panel } = await openPanel();
+    await householdsReady(panel);
+
+    await userEvent.click(within(panel).getByRole('button', { name: 'Show more households' }));
+
+    // The row that asked for the page leaves with it, and this page added no row to hand the reader to: focus goes
+    // back to the trigger, so the open panel is not left behind a reader dropped at the top of the document.
+    await waitFor(() => expect(within(panel).queryByRole('button', { name: 'Show more households' })).not.toBeInTheDocument());
+    expect(trigger, 'focus lands on the trigger, not at the top of the document').toHaveFocus();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).toBeVisible();
+    expect(within(panel).getByRole('button', { name: 'Chalupa' })).toBeVisible();
+  });
+
+  it('signs out when a later page is refused as signed out', async () => {
+    installFakeServer(appRoutes({
+      'GET /api/v1/households': json(200, { items: [household, other], nextCursor: 'page-2' }),
+      'GET /api/v1/households?cursor=page-2': problem(401),
+    }));
+    renderApp();
+    const { panel } = await openPanel();
+    await householdsReady(panel);
+
+    await userEvent.click(within(panel).getByRole('button', { name: 'Show more households' }));
+
+    expect(await screen.findByText('You were signed out. Sign in again to continue. Saved changes are kept.')).toBeVisible();
+    expect(await screen.findByLabelText('Username')).toBeVisible();
   });
 
   it('offers the households in Czech', async () => {

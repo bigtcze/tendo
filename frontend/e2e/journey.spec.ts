@@ -5711,6 +5711,13 @@ test.describe('Tendo production journey', () => {
       await waitForSettledHome(joining.actor, householdName);
       const backSession = await joining.actor.request.get('/api/v1/session');
       expect((await backSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
+      // The server, not the panel, decides what may be chosen: a household this account does not belong to is refused
+      // with the uniform 422 and the stored choice stays where it was.
+      const foreignSwitch = await joining.actor.request.patch('/api/v1/session', { headers: { Origin: baseURL }, data: { defaultHouseholdId: foreignHouseholdId } });
+      expect(foreignSwitch.status()).toBe(422);
+      expect(await foreignSwitch.json()).toMatchObject({ code: 'invalid_reference', field: 'defaultHouseholdId' });
+      const afterForeign = await joining.actor.request.get('/api/v1/session');
+      expect((await afterForeign.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
       // Switching never changed either membership or its role.
       const afterSwitchList = await (await joining.actor.request.get('/api/v1/households')).json() as { items: Array<{ id: string; viewerRole: string }> };
       expect(afterSwitchList.items.map(item => [item.id, item.viewerRole]).sort()).toEqual([[conflictHouseholdId, 'admin'], [householdId, 'member']].sort());
