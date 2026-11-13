@@ -27,7 +27,7 @@ agent_must_not_edit=this_file
 - All new/refactored UI follows CODE_QUALITY; never create giant tangled components to obtain a superficial redesign.
 
 ## Controller boundary
-- Do not upgrade/reconfigure OpenCode, agent plugins, provider auth, global OpenCode config, systemd units, the autonomy controller, selector, prompt, installer or ownership-migration policy without explicit owner-authorized governance work.
+- Do not upgrade/reconfigure the coding-agent runtime (FLOW "Runtime integration"), agent plugins, provider auth, global runtime config, systemd units, the autonomy controller, selector, prompt, installer or ownership-migration policy without explicit owner-authorized governance work.
 - If controller tooling is broken, record exact evidence on the owned Issue (ownership rechecked) or affected PR and use a safe alternative when possible. Never change host services or runtime locks autonomously.
 - Never edit unrelated repositories or host services.
 
