@@ -100,7 +100,7 @@ func newAttentionFixture(t *testing.T) *attentionFixture {
 func (f *attentionFixture) add(t *testing.T, sub, attention string, archived, done, recurring bool, state string, responsible *string) string {
 	t.Helper()
 	id := nextAttentionID()
-	_, err := f.admin.Exec(f.ctx, `INSERT INTO items(id,household_id,subject_id,responsible_user_id,title,attention_on,workflow_state,archived,done,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) VALUES($1::uuid,$2::uuid,$3::uuid,$4::uuid,'p3-'||$1,NULLIF($5,'')::date,$6,$7,$8,CASE WHEN $9 THEN 1 END,CASE WHEN $9 THEN 'day' END,CASE WHEN $9 THEN 'fixed' END)`, id, f.house, sub, responsible, attention, state, archived, done, recurring)
+	_, err := f.admin.Exec(f.ctx, `INSERT INTO items(id,household_id,subject_id,responsible_user_id,title,attention_on,attention_anchor_day,workflow_state,archived,done,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) VALUES($1::uuid,$2::uuid,$3::uuid,$4::uuid,'p3-'||$1,NULLIF($5,'')::date,extract(day from NULLIF($5,'')::date)::smallint,$6,$7,$8,CASE WHEN $9 THEN 1 END,CASE WHEN $9 THEN 'day' END,CASE WHEN $9 THEN 'fixed' END)`, id, f.house, sub, responsible, attention, state, archived, done, recurring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestAttentionCursorUsesEncodedBoundaryAfterEdit(t *testing.T) {
 	d := f.add(t, f.subject, "2026-04-01", false, false, false, "open", nil)
 	first := f.list(t, item.ListQuery{Sort: item.SortAttention, Limit: 2})
 	exactIDs(t, first.Items, []string{a, b})
-	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01' WHERE id=$1::uuid`, b); err != nil {
+	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01',attention_anchor_day=1 WHERE id=$1::uuid`, b); err != nil {
 		t.Fatal(err)
 	}
 	next := f.list(t, item.ListQuery{Sort: item.SortAttention, Limit: 5, Cursor: *first.NextCursor})
@@ -309,7 +309,7 @@ func TestAttentionCursorNullBoundarySurvivesEdit(t *testing.T) {
 	d := f.add(t, f.subject, "2026-02-01", false, false, false, "open", nil)
 	first := f.list(t, item.ListQuery{Sort: item.SortAttention, Limit: 2})
 	exactIDs(t, first.Items, []string{a, b})
-	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01' WHERE id=$1::uuid`, b); err != nil {
+	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01',attention_anchor_day=1 WHERE id=$1::uuid`, b); err != nil {
 		t.Fatal(err)
 	}
 	next := f.list(t, item.ListQuery{Sort: item.SortAttention, Limit: 5, Cursor: *first.NextCursor})
@@ -327,7 +327,7 @@ func TestAttentionTraversalWithConcurrentNonKeyAndKeyEdits(t *testing.T) {
 	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET title='title edit' WHERE id=$1::uuid`, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01',recurrence_interval_value=NULL,recurrence_interval_unit=NULL,recurrence_mode=NULL WHERE id=$1::uuid`, d); err != nil {
+	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01',attention_anchor_day=1,recurrence_interval_value=NULL,recurrence_interval_unit=NULL,recurrence_mode=NULL WHERE id=$1::uuid`, d); err != nil {
 		t.Fatal(err)
 	}
 	query.Limit = 5

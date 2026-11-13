@@ -142,7 +142,8 @@ func (r *Repository) createInitialized(ctx context.Context, hid pgtype.UUID, d i
 	}
 	if err = q.UpdateItemForCompletion(ctx, dbgen.UpdateItemForCompletionParams{
 		HouseholdID: hid, ID: uuid(created.ID), AttentionOn: date(receipt.NextAttentionOn),
-		WorkflowState: string(item.StateOpen), Done: false,
+		AttentionAnchorDay: int2(receipt.NextAnchorDay),
+		WorkflowState:      string(item.StateOpen), Done: false,
 	}); err != nil {
 		return item.Item{}, false, errPersistence
 	}
@@ -197,7 +198,7 @@ func (r *Repository) Get(ctx context.Context, householdID, itemID string) (item.
 
 func createParams(householdID, subjectID, responsibleID, actor pgtype.UUID, d item.Draft) dbgen.CreateItemParams {
 	params := dbgen.CreateItemParams{HouseholdID: householdID, SubjectID: subjectID, ResponsibleUserID: responsibleID,
-		Title: d.Title, Notes: text(d.Notes), AttentionOn: date(d.AttentionOn), CreatedByUserID: actor,
+		Title: d.Title, Notes: text(d.Notes), AttentionOn: date(d.AttentionOn), AttentionAnchorDay: int2(d.AttentionAnchorDay), CreatedByUserID: actor,
 		CreationKey: pgtype.Text{String: d.CreationKey, Valid: true}, CreationRequestFingerprint: d.CreationFingerprint}
 	if d.Recurrence != nil {
 		params.RecurrenceIntervalValue = pgtype.Int4{Int32: int32(d.Recurrence.Interval.Value), Valid: true}
@@ -224,6 +225,7 @@ func initializationCompletionParams(hid pgtype.UUID, id string, receipt item.Com
 		RecurrenceIntervalValue: pgtype.Int4{Int32: int32(receipt.Recurrence.Interval.Value), Valid: true},
 		RecurrenceIntervalUnit:  pgtype.Text{String: string(receipt.Recurrence.Interval.Unit), Valid: true},
 		RecurrenceMode:          pgtype.Text{String: string(receipt.Recurrence.Mode), Valid: true},
-		NextAttentionOn:         date(receipt.NextAttentionOn), RequestFingerprint: receipt.Fingerprint[:],
+		NextAttentionOn:         date(receipt.NextAttentionOn), NextAnchorDay: int2(receipt.NextAnchorDay),
+		RequestFingerprint: receipt.Fingerprint[:],
 	}
 }

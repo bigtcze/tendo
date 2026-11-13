@@ -10,10 +10,11 @@ import (
 func TestFilteredAttentionKeysetWalkPostgres(t *testing.T) {
 	f := newAttentionFixture(t)
 	const count = 1007
-	_, err := f.admin.Exec(f.ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,workflow_state,recurrence_interval_value,recurrence_interval_unit,recurrence_mode)
+	_, err := f.admin.Exec(f.ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,attention_anchor_day,workflow_state,recurrence_interval_value,recurrence_interval_unit,recurrence_mode)
 		SELECT ('0198a3f3-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid,$1::uuid,
 		       CASE WHEN n%2=0 THEN $2::uuid ELSE $3::uuid END,'attention-keyset-'||n::text,
 		       CASE WHEN n%9=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END,
+		       extract(day from CASE WHEN n%9=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END)::smallint,
 		       CASE WHEN n%3=0 THEN 'open' ELSE 'paused' END,
 		       CASE WHEN n%6=0 THEN 1 END,CASE WHEN n%6=0 THEN 'day' END,CASE WHEN n%6=0 THEN 'fixed' END
 		FROM generate_series(1,$4)n`, f.house, f.subject, f.otherSubject, count)

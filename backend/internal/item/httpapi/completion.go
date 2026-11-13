@@ -147,6 +147,8 @@ func writeCompletionError(w http.ResponseWriter, err error) {
 		httpx.ProblemResponse(w, 409, "item_done")
 	case errors.Is(err, item.ErrCompletionNotLatest):
 		httpx.ProblemResponse(w, 409, "completion_not_latest")
+	case errors.Is(err, item.ErrCompletionSuperseded):
+		httpx.ProblemResponse(w, 409, "completion_superseded")
 	case errors.Is(err, item.ErrIdempotencyKeyReused):
 		httpx.ProblemResponse(w, 422, "idempotency_key_reused")
 	case errors.As(err, &v):

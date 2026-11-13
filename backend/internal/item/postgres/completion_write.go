@@ -40,6 +40,7 @@ func completionInsertParams(household, id pgtype.UUID, key string, fingerprint [
 	params := dbgen.InsertCompletionParams{
 		HouseholdID: household, ItemID: id, CompletedOn: date(&receipt.CompletedOn),
 		CompletedByUserID: uuid(receipt.CompletedByUserID), CycleAttentionOn: dbDate(receipt.CycleAttentionOn),
+		CycleAnchorDay: int2(receipt.CycleAnchorDay), NextAnchorDay: int2(receipt.NextAnchorDay),
 		PriorWorkflowState: string(receipt.PriorWorkflowState), NextAttentionOn: dbDate(receipt.NextAttentionOn),
 		ItemVersionBefore: receipt.ItemVersionBefore, IdempotencyKey: key, RequestFingerprint: fingerprint[:],
 	}
@@ -65,7 +66,8 @@ func insertCompletionAndUpdateItem(
 	}
 	params := dbgen.UpdateItemForCompletionParams{
 		HouseholdID: household, ID: id, AttentionOn: dbDate(plan.Item.AttentionOn),
-		WorkflowState: string(plan.Item.WorkflowState), Done: plan.Item.Done,
+		AttentionAnchorDay: int2(plan.Item.AttentionAnchorDay),
+		WorkflowState:      string(plan.Item.WorkflowState), Done: plan.Item.Done,
 	}
 	if err = q.UpdateItemForCompletion(ctx, params); err != nil {
 		return item.Completion{}, errPersistence

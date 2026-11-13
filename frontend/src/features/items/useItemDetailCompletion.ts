@@ -3,7 +3,7 @@ import { useI18n } from '../../i18n';
 import { idempotencyKey } from '../../lib/idempotencyKey';
 import { completeItem, getItem, trackItemWrite, undoCompletion } from './itemsApi';
 import { getPendingCompletion, setPendingCompletion } from './pendingCompletions';
-import { handleCompletionResult, handleUndoResult, type CompletionTools, type ReadThenWrite } from './completionOutcomes';
+import { handleCompletionResult, handleUndoResult, settleCompletionKey, type CompletionTools, type ReadThenWrite } from './completionOutcomes';
 import type { Notice } from './HomeOverview';
 import type { ItemDetailBusy } from './useItemDetailBusy';
 import type { ItemDetailState } from './useItemDetail';
@@ -77,6 +77,8 @@ export function useItemDetailCompletion({ userId, householdId, itemId, onSignedO
     const token = generationRef.current;
     try {
       const result = await readThenWrite((etag) => completeItem(householdId, itemId, etag, key));
+      // The key's lifetime follows the server outcome, not this screen: settle it even after unmount.
+      settleCompletionKey(userId, householdId, itemId, key, result);
       if (current(token)) await handleCompletionResult(tools, itemId, key, focused, origin, null, result);
     } finally { busy.release(owner.current); }
   }

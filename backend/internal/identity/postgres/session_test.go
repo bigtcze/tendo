@@ -268,7 +268,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 20 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string

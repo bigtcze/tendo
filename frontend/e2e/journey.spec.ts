@@ -1205,7 +1205,8 @@ test.describe('Tendo production journey', () => {
     await waitForSettledHome(page, householdName);
     await row(fixedTitle).getByRole('button', { name: en['items.done'] }).click();
     await expect.poll(async () => (await serverCompletions(fixed.id)).length).toBe(2);
-    expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: '2026-01-30', lastCompletedOn: expectedCompletionDate });
+    // The anchor established by the 31 October completion survives the clamped 30 November cycle (RECURRENCE "fixed anchor restoration").
+    expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: '2026-01-31', lastCompletedOn: expectedCompletionDate });
     await page.getByRole('button', { name: en['items.undo'] }).click();
     await expect(row(fixedTitle).getByRole('button', { name: en['items.done'] })).toBeFocused();
     await expect.poll(async () => (await serverItem(fixedTitle)).attentionOn).toBe('2025-11-30');

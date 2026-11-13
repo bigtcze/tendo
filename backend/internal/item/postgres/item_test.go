@@ -228,6 +228,16 @@ func createForTest(ctx context.Context, r *Repository, householdID, actorID stri
 	d.CreationKey = fmt.Sprintf("repository-test-%d", testCreateSeq.Add(1))
 	digest := sha256.Sum256([]byte(d.CreationKey))
 	d.CreationFingerprint = digest[:]
+	// Repositories receive the anchor from the service; fixtures that only set a
+	// date get the anchor the create path would derive from its day.
+	if d.AttentionAnchorDay == nil && d.AttentionOn != nil {
+		day := d.AttentionOn.Day()
+		d.AttentionAnchorDay = &day
+	}
+	if d.InitializationReceipt != nil && d.InitializationReceipt.NextAnchorDay == nil && d.AttentionOn != nil {
+		day := d.AttentionOn.Day()
+		d.InitializationReceipt.NextAnchorDay = &day
+	}
 	got, inserted, err := r.CreateIdempotent(ctx, householdID, d)
 	if err == nil && !inserted {
 		return item.Item{}, errors.New("unexpected creation key conflict")
@@ -325,7 +335,7 @@ func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T
 	if creator.Valid || key.Valid || fingerprint != nil {
 		t.Fatalf("legacy metadata=%+v %+v %x", creator, key, fingerprint)
 	}
-	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 20 || dirty {
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 	got, err := NewRepository(upAdmin).Get(ctx, hid, iid)
@@ -427,7 +437,7 @@ func TestFilteredListAgainstPostgres(t *testing.T) {
 	svc := item.NewService(repo, houses, nil, members, func() time.Time { return clock })
 	insert := func(h, s, title, responsible, state string, attention *string, recurring, archived, done bool) string {
 		var id string
-		err := admin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,title,responsible_user_id,workflow_state,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done) VALUES($1::uuid,$2::uuid,$3,NULLIF($4,'')::uuid,$5,NULLIF($6,'')::date,CASE WHEN $7 THEN 1 END,CASE WHEN $7 THEN 'day' END,CASE WHEN $7 THEN 'fixed' END,$8,$9) RETURNING id::text`, h, s, title, responsible, state, func() string {
+		err := admin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,title,responsible_user_id,workflow_state,attention_on,attention_anchor_day,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done) VALUES($1::uuid,$2::uuid,$3,NULLIF($4,'')::uuid,$5,NULLIF($6,'')::date,extract(day from NULLIF($6,'')::date)::smallint,CASE WHEN $7 THEN 1 END,CASE WHEN $7 THEN 'day' END,CASE WHEN $7 THEN 'fixed' END,$8,$9) RETURNING id::text`, h, s, title, responsible, state, func() string {
 			if attention == nil {
 				return ""
 			}
@@ -648,7 +658,7 @@ func TestAttentionSortPaginationAndMutationsAgainstPostgres(t *testing.T) {
 		rows = append(rows, struct{ id, date string }{nextAttentionID(), d})
 	}
 	for n, r := range rows {
-		if _, err := admin.Exec(ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,workflow_state,archived,done) VALUES($1::uuid,$2::uuid,$3::uuid,$4,NULLIF($5,'')::date,'open',false,false)`, r.id, h, subjectID, fmt.Sprintf("row-%d", n), r.date); err != nil {
+		if _, err := admin.Exec(ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,attention_anchor_day,workflow_state,archived,done) VALUES($1::uuid,$2::uuid,$3::uuid,$4,NULLIF($5,'')::date,extract(day from NULLIF($5,'')::date)::smallint,'open',false,false)`, r.id, h, subjectID, fmt.Sprintf("row-%d", n), r.date); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -685,7 +695,7 @@ func TestAttentionSortPaginationAndMutationsAgainstPostgres(t *testing.T) {
 	if err != nil || first.NextCursor == nil {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	if _, err = admin.Exec(ctx, `UPDATE items SET attention_on='2027-01-01' WHERE id=$1::uuid`, first.Items[1].ID); err != nil {
+	if _, err = admin.Exec(ctx, `UPDATE items SET attention_on='2027-01-01',attention_anchor_day=1 WHERE id=$1::uuid`, first.Items[1].ID); err != nil {
 		t.Fatal(err)
 	}
 	continued, err := svc.List(ctx, actor, h, item.ListQuery{Sort: item.SortAttention, Limit: 5, Cursor: *first.NextCursor})
@@ -739,7 +749,7 @@ func TestItemListExplainIndexesAtScale(t *testing.T) {
 	must(admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','other target') RETURNING id::text`, other).Scan(&os))
 	must(admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','sparse target') RETURNING id::text`, h).Scan(&sparseSubject))
 	// IDs ascend with n so created pages and cursor positions are deterministic. Target has 10k rows; other household contributes a further 10k.
-	mustExec(`INSERT INTO items(id,household_id,subject_id,title,attention_on,responsible_user_id,workflow_state,archived,done) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((100000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END,CASE WHEN n%10=0 THEN $6::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,(n%11=0),(n%13=0) FROM generate_series(1,20000) n`, h, other, s, os, sparseSubject, actor)
+	mustExec(`INSERT INTO items(id,household_id,subject_id,title,attention_on,attention_anchor_day,responsible_user_id,workflow_state,archived,done) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((100000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END,extract(day from CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END)::smallint,CASE WHEN n%10=0 THEN $6::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,(n%11=0),(n%13=0) FROM generate_series(1,20000) n`, h, other, s, os, sparseSubject, actor)
 	mustExec(`INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) SELECT household_id,id,DATE '2026-01-01', $1::uuid,'open',1,'explain-'||id::text,decode(repeat('ab',32),'hex') FROM items WHERE household_id=$2::uuid AND id IN (SELECT id FROM items WHERE household_id=$2::uuid ORDER BY id LIMIT 20)`, actor, h)
 	mustExec(`ANALYZE items`)
 	conn, err := app.Acquire(ctx)
@@ -977,7 +987,7 @@ func TestMigrationUpgradeFromV14ToV15PreservesData(t *testing.T) {
 		creation   string
 		into       *string
 	}{{"null attention", nil, false, false, false, 4, "v14-item-1", &i1}, {"past recurring", "2026-01-02", true, true, false, 7, "v14-item-2", &i2}, {"future done", "2030-02-03", false, false, true, 9, "v14-item-3", &i3}} {
-		must(upAdmin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done,version,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5::date,CASE WHEN $6 THEN 2 END,CASE WHEN $6 THEN 'week' END,CASE WHEN $6 THEN 'fixed' END,$7,$8,$9,$10::uuid,$11,decode(repeat('cd',32),'hex')) RETURNING id::text`, h, sid, assignee, row.title, row.date, row.rec, row.arch, row.done, row.version, actor, row.creation).Scan(row.into))
+		must(upAdmin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,attention_on,attention_anchor_day,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done,version,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5::date,extract(day from $5::date)::smallint,CASE WHEN $6 THEN 2 END,CASE WHEN $6 THEN 'week' END,CASE WHEN $6 THEN 'fixed' END,$7,$8,$9,$10::uuid,$11,decode(repeat('cd',32),'hex')) RETURNING id::text`, h, sid, assignee, row.title, row.date, row.rec, row.arch, row.done, row.version, actor, row.creation).Scan(row.into))
 	}
 	// Receipt facts include an undone receipt with actor/time metadata and an active completion.
 	must(func() error {
@@ -996,7 +1006,7 @@ func TestMigrationUpgradeFromV14ToV15PreservesData(t *testing.T) {
 		// membership; that addition is covered by its own migration test. This
 		// snapshot protects the pre-existing ordinary subjects, items and
 		// completions from loss or mutation.
-		must(upAdmin.QueryRow(ctx, `SELECT jsonb_build_object('items',(SELECT jsonb_agg(to_jsonb(x)-'search_text' ORDER BY x.id) FROM items x),'completions',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM item_completions x),'subjects',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM subjects x WHERE x.linked_user_id IS NULL),'memberships',(SELECT jsonb_agg(jsonb_build_object('user_id',x.user_id,'household_id',x.household_id) ORDER BY x.user_id,x.household_id) FROM household_memberships x))::text`).Scan(&got))
+		must(upAdmin.QueryRow(ctx, `SELECT jsonb_build_object('items',(SELECT jsonb_agg(to_jsonb(x)-'search_text'-'attention_anchor_day' ORDER BY x.id) FROM items x),'completions',(SELECT jsonb_agg(to_jsonb(x)-'cycle_anchor_day'-'next_anchor_day' ORDER BY x.id) FROM item_completions x),'subjects',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM subjects x WHERE x.linked_user_id IS NULL),'memberships',(SELECT jsonb_agg(jsonb_build_object('user_id',x.user_id,'household_id',x.household_id) ORDER BY x.user_id,x.household_id) FROM household_memberships x))::text`).Scan(&got))
 		return got
 	}
 	before := snapshot()
@@ -1025,7 +1035,7 @@ func TestMigrationUpgradeFromV14ToV15PreservesData(t *testing.T) {
 	var version int
 	var dirty bool
 	must(upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty))
-	if version != 20 || dirty {
+	if version != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v", version, dirty)
 	}
 	var def string
@@ -1098,7 +1108,7 @@ func TestMigrationUpgradeFromV15ToV16BackfillsSearch(t *testing.T) {
 		var value string
 		// Exclude the linked member persons provisioned by migration 018; the
 		// ordinary subject and item/completion facts must not change.
-		must(admin.QueryRow(ctx, `SELECT jsonb_build_object('items',(SELECT jsonb_agg(to_jsonb(i)-'search_text' ORDER BY i.id) FROM items i),'completions',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM item_completions c),'subjects',(SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM subjects s WHERE s.linked_user_id IS NULL))::text`).Scan(&value))
+		must(admin.QueryRow(ctx, `SELECT jsonb_build_object('items',(SELECT jsonb_agg(to_jsonb(i)-'search_text'-'attention_anchor_day' ORDER BY i.id) FROM items i),'completions',(SELECT jsonb_agg(to_jsonb(c)-'cycle_anchor_day'-'next_anchor_day' ORDER BY c.id) FROM item_completions c),'subjects',(SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM subjects s WHERE s.linked_user_id IS NULL))::text`).Scan(&value))
 		return value
 	}
 	before := snapshot()
@@ -1139,7 +1149,7 @@ func TestMigrationUpgradeFromV15ToV16BackfillsSearch(t *testing.T) {
 	}
 	var maxVersion int
 	must(admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&maxVersion))
-	if maxVersion != 20 {
+	if maxVersion != 21 {
 		t.Fatalf("max migration version=%d", maxVersion)
 	}
 }
@@ -1624,7 +1634,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				wantNext := "2026-01-30"
+				wantNext := "2026-01-31"
 				if mode == schedule.ModeAfterCompletion {
 					wantNext = "2026-02-15"
 				}
@@ -3032,7 +3042,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatalf("legacy item=%+v err=%v", got, err)
 	}
 	var max int64
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 20 {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 21 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 }
@@ -3099,7 +3109,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 20 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

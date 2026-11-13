@@ -72,11 +72,25 @@ func replayUndoneCompletion(original item.Completion) item.Completion {
 		return original
 	}
 	if original.Recurrence == nil {
-		original.NextAttentionOn = nil
+		original.NextAttentionOn, original.NextAnchorDay = nil, nil
 		return original
 	}
-	if next, err := schedule.NextCycle(original.CycleAttentionOn, original.CompletedOn, *original.Recurrence); err == nil {
-		original.NextAttentionOn = next
+	anchor := original.CycleAttentionOn.Day()
+	if original.CycleAnchorDay != nil {
+		anchor = *original.CycleAnchorDay
+	}
+	current, err := schedule.NewCycle(*original.CycleAttentionOn, anchor)
+	if err != nil {
+		return original
+	}
+	next, err := schedule.NextCycle(&current, original.CompletedOn, *original.Recurrence)
+	if err == nil {
+		if next == nil {
+			original.NextAttentionOn, original.NextAnchorDay = nil, nil
+		} else {
+			on, anchor := next.On, next.AnchorDay
+			original.NextAttentionOn, original.NextAnchorDay = &on, &anchor
+		}
 	}
 	return original
 }
@@ -215,7 +229,7 @@ func (r *Repo) CreateIdempotent(_ context.Context, householdID string, d item.Dr
 	}
 	r.seq++
 	id := "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
-	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, ResponsibleUserID: d.ResponsibleUserID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, Recurrence: d.Recurrence, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
+	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, ResponsibleUserID: d.ResponsibleUserID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, AttentionAnchorDay: d.AttentionAnchorDay, Recurrence: d.Recurrence, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
 	if d.InitializationReceipt != nil {
 		i.Version = 2
 		r.seq++
@@ -438,6 +452,13 @@ func (r *Repo) Update(_ context.Context, householdID, itemID string, expected in
 		i.Notes = c.Notes.Value
 	}
 	if c.AttentionOn.Set {
+		if !sameDate(i.AttentionOn, c.AttentionOn.Value) {
+			i.AttentionAnchorDay = nil
+			if c.AttentionOn.Value != nil {
+				anchor := c.AttentionOn.Value.Day()
+				i.AttentionAnchorDay = &anchor
+			}
+		}
 		i.AttentionOn = c.AttentionOn.Value
 	}
 	if c.Recurrence.Set {
@@ -454,6 +475,13 @@ func (r *Repo) Update(_ context.Context, householdID, itemID string, expected in
 	i.UpdatedAt = r.Clock.Add(time.Hour)
 	r.rows[itemID] = i
 	return i, nil
+}
+
+func sameDate(a, b *schedule.Date) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Compare(*b) == 0
 }
 
 // Date builds a validated schedule date for fixtures.

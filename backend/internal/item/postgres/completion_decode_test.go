@@ -13,6 +13,7 @@ import (
 type receiptDecodeValues struct {
 	id, household, itemID, userID string
 	completed, cycle, next        pgtype.Date
+	cycleAnchor, nextAnchor       pgtype.Int2
 	interval                      pgtype.Int4
 	unit, mode                    pgtype.Text
 	state, key                    string
@@ -29,13 +30,19 @@ func validReceiptValues() receiptDecodeValues {
 		id: "0198a2f0-7c1e-7a53-9b0e-000000000001", household: "0198a2f0-7c1e-7a53-9b0e-000000000002",
 		itemID: "0198a2f0-7c1e-7a53-9b0e-000000000003", userID: "0198a2f0-7c1e-7a53-9b0e-000000000004",
 		completed: date(2026, time.March, 1), cycle: date(2026, time.March, 2), next: date(2026, time.March, 3),
+		cycleAnchor: anchor(31), nextAnchor: anchor(15),
 		state: string(item.StatePaused), key: "valid-key", fingerprint: make([]byte, sha256Size), version: 2,
 		created: pgtype.Timestamptz{Time: time.Date(2026, time.March, 1, 1, 2, 3, 0, time.FixedZone("offset", 3600)), Valid: true, InfinityModifier: pgtype.Finite},
 	}
 }
 
+func anchor(day int) pgtype.Int2 {
+	return pgtype.Int2{Int16: int16(day), Valid: true}
+}
+
 func (v receiptDecodeValues) decode() (item.Completion, error) {
-	return decodeReceipt(v.id, v.household, v.itemID, v.userID, v.completed, v.cycle, v.next, v.interval, v.unit, v.mode, v.state, v.key, v.fingerprint, v.version, v.created)
+	return decodeReceipt(v.id, v.household, v.itemID, v.userID, v.completed, v.cycle, v.next,
+		v.cycleAnchor, v.nextAnchor, v.interval, v.unit, v.mode, v.state, v.key, v.fingerprint, v.version, v.created)
 }
 
 func TestDecodeReceiptStoredVariants(t *testing.T) {
@@ -80,6 +87,9 @@ func TestDecodeReceiptStoredVariants(t *testing.T) {
 			}
 			if (got.NextAttentionOn == nil) != tc.nextNull {
 				t.Fatalf("next=%+v nextNull=%v", got.NextAttentionOn, tc.nextNull)
+			}
+			if got.CycleAnchorDay == nil || *got.CycleAnchorDay != 31 || got.NextAnchorDay == nil || *got.NextAnchorDay != 15 {
+				t.Fatalf("anchors cycle=%v next=%v", got.CycleAnchorDay, got.NextAnchorDay)
 			}
 			if got.CreatedAt.Location() != time.UTC || got.CreatedAt.Hour() != 0 || got.PriorWorkflowState != item.StatePaused {
 				t.Fatalf("decoded stored values=%+v", got)

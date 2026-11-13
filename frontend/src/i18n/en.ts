@@ -485,6 +485,7 @@ export const en = {
   'items.notice.archived': 'This item is archived now. The list is up to date.',
   'items.notice.alreadyDone': 'This item is already done. The list is up to date.',
   'items.notice.notLatest': 'Only the latest completion can be undone.',
+  'items.notice.undoSuperseded': 'The date or state changed after this completion, so it can no longer be undone. The item is up to date.',
   'items.notice.validation': 'This completion could not be saved. Review the item and try again.',
   'items.notice.futureDate': 'A completion date cannot be in the future.',
   'items.notice.dateOverflow': 'The next date could not be calculated. Review the repeat interval.',

@@ -971,7 +971,7 @@ func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
 		t.Fatalf("runtime legacy link=%v err=%v", linked, err)
 	}
 	var max int
-	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 20 {
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 21 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 	var actor string
@@ -1117,7 +1117,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 20 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

@@ -166,11 +166,46 @@ func (p Policy) Validate() error {
 	return nil
 }
 
-// NextCycle computes the next date without mutating the supplied current anchor.
-// With no anchor, both modes initialize at completion+interval (including historical dates).
-// Fixed mode advances consecutively from the anchor, clamping after each addition, until
-// strictly after completion; this intentionally makes Jan 31 monthly anchors drift to Feb 28 then Mar 28.
-func NextCycle(anchor *Date, completion Date, p Policy) (*Date, error) {
+// Cycle is a due date together with the day of month the recurring schedule is
+// anchored to. On may be clamped to the last day of its month, while AnchorDay
+// keeps the original day so the next occurrence can restore it.
+type Cycle struct {
+	On        Date
+	AnchorDay int
+}
+
+// NewCycle validates a cycle: AnchorDay is 1..31, no earlier than On.Day(), and
+// later than On.Day() only when On is the last day of its month (a clamp).
+func NewCycle(on Date, anchorDay int) (Cycle, error) {
+	c := Cycle{On: on, AnchorDay: anchorDay}
+	if !c.Valid() {
+		return Cycle{}, ErrInvalidDate
+	}
+	return c, nil
+}
+
+func (c Cycle) Valid() bool {
+	if !c.On.Valid() || c.AnchorDay < 1 || c.AnchorDay > 31 || c.AnchorDay < c.On.Day() {
+		return false
+	}
+	return c.AnchorDay == c.On.Day() || c.On.Day() == daysInMonth(c.On.Year(), c.On.Month())
+}
+
+func (c Cycle) String() string {
+	if !c.Valid() {
+		return ""
+	}
+	return fmt.Sprintf("%s anchor %d", c.On, c.AnchorDay)
+}
+
+// NextCycle computes the next cycle without mutating the supplied current cycle.
+// With no current cycle, both modes initialize at completion+interval (including
+// historical dates). Fluid mode always advances from completion and re-anchors on
+// the completion day. Fixed month/year occurrences are computed directly as
+// current month + k*interval with day min(AnchorDay, daysInMonth), clamped once per
+// occurrence, so the anchor never drifts: Jan 31 -> Feb 28 -> Mar 31. Fixed
+// day/week mode keeps day arithmetic and re-anchors on the resulting day.
+func NextCycle(current *Cycle, completion Date, p Policy) (*Cycle, error) {
 	if !completion.Valid() {
 		return nil, ErrInvalidDate
 	}
@@ -180,34 +215,97 @@ func NextCycle(anchor *Date, completion Date, p Policy) (*Date, error) {
 	if !p.Enabled {
 		return nil, nil
 	}
-	if anchor == nil {
-		d, err := completion.AddInterval(p.Interval)
+	if current == nil {
+		next, err := completion.AddInterval(p.Interval)
 		if err != nil {
 			return nil, err
 		}
-		return &d, nil
+		return &Cycle{On: next, AnchorDay: anchorDayFor(p.Interval, next, completion)}, nil
 	}
-	if !anchor.Valid() {
+	if !current.Valid() {
 		return nil, ErrInvalidDate
 	}
 	if p.Mode == ModeAfterCompletion {
-		d, err := completion.AddInterval(p.Interval)
+		next, err := completion.AddInterval(p.Interval)
 		if err != nil {
 			return nil, err
 		}
-		return &d, nil
+		return &Cycle{On: next, AnchorDay: anchorDayFor(p.Interval, next, completion)}, nil
 	}
-	next, err := anchor.AddInterval(p.Interval)
+	if p.Interval.Unit == UnitDay || p.Interval.Unit == UnitWeek {
+		next, err := current.On.AddInterval(p.Interval)
+		if err != nil {
+			return nil, err
+		}
+		for next.Compare(completion) <= 0 {
+			next, err = next.AddInterval(p.Interval)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return &Cycle{On: next, AnchorDay: next.Day()}, nil
+	}
+	return nextFixedMonthOrYear(*current, completion, p.Interval)
+}
+
+// anchorDayFor picks the anchor of a cycle that starts from a completion date.
+// Day/week cycles re-anchor on the resulting day; month/year cycles keep the
+// completion day so a clamped month restores the later anchor.
+func anchorDayFor(interval Interval, next, completion Date) int {
+	if interval.Unit == UnitDay || interval.Unit == UnitWeek {
+		return next.Day()
+	}
+	return completion.Day()
+}
+
+// nextFixedMonthOrYear returns the smallest occurrence k >= 1 strictly after
+// completion. The occurrence month is current month + k*interval, clamped once to
+// min(AnchorDay, daysInMonth), so a completion that skips occurrences cannot drift.
+func nextFixedMonthOrYear(current Cycle, completion Date, interval Interval) (*Cycle, error) {
+	months := interval.Value
+	if interval.Unit == UnitYear {
+		if months > 9999 {
+			return nil, ErrDateOverflow
+		}
+		months *= 12
+	}
+	if months > 119987 {
+		return nil, ErrDateOverflow
+	}
+	base := current.On.Year()*12 + int(current.On.Month()) - 1
+	target := completion.Year()*12 + int(completion.Month()) - 1
+	k := 1
+	if target > base {
+		k = (target - base) / months
+		if k < 1 {
+			k = 1
+		}
+		occurrence, err := monthOccurrence(current.AnchorDay, base, k*months)
+		if err != nil {
+			return nil, err
+		}
+		if occurrence.On.Compare(completion) <= 0 {
+			k++
+		}
+	}
+	return monthOccurrence(current.AnchorDay, base, k*months)
+}
+
+func monthOccurrence(anchorDay, base, offset int) (*Cycle, error) {
+	total := base + offset
+	year, month := total/12, time.Month(total%12+1)
+	if year > 9999 {
+		return nil, ErrDateOverflow
+	}
+	day := anchorDay
+	if last := daysInMonth(year, month); day > last {
+		day = last
+	}
+	on, err := NewDate(year, month, day)
 	if err != nil {
-		return nil, err
+		return nil, ErrDateOverflow
 	}
-	for next.Compare(completion) <= 0 {
-		next, err = next.AddInterval(p.Interval)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &next, nil
+	return &Cycle{On: on, AnchorDay: anchorDay}, nil
 }
 
 func DeriveAttention(attentionOn *Date, today Date) (Attention, error) {

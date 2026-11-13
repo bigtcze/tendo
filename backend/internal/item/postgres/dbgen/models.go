@@ -60,6 +60,7 @@ type Item struct {
 	CreationKey                pgtype.Text
 	CreationRequestFingerprint []byte
 	SearchText                 string
+	AttentionAnchorDay         pgtype.Int2
 }
 
 type ItemCompletion struct {
@@ -80,6 +81,8 @@ type ItemCompletion struct {
 	CreatedAt               pgtype.Timestamptz
 	UndoneAt                pgtype.Timestamptz
 	UndoneByUserID          pgtype.UUID
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 }
 
 type LocalCredential struct {

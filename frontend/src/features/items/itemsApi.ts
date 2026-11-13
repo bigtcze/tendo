@@ -98,12 +98,12 @@ async function readThenPatchItem(householdId: string, itemId: string, body: comp
 }
 
 type Problem = { code?: string; field?: string; parameter?: string };
-type ConflictCode = 'item_done' | 'item_archived' | 'completion_not_latest' | 'unknown';
+type ConflictCode = 'item_done' | 'item_archived' | 'completion_not_latest' | 'completion_superseded' | 'unknown';
 function completeConflictCode(code: string | undefined): ConflictCode {
   return code === 'item_done' || code === 'item_archived' ? code : 'unknown';
 }
 function undoConflictCode(code: string | undefined): ConflictCode {
-  return code === 'item_archived' || code === 'completion_not_latest' ? code : 'unknown';
+  return code === 'item_archived' || code === 'completion_not_latest' || code === 'completion_superseded' ? code : 'unknown';
 }
 export type ItemSummary = components['schemas']['ItemSummary'];
 export type ItemGroup = 'needs' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';

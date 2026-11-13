@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Completion, Item, Subject } from './itemsApi';
+import { clearPendingCompletions } from './pendingCompletions';
 import { itemRoutes } from '../../test/fakeItems';
 import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
 
@@ -221,6 +222,83 @@ describe('item details', () => {
     await waitFor(() => expect(success.closest('[role="status"]')).toHaveFocus());
     const posted = requestsOf(fake.requests, 'POST', historyPath);
     expect(posted).toHaveLength(2);
+    expect(posted[1]!.headers.get('Idempotency-Key')).toBe(posted[0]!.headers.get('Idempotency-Key'));
+  });
+
+  it.each(['fixed', 'after_completion'] as const)('advances a %s monthly item with a new idempotency key after the first completion committed while detail was unmounted (#446 same-date reproducer)', async (mode) => {
+    // A completion that commits while detail is unmounted keeps its key in sessionStorage; a later Done
+    // that reuses that key makes the server replay the old receipt, so the item keeps its same due date.
+    // The fake server models the documented replay: a reused key returns the original receipt unchanged.
+    clearPendingCompletions();
+    const monthly = { intervalUnit: 'month' as const, intervalValue: 1, mode };
+    let currentItem = item({ attentionOn: '2026-12-31', recurrence: monthly });
+    let version = 1;
+    let posts = 0;
+    let firstKey: string | null = null;
+    let releaseFirst!: (response: Response) => void;
+    const firstPending = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    const first = completion('first', '2026-12-31', { cycleAttentionOn: '2026-12-31', nextAttentionOn: '2027-01-31' });
+    const fake = installFakeServer(common({
+      ...itemRoutes(base, () => [currentItem]),
+      [`GET ${path}`]: () => json(200, currentItem, { ETag: `"${version}"` }),
+      [`POST ${historyPath}`]: (request) => {
+        posts++;
+        const key = request.headers.get('Idempotency-Key');
+        if (posts === 1) { firstKey = key; return firstPending; }
+        if (key === firstKey) return json(201, first);
+        currentItem = item({ attentionOn: '2027-02-28', recurrence: monthly, lastCompletedOn: '2027-01-31' });
+        version++;
+        return json(201, completion('second', '2027-01-31', { cycleAttentionOn: '2027-01-31', nextAttentionOn: '2027-02-28' }));
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));
+    const nav = screen.getByRole('navigation', { name: 'Household navigation' });
+    await userEvent.click(within(nav).getByRole('link', { name: 'All items' }));
+    await waitFor(() => expect(screen.queryByRole('heading', { level: 1, name: 'Renew passport' })).not.toBeInTheDocument());
+    currentItem = item({ attentionOn: '2027-01-31', recurrence: monthly, lastCompletedOn: '2026-12-31' });
+    version++;
+    await act(async () => releaseFirst(json(201, first)));
+    await userEvent.click(await screen.findByRole('link', { name: 'Renew passport' }));
+    const dueText = () => (document.querySelector('[data-item-facts]')?.textContent ?? '').replaceAll('\u00a0', ' ');
+    await waitFor(() => expect(dueText()).toContain('Next attention date: Jan 31, 2027'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(2));
+    const posted = requestsOf(fake.requests, 'POST', historyPath);
+    expect(posted[1]!.headers.get('Idempotency-Key')).not.toBe(posted[0]!.headers.get('Idempotency-Key'));
+    await waitFor(() => expect(dueText()).toContain('Next attention date: Feb 28, 2027'));
+  });
+
+  it('keeps the idempotency key of an uncertain completion that settled while detail was unmounted', async () => {
+    // The counterpart of the #446 reproducer: only a definite outcome releases the key. An uncertain one
+    // (server error) must keep it so the next Done is a safe retry of the same attempt (ADR 0005).
+    clearPendingCompletions();
+    const monthly = { intervalUnit: 'month' as const, intervalValue: 1, mode: 'fixed' as const };
+    const currentItem = item({ attentionOn: '2026-12-31', recurrence: monthly });
+    let posts = 0;
+    let releaseFirst!: (response: Response) => void;
+    const firstPending = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    const fake = installFakeServer(common({
+      ...itemRoutes(base, () => [currentItem]),
+      [`GET ${path}`]: () => json(200, currentItem, { ETag: '"1"' }),
+      [`POST ${historyPath}`]: () => {
+        posts++;
+        if (posts === 1) return firstPending;
+        return json(201, completion('first', '2026-12-31', { cycleAttentionOn: '2026-12-31', nextAttentionOn: '2027-01-31' }));
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));
+    const nav = screen.getByRole('navigation', { name: 'Household navigation' });
+    await userEvent.click(within(nav).getByRole('link', { name: 'All items' }));
+    await waitFor(() => expect(screen.queryByRole('heading', { level: 1, name: 'Renew passport' })).not.toBeInTheDocument());
+    await act(async () => releaseFirst(json(500, {})));
+    await userEvent.click(await screen.findByRole('link', { name: 'Renew passport' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(2));
+    const posted = requestsOf(fake.requests, 'POST', historyPath);
     expect(posted[1]!.headers.get('Idempotency-Key')).toBe(posted[0]!.headers.get('Idempotency-Key'));
   });
 

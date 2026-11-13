@@ -14,14 +14,17 @@ import (
 
 // Draft is a validated new item handed to the repository.
 type Draft struct {
-	ActorID               string
-	CreationKey           string
-	CreationFingerprint   []byte
-	SubjectID             string
-	ResponsibleUserID     *string
-	Title                 string
-	Notes                 *string
-	AttentionOn           *schedule.Date
+	ActorID             string
+	CreationKey         string
+	CreationFingerprint []byte
+	SubjectID           string
+	ResponsibleUserID   *string
+	Title               string
+	Notes               *string
+	AttentionOn         *schedule.Date
+	// AttentionAnchorDay is the anchor to store with AttentionOn; nil exactly
+	// when AttentionOn is nil.
+	AttentionAnchorDay    *int
 	Recurrence            *schedule.Policy
 	InitializationReceipt *Completion
 }
@@ -97,7 +100,7 @@ func (s *Service) validateDraft(
 	if err != nil {
 		return Draft{}, err
 	}
-	attentionOn, receipt, err := initializeHistorical(today, n, attentionOn, historicalDate, userID)
+	attentionOn, anchor, receipt, err := initializeHistorical(today, n, attentionOn, historicalDate, userID)
 	if err != nil {
 		return Draft{}, err
 	}
@@ -112,9 +115,18 @@ func (s *Service) validateDraft(
 	return Draft{
 		ActorID: actorID, CreationKey: key, CreationFingerprint: fingerprint,
 		SubjectID: subjectID, ResponsibleUserID: responsibleID, Title: title,
-		Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence,
-		InitializationReceipt: receipt,
+		Notes: n.Notes, AttentionOn: attentionOn, AttentionAnchorDay: anchor,
+		Recurrence: n.Recurrence, InitializationReceipt: receipt,
 	}, nil
+}
+
+// anchorOf is the anchor for an explicitly given attention date: its own day.
+func anchorOf(attentionOn *schedule.Date) *int {
+	if attentionOn == nil {
+		return nil
+	}
+	anchor := attentionOn.Day()
+	return &anchor
 }
 
 func parseCreationDates(n NewItem) (*schedule.Date, *schedule.Date, error) {
@@ -138,33 +150,34 @@ func parseCreationDates(n NewItem) (*schedule.Date, *schedule.Date, error) {
 
 func initializeHistorical(
 	today schedule.Date, n NewItem, attentionOn, historicalDate *schedule.Date, userID string,
-) (*schedule.Date, *Completion, error) {
+) (*schedule.Date, *int, *Completion, error) {
 	if historicalDate == nil {
-		return attentionOn, nil, nil
+		return attentionOn, anchorOf(attentionOn), nil, nil
 	}
 	if n.Recurrence == nil || !n.Recurrence.Enabled {
-		return nil, nil, &ValidationError{"historicalCompletedOn", "requires_recurrence"}
+		return nil, nil, nil, &ValidationError{"historicalCompletedOn", "requires_recurrence"}
 	}
 	if attentionOn != nil {
-		return nil, nil, &ValidationError{"historicalCompletedOn", "conflicting_fields"}
+		return nil, nil, nil, &ValidationError{"historicalCompletedOn", "conflicting_fields"}
 	}
 	if historicalDate.Compare(today) > 0 {
-		return nil, nil, &ValidationError{"historicalCompletedOn", "future_date"}
+		return nil, nil, nil, &ValidationError{"historicalCompletedOn", "future_date"}
 	}
 	next, err := schedule.NextCycle(nil, *historicalDate, *n.Recurrence)
 	if errors.Is(err, schedule.ErrDateOverflow) {
-		return nil, nil, &ValidationError{"recurrence", "date_overflow"}
+		return nil, nil, nil, &ValidationError{"recurrence", "date_overflow"}
 	}
 	if err != nil {
-		return nil, nil, ErrUnavailable
+		return nil, nil, nil, ErrUnavailable
 	}
 	fingerprint := CompletionFingerprint(userID, n.HistoricalCompletedOn)
 	receipt := &Completion{
 		CompletedOn: *historicalDate, CompletedByUserID: userID,
 		Recurrence: n.Recurrence, PriorWorkflowState: StateOpen,
-		NextAttentionOn: next, ItemVersionBefore: 1, Fingerprint: fingerprint,
+		NextAttentionOn: nextDate(next), NextAnchorDay: nextAnchor(next),
+		ItemVersionBefore: 1, Fingerprint: fingerprint,
 	}
-	return next, receipt, nil
+	return nextDate(next), nextAnchor(next), receipt, nil
 }
 
 func replayCreation(existing Item, stored, submitted []byte, today schedule.Date) (Item, error) {

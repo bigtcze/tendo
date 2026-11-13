@@ -1888,6 +1888,23 @@ describe('Home items', () => {
     expect(patch.headers.get('If-Match')).toBe('"8"');
   });
 
+  it('removes Undo and explains when the schedule changed after the completion (completion_superseded)', async () => {
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: () => json(200, item(), { ETag: '"8"' }),
+      [`POST ${donePath}`]: json(201, { id: 'c-old', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }),
+      [`PATCH ${donePath}/c-old`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'completion_superseded' }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('The date or state changed after this completion, so it can no longer be undone. The item is up to date.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'PATCH', `${donePath}/c-old`)).toHaveLength(1);
+  });
+
   it('drops Undo without a PATCH when the item is gone before Undo can read it', async () => {
     let itemReads = 0;
     const fake = installFakeServer({

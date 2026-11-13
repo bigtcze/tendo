@@ -59,7 +59,8 @@ func persistCompletionUndo(
 	}
 	update := dbgen.UpdateItemForUndoParams{
 		HouseholdID: household, ID: itemID, AttentionOn: dbDate(plan.Item.AttentionOn),
-		WorkflowState: string(plan.Item.WorkflowState),
+		AttentionAnchorDay: int2(plan.Item.AttentionAnchorDay),
+		WorkflowState:      string(plan.Item.WorkflowState),
 	}
 	if err = q.UpdateItemForUndo(ctx, update); err != nil {
 		return item.Completion{}, errPersistence

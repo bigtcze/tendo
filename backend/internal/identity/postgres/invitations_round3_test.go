@@ -64,7 +64,7 @@ func TestInvitationMigrationV8Upgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if e := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); e != nil || version != 20 || dirty {
+	if e := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); e != nil || version != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, e)
 	}
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)

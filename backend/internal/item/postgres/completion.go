@@ -35,6 +35,7 @@ func decodeDate(d pgtype.Date) (*schedule.Date, error) {
 func decodeReceipt(
 	id, household, itemID, userID string,
 	completed, cycle, next pgtype.Date,
+	cycleAnchor, nextAnchor pgtype.Int2,
 	iv pgtype.Int4, unit, mode pgtype.Text,
 	state, key string,
 	fingerprint []byte,
@@ -60,9 +61,10 @@ func decodeReceipt(
 	copy(fp[:], fingerprint)
 	return item.Completion{
 		ID: id, HouseholdID: household, ItemID: itemID, CompletedByUserID: userID,
-		CompletedOn: *completedOn, CycleAttentionOn: cycleDate, Recurrence: recurrence,
-		PriorWorkflowState: workflow, NextAttentionOn: nextDate, ItemVersionBefore: before,
-		IdempotencyKey: key, Fingerprint: fp, CreatedAt: created.Time.UTC(),
+		CompletedOn: *completedOn, CycleAttentionOn: cycleDate, CycleAnchorDay: intPtr(cycleAnchor),
+		Recurrence: recurrence, PriorWorkflowState: workflow, NextAttentionOn: nextDate, NextAnchorDay: intPtr(nextAnchor),
+		ItemVersionBefore: before,
+		IdempotencyKey:    key, Fingerprint: fp, CreatedAt: created.Time.UTC(),
 	}, nil
 }
 
@@ -140,7 +142,7 @@ func withUndo(c item.Completion, at pgtype.Timestamptz, userID pgtype.UUID, err 
 func completionCurrent(r dbgen.LockItemForCompletionRow) (item.Item, error) {
 	return toItem(row{
 		ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, ResponsibleUserID: r.ResponsibleUserID,
-		Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn,
+		Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn, AttentionAnchorDay: r.AttentionAnchorDay,
 		RecurrenceIntervalValue: r.RecurrenceIntervalValue, RecurrenceIntervalUnit: r.RecurrenceIntervalUnit,
 		RecurrenceMode: r.RecurrenceMode, WorkflowState: r.WorkflowState, Archived: r.Archived,
 		Done: r.Done, LastCompletedOn: r.LastCompletedOn, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Version: r.Version,

@@ -80,15 +80,19 @@ type Item struct {
 	Title             string
 	Notes             *string
 	AttentionOn       *schedule.Date
-	Recurrence        *schedule.Policy
-	WorkflowState     WorkflowState
-	Attention         schedule.Attention
-	Archived          bool
-	Done              bool
-	LastCompletedOn   *schedule.Date
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	Version           int64
+	// AttentionAnchorDay is the day of month the current recurrence cycle is
+	// anchored to. It is non-nil exactly when AttentionOn is non-nil and may be
+	// later than AttentionOn's day when that date is a clamped month end.
+	AttentionAnchorDay *int
+	Recurrence         *schedule.Policy
+	WorkflowState      WorkflowState
+	Attention          schedule.Attention
+	Archived           bool
+	Done               bool
+	LastCompletedOn    *schedule.Date
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Version            int64
 }
 
 // Nullable is an optional value that distinguishes "not provided" (Set false)

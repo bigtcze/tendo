@@ -234,6 +234,8 @@ describe('item query characterization', () => {
     ['complete item_archived whitelist', 'complete', 'item_archived', 'item_archived'],
     ['undo item_archived whitelist', 'undo', 'item_archived', 'item_archived'],
     ['undo completion_not_latest whitelist', 'undo', 'completion_not_latest', 'completion_not_latest'],
+    ['undo completion_superseded whitelist', 'undo', 'completion_superseded', 'completion_superseded'],
+    ['complete completion_superseded is not a completion conflict', 'complete', 'completion_superseded', 'unknown'],
   ] as const)('maps %s', async (_name, action, code, expected) => {
     installFakeServer({
       [`POST ${base}/items/${itemId}/completions`]: json(409, { code }),
