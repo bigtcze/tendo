@@ -86,7 +86,7 @@ item_column() {
   "${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT $1 FROM items WHERE id='${recurrence_item[$2]}'"
 }
 api() {
-  UPGRADE_SMOKE_ORIGIN="$origin" UPGRADE_SMOKE_STATE="$temp_dir/state.json" UPGRADE_SMOKE_RECURRENCE="$temp_dir/recurrence.tsv" python3 "$temp_dir/api.py" "$1"
+  UPGRADE_SMOKE_ORIGIN="$origin" UPGRADE_SMOKE_STATE="$temp_dir/state.json" UPGRADE_SMOKE_RECURRENCE="$temp_dir/recurrence.tsv" UPGRADE_SMOKE_SOURCE="$source_version" python3 "$temp_dir/api.py" "$1"
 }
 cat >"$temp_dir/api.py" <<'PY'
 import json, os, sys, urllib.error, urllib.parse, urllib.request
@@ -212,13 +212,17 @@ def verify():
     for page in expected.get('members',[]):
         for item in page['body']['items']:
             if item.get('role')=='owner': item['role']='admin'
-    # V4-07 added the caller's viewerRole to the household body without a version bump,
-    # so v1-v3 sources do not expose it while a v4 source already reports the same
-    # migrated admin role. Only the missing-field case is normalized here.
+    # V4-07 added the caller's viewerRole to the household body without a version bump:
+    # sources before v4.0.0 must not expose it, and v4.0.0 already ships the admin role,
+    # so it must report exactly the value the upgrade keeps. Only the missing field is
+    # normalized; an unexpected source value is a failure, not something to overwrite.
     if 'household' in expected:
-        viewer=expected['household']['body'].get('viewerRole')
-        assert viewer in (None,'admin'),('source release reported an unexpected viewerRole',viewer)
-        expected['household']['body']['viewerRole']='admin'
+        source=os.environ['UPGRADE_SMOKE_SOURCE']; household=expected['household']['body']
+        if source=='v4.0.0':
+            assert household.get('viewerRole')=='admin',('v4.0.0 household viewerRole',household.get('viewerRole'))
+        else:
+            assert 'viewerRole' not in household,('source release before v4.0.0 already exposed viewerRole',source,household.get('viewerRole'))
+        household['viewerRole']='admin'
     def flatten(groups):
         return [item for page in groups for item in page['body']['items']]
     active_key='subjects archived=false'
@@ -418,11 +422,14 @@ unexpected = set(after) - set(before) - {'household_role_changes', 'member_perso
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 # Migration tables must exist afterwards. A source release that already shipped the
 # migration keeps its rows (the generic preservation check above); a source that
-# predates it must get an empty table.
-for name, migration in (('household_role_changes', '017'), ('member_person_migration_unlinks', '018'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020')):
+# predates it must get an empty table. member_person_migration_unlinks may hold
+# deliberate non-canonical unlink rows, so only its existence is required here and its
+# count is asserted against the measured expectation below.
+for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020')):
     assert name in after, (f'migration {migration} table missing after upgrade', sorted(after))
     if name not in before:
         assert after[name] == '0', (f'migration {migration} must create {name} empty', name, after[name])
+assert 'member_person_migration_unlinks' in after, ('migration 018 table missing after upgrade', sorted(after))
 assert os.environ['ACCOUNTS_WITH_EMAIL'] == '0', ('migration 019 must never infer an email for pre-existing accounts', os.environ['ACCOUNTS_WITH_EMAIL'])
 assert int(os.environ['UNLINKS_AFTER']) == expected_unlinks, ('member person unlink log count', expected_unlinks, os.environ['UNLINKS_AFTER'])
 assert os.environ['MEMBERSHIPS_WITHOUT_SINGLE'] == '0', ('membership without exactly one linked person', os.environ['MEMBERSHIPS_WITHOUT_SINGLE'])
