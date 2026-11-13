@@ -40,11 +40,11 @@ const CONTEXT: BrowserContextOptions = {
 const FIXED_NOW = new Date('2026-05-14T08:00:00Z');
 const MEMBER_PASSWORD = `${present(ownerPassword, 'E2E_OWNER_PASSWORD')}${REFERENCE_MEMBER_PASSWORD_SUFFIX}`;
 /**
- * 35 everyday states x 6 widths x 2 languages x 2 themes, the 1000+ item Home at 2 widths x 2 x 2, and an extra
+ * 39 everyday states x 6 widths x 2 languages x 2 themes, the 1000+ item Home at 2 widths x 2 x 2, and an extra
  * full-page image for the 4 states whose point can sit below the fold (Home, detail, and the two Members states at
  * the two phone widths) at 2 widths x 2 x 2. A partial matrix must fail rather than look like a complete baseline.
  */
-const EXPECTED_CAPTURES = 35 * 6 * 2 * 2 + 2 * 2 * 2 + 4 * 2 * 2 * 2;
+const EXPECTED_CAPTURES = 39 * 6 * 2 * 2 + 2 * 2 * 2 + 4 * 2 * 2 * 2;
 /** Below this width the invite link and the revoke confirmation are cut off by the fold, so they need a full image. */
 const FULL_PAGE_PHONES = [320, 390] as const;
 
@@ -308,6 +308,32 @@ test('capture every route and state across widths, languages and themes', async 
     await expect(target.getByRole('main').getByText('Škoda Octavia', { exact: true })).toBeVisible();
   });
 
+  // Both dialogs are opened and left open; nothing is submitted, so no record changes.
+  await shots.state(page, 'people-add', async (target, catalog) => {
+    await open(target, '/people');
+    await expect(target.getByRole('heading', { level: 1, name: catalog['subjects.title'] })).toBeVisible();
+    await expect(target.getByText(catalog['subjects.loading'], { exact: true })).toHaveCount(0);
+    await target.getByRole('button', { name: catalog['subjects.add'], exact: true }).click();
+    const dialog = target.getByRole('dialog', { name: catalog['subjects.add.formLabel'] });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel(catalog['subjects.name'], { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('radiogroup', { name: catalog['subjects.type.legend'] })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: catalog['subjects.add.submit'], exact: true })).toBeVisible();
+  });
+
+  const editSubjectName = 'Škoda Octavia';
+  await shots.state(page, 'people-edit', async (target, catalog) => {
+    await open(target, '/people');
+    await expect(target.getByRole('heading', { level: 1, name: catalog['subjects.title'] })).toBeVisible();
+    await expect(target.getByText(catalog['subjects.loading'], { exact: true })).toHaveCount(0);
+    const label = catalog['subjects.edit.label'].replace('{name}', editSubjectName);
+    await target.getByRole('button', { name: label, exact: true }).click();
+    const dialog = target.getByRole('dialog', { name: label });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel(catalog['subjects.name'], { exact: true })).toHaveValue(editSubjectName);
+    await expect(dialog.getByRole('button', { name: catalog['subjects.save'], exact: true })).toBeVisible();
+  });
+
   await shots.state(page, 'members', async (target, catalog) => {
     await open(target, '/members');
     await expect(target.getByRole('heading', { level: 1, name: catalog['members.title'] })).toBeVisible();
@@ -330,6 +356,13 @@ test('capture every route and state across widths, languages and themes', async 
   await shots.state(page, 'not-found', async (target, catalog) => {
     await open(target, '/no-such-page');
     await expect(target.getByRole('heading', { level: 1, name: catalog['app.notFound.title'] })).toBeVisible();
+  });
+
+  // A well-formed id that belongs to no item is the same screen a foreign household's id gets: gone, not forbidden.
+  await shots.state(page, 'item-gone', async (target, catalog) => {
+    await open(target, '/items/01890000-0000-7000-8000-000000000000');
+    await expect(target.getByRole('heading', { level: 1, name: catalog['itemDetail.gone'], exact: true })).toBeVisible();
+    await expect(target.getByText(catalog['itemDetail.goneBody'], { exact: true })).toBeVisible();
   });
 
   // The one-time reset link is really issued by the server; the link stays valid because nothing redeems it.
@@ -442,6 +475,36 @@ test('capture every route and state across widths, languages and themes', async 
     await expect(target.getByRole('button', { name: catalog['app.error.retry'], exact: true })).toBeVisible();
   });
   await page.unroute(summaryPattern);
+
+  // The completion notice with Undo only exists in the live page, so the dedicated item is completed through the row
+  // and restored through the API before the next language/theme pair repeats the same first click. The item is created
+  // here, after every earlier Home capture, and stays open afterwards, so only the later 1000+ item Home sees it.
+  const undoTitle = 'Restock the first-aid box';
+  const undoItemId = await createItem(page, identity.apiRoot, undoTitle, present(reference.subjects.get('Home'), "subject 'Home'"));
+  const undoHomeCompletion = async () => {
+    const history = await api(page, 'get', `${identity.apiRoot}/items/${undoItemId}/completions`);
+    expect(history.status(), 'read the home-done-undo item history').toBe(200);
+    const pending = (await history.json() as { items: Array<{ id: string; undoneAt: string | null }> }).items
+      .find((completion) => completion.undoneAt === null);
+    if (!pending) return;
+    const current = await api(page, 'get', `${identity.apiRoot}/items/${undoItemId}`);
+    expect(current.status(), 'read the home-done-undo item before undoing').toBe(200);
+    const undone = await api(page, 'patch', `${identity.apiRoot}/items/${undoItemId}/completions/${pending.id}`,
+      { undone: true }, { 'If-Match': current.headers()['etag'] ?? '' });
+    expect(undone.status(), 'undo the home-done-undo completion').toBe(200);
+  };
+  await shots.state(page, 'home-done-undo', async (target, catalog) => {
+    await undoHomeCompletion();
+    await open(target, '/');
+    const row = target.locator('main li[data-item-id]').filter({ hasText: undoTitle });
+    await expect(row).toBeVisible();
+    await row.getByRole('button', { name: catalog['items.done.label'].replace('{title}', undoTitle), exact: true }).click();
+    const notice = target.getByRole('status').filter({ hasText: catalog['items.notice.done'].replace('{title}', undoTitle) });
+    await expect(notice).toBeVisible();
+    await expect(notice.getByRole('button', { name: catalog['items.undo'], exact: true })).toBeVisible();
+  });
+  // After the last pair the item is still done; leaving it that way would change what the 1000+ item Home shows.
+  await undoHomeCompletion();
 
   // Destructive states last: every capture above keeps the reference household intact. These use their own records
   // so an archived or conflicting row never changes what the earlier images show.
