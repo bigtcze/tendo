@@ -37,17 +37,17 @@ export function ItemFormFields(props: FormFieldsProps) {
   const { state, mode, members } = props;
   const showResponsible = members.length > 1 || state.draft.responsibleUserId !== null;
   return <div className="divide-y divide-line">
-    <div className="space-y-5 pb-5">
+    <div className="space-y-4 pb-4">
       <TitleField {...props} onTitleRef={props.onTitleRef} />
       <SubjectField {...props} />
       <DateField {...props} />
     </div>
-    <div className="py-5">
+    <div className="py-4">
       <RepeatSwitch {...props} />
       {state.draft.repeat ? <RecurrencePanel {...props} withHistory={mode === 'add'} /> : null}
     </div>
-    {showResponsible ? <div className="py-5"><ResponsibleField {...props} /></div> : null}
-    <div className="pt-5"><NotesField {...props} /></div>
+    {showResponsible ? <div className="py-4"><ResponsibleField {...props} /></div> : null}
+    <div className="pt-4"><NotesField {...props} /></div>
   </div>;
 }
 
@@ -58,7 +58,7 @@ function TitleField({ id, state, disabled, titleRef, onTitleRef }: TitleFieldPro
   return <Field id={controlId(id, 'title')} label={t('items.title')}>
     {(field) => <Input
       ref={onTitleRef ?? titleRef}
-      autoFocus className="text-lg" disabled={disabled} value={state.draft.title}
+      autoFocus className="text-row-title font-semibold placeholder:font-normal" disabled={disabled} value={state.draft.title}
       data-item-title="true" placeholder={t('items.title.placeholder')}
       onChange={(event) => state.update({ title: event.target.value })} {...field} {...invalidProps(state, `${id}-error`, 'title')}
     />}
@@ -100,7 +100,7 @@ function RepeatSwitch({ state, disabled, mode }: FieldProps & { mode: 'add' | 'e
   const { t } = useI18n();
   return <div>
     <Switch disabled={disabled} checked={state.draft.repeat} onChange={(repeat) => state.update({ repeat })} label={t('items.repeat')} />
-    {mode === 'edit' ? <p className="mt-1 text-meta text-muted">{t('itemDetail.repeatEditHint')}</p> : null}
+    {mode === 'edit' ? <p className="mt-1 text-caption text-muted">{t('itemDetail.repeatEditHint')}</p> : null}
   </div>;
 }
 
@@ -109,8 +109,8 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
   const labelId = `${controlId(id, 'recurrence')}-label`;
   const intervalId = controlId(id, 'recurrence');
   return <fieldset className="space-y-2">
-    <legend id={labelId} className="text-sm font-semibold">{t('items.interval')}</legend>
-    <div className="flex gap-3">
+    <legend id={labelId} className="text-label font-semibold text-ink">{t('items.interval')}</legend>
+    <div className="flex gap-2">
       <Input
         disabled={disabled} id={intervalId} aria-labelledby={labelId} className="w-24"
         type="number" min="1" max="999" value={state.draft.interval}
@@ -140,12 +140,12 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
   const { id, state, disabled, withHistory } = props;
   const { t, locale } = useI18n();
   const exampleId = `${id}-repeat-example`;
-  return <div className="mt-4 space-y-4 rounded-xl border border-line bg-sand p-4">
+  return <div className="mt-3 space-y-4 rounded-lg border border-line bg-sand p-4">
     <IntervalFieldset {...props} />
-    <div className="border-t border-line pt-4">
+    <div className="border-t border-line pt-3">
       <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })}
         label={t('items.repeat.afterCompletion')} describedBy={exampleId} />
-      <p id={exampleId} className="mt-1 text-meta text-muted">
+      <p id={exampleId} className="mt-1 text-caption text-muted">
         {t(state.draft.fluid ? 'items.repeatExample.after' : 'items.repeatExample.fixed', {
           interval: intervalLabel(t, locale, state.draft.interval, state.draft.unit),
         })}

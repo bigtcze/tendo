@@ -59,7 +59,7 @@ function LinkShown({ issued, inputRef, onClose }: {
         aria-label={t('admin.reset.link.label')}
         // Selecting on focus is safe after showModal has landed focus here, and makes a manual copy immediate.
         onFocus={(event) => event.currentTarget.select()}
-        className="min-h-11 min-w-0 flex-1 basis-48 rounded-xl border border-field bg-raised px-3 text-small break-all text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        className="min-h-11 min-w-0 flex-1 basis-48 rounded-lg border border-field bg-raised px-3 text-small break-all text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
       />
       <Button variant="secondary" onClick={() => void copy()}>
         {copied ? t('admin.reset.link.copiedButton') : t('admin.reset.link.copy')}

@@ -31,9 +31,11 @@ Explicitly deferred. Not built on this branch:
 - Sidebar section counts.
 - Tablet collapsible icon rail. Tablet uses the same bottom bar as phones below `lg`.
 - Phone "More" tab with Archive. Phone bottom bar keeps Home, Items, People, Members, Account.
-- Admin table restyle. Admin keeps its existing layout.
+- Admin as a true columnar table with a shared header and columns aligned across rows. The account list is restyled as
+  one aligned text record per row, but each row still sizes its own columns.
 - Paginated item history in detail.
-- Create/edit as a centred modal with keyboard-first ordering. Forms keep their existing structure.
+- Create/edit as a separated sheet with a label column and keyboard-first ordering. Forms keep the stacked dialog layout
+  and are only restyled.
 - Done/Undo restructuring.
 
 ## Layout and navigation per breakpoint
@@ -126,13 +128,49 @@ Line colours are decorative, so they are not required to reach 3:1. Control boun
 
 - Home: "Add item" is the one primary action. Rows are one tap or click to detail. Done is the trailing control on each
   row. Groups are headings with counts, not collapsible.
-- Create/edit: unchanged structure in this pass. Title is the first field. Repeat is a toggle that reveals interval and
-  fluid options.
+- Create/edit: same fields and order, restyled in this pass. Title is the first field. Repeat is a toggle that reveals
+  interval and fluid options.
 - Detail: a full page at `/items/:id` on every width. Facts are in the existing order. History is not paginated.
-- Admin: the switcher panel and sidebar expose Admin center to admins only. Admin keeps its existing list.
+- Admin: the switcher panel and sidebar expose Admin center to admins only. The account list is restyled as aligned text
+  rows.
 - Phone: bottom bar is the only navigation. The switcher opens in place and closes on Escape or focus leaving.
 - Keyboard: switcher opens on click or Enter, closes on Escape (focus returns to the trigger) and on blur. The skip link
   targets `#main`.
+
+## Detail, create/edit and admin
+
+These screens were brought into the same structured-workspace language in a second pass. Presentation only: routing,
+data, behaviour and i18n keys are unchanged, and every accessible name, role, label and test id is preserved.
+
+### Item detail
+
+- The title is a 24 px page title (`text-h1`), not the 36 px display it used to be, so it matches the section headings
+  elsewhere.
+- State is a caption-sized uppercase label with `rounded-md`, not a rounded pill. Archived keeps the sand tint and muted
+  text so the "not active" reading survives.
+- Facts and history sit in 12 px-radius panels (`rounded-xl`) with a 12 px row rhythm. The "History" heading is a
+  caption label, not a body heading.
+- The action band keeps exactly one primary action (Done, now with a check icon). Edit, Start, Waiting, Pause, Archive,
+  Undo and Retry stay secondary. On phones Edit and Done share one line and the workflow options wrap to the next; from
+  `sm` they sit on one row.
+- Content is capped at `lg:max-w-4xl` and left-aligned with the navigation spine instead of stretching full width.
+
+### Create and edit
+
+- Stacked dialog, unchanged fields and order. 16 px section rhythm, 13 px hints and examples.
+- The title input uses the row-title size (16 px, semibold) with a normal-weight placeholder so it reads as the record's
+  name rather than a control.
+- Notices and errors use 8 px-radius blocks (`rounded-lg`). On phones the submit action is `flex-1`; from `sm` it is
+  content-width.
+
+### Admin
+
+- The account list is a stack of aligned text rows. The avatar circle and the role pill are gone: the role is an
+  uppercase caption with a `·` separator before the sign-in method, so each row reads as a record.
+- Rows wrap: the identity text takes the free space, and the role and reset actions sit at the row end on wide screens
+  and wrap under the identity on phones.
+- "Accounts" and "Only administrators" are caption labels; skeleton, empty and error panels use the 12 px panel radius.
+- The "you" marker keeps its leading space so the existing exact-text checks still match.
 
 ## Validation (this branch, final state)
 
@@ -168,9 +206,11 @@ behaviour.
 3. There is no sidebar count, so the sidebar does not show how much needs attention.
 4. Tablet has no icon rail, so tablet users get a bottom bar that is more cramped than the brief intends.
 5. Phone has no More tab, and Archive is not reachable from the phone bottom bar.
-6. Admin is not restyled. The table-style list in the brief is not built.
+6. Admin is restyled, but it is a stacked row list, not the columnar table in the brief. Columns are not aligned across
+   rows and there is no shared header.
 7. Item history is not paginated.
-8. Create/edit forms keep the existing structure and are not a centred keyboard-first modal.
+8. Create/edit forms are restyled, but they keep the stacked dialog structure; they are not the centred keyboard-first
+   sheet with a label column.
 9. Done/Undo is not restructured.
 10. Phone header search is hidden, so the global search is unavailable on phones outside All items.
 11. The header and switcher add height at `sm` where they may wrap. Bar growth could push content, and this is only checked
@@ -180,3 +220,5 @@ behaviour.
 13. The Firefox crash above is unexplained.
 14. Several large test files and i18n dictionaries are over the 350-line guideline. They predate this branch and were only
     edited for assertions and keys.
+15. The create/edit dialog still uses the shared v4 dialog chrome (radius and shadow) and shows both a top-right close
+    and a footer Cancel, so the same dismissal appears twice.

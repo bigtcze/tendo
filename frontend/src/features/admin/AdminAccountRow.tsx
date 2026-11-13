@@ -2,14 +2,12 @@ import { Button } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
 import { signInMethod, type Account } from './adminApi';
 
-function initialOf(login: string): string {
-  return login.trim().charAt(0).toLocaleUpperCase() || '?';
-}
-
 /**
  * One compact account row: who it is, what they can do, how they sign in, and the role and password actions.
- * Password reset appears only for a local password that is not the viewer's own; single sign-on accounts keep
- * a short explanation instead so the missing action never looks broken.
+ * Direction B: aligned text columns and a caption-sized role label instead of an avatar and a role pill, so the
+ * row reads as a record rather than a card of badges. Password reset appears only for a local password that is
+ * not the viewer's own; single sign-on accounts keep a short explanation instead so the missing action never
+ * looks broken.
  */
 export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChange, onReset, onCancelReset, t }: {
   account: Account;
@@ -24,28 +22,26 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
   const isAdmin = account.role === 'admin';
   const self = account.userId === viewerId;
   const reset = account.passwordReset;
-  return <li data-account-id={account.userId} className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-nav-selected text-small font-semibold text-ink">
-      {initialOf(account.login)}
-    </span>
-    <div className="min-w-0 flex-1">
-      <p className="min-w-0 break-words text-row-title font-semibold text-ink">
-        <span data-account-login>{account.login}</span>
-        {self ? <span className="font-normal text-muted"> ({t('members.you')})</span> : null}
+  return <li data-account-id={account.userId} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+    <div className="min-w-0 flex-1 basis-48">
+      <p className="min-w-0 text-row-title font-semibold text-ink">
+        <span data-account-login className="break-words">{account.login}</span>
+        {self ? <span className="text-small font-normal text-muted"> ({t('members.you')})</span> : null}
       </p>
-      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-muted">
-        <span data-account-role className="rounded-full bg-sand px-2 py-0.5 text-small font-semibold text-muted">
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-muted">
+        <span data-account-role className="font-semibold uppercase tracking-[0.04em]">
           {t(isAdmin ? 'members.role.admin' : 'members.role.member')}
         </span>
+        <span aria-hidden="true">·</span>
         <span>{t(`admin.signIn.${signInMethod(account)}`)}</span>
       </p>
       {reset
-        ? <p data-account-reset className="mt-1 text-small text-muted">
+        ? <p data-account-reset className="mt-1 text-caption text-muted">
           {t('admin.reset.active', { date: formatExpiry(reset.expiresAt) })}
         </p>
         : null}
       {!account.signInMethods.password
-        ? <p className="mt-1 max-w-prose text-small text-muted">{t('admin.reset.oidcOnly')}</p>
+        ? <p className="mt-1 max-w-prose text-caption text-muted">{t('admin.reset.oidcOnly')}</p>
         : null}
     </div>
     <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
