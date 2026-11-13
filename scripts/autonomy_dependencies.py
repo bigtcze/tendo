@@ -275,6 +275,7 @@ def recovery_groups(owned_open: dict, status: dict, lifecycle: dict, declared: d
 
     edges = {n: {d for d in declared.get(n, []) if d in owned_open} for n in owned_open}
     anchors: dict[int, tuple[str, list[int]]] = {}
+    protected: set[int] = set()
     for number in sorted(owned_open):
         coupling = _coupling(life(number).get("blocked"))
         if coupling is None or status.get(number) != "status:blocked":
@@ -288,13 +289,15 @@ def recovery_groups(owned_open: dict, status: dict, lifecycle: dict, declared: d
         if not others:
             continue
         anchors[number] = (evidence, others)
+        # A recorded partner is protected even if it cannot join a group (for
+        # example its own lifecycle is malformed); non-owned numbers are inert.
+        protected.update([number, *others])
         for other in others:
             if other in owned_open:
                 edges[number].add(other)
                 edges[other].add(number)  # coupled Issues must ship together
 
     found: list[dict] = []
-    protected: set[int] = set()
     for scc in _sccs(owned_open, edges):
         only = next(iter(scc)) if len(scc) == 1 else None
         if only is not None and only not in edges.get(only, set()):
@@ -303,9 +306,11 @@ def recovery_groups(owned_open: dict, status: dict, lifecycle: dict, declared: d
         if any(m in anchors for m in group):
             protected.update(group)
         # Every prerequisite of any member that lies outside this group, owned
-        # or not, declared or recorded, must already be closed.
+        # or not, declared or recorded (by a blocked or an idle member), must
+        # already be closed.
         outside = sorted({d for m in group
-                          for d in [*declared.get(m, []), *(anchors.get(m, ("", []))[1])]
+                          for d in [*declared.get(m, []),
+                                    *(_coupling(life(m).get("blocked")) or ("", []))[1]]
                           if d not in scc})
         advice = _eligible(group, anchors, status, life, outside, closed, linked_prs, notes,
                            {m: sorted(declared.get(m, [])) for m in group}, pr_heads)

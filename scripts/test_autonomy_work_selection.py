@@ -1630,6 +1630,14 @@ class RecoveryRanking(unittest.TestCase):
                                                    "needs=#2,#3 recovery=combined"))
         d = self.pick(rec + [with_comments(issue(3, "W-3", "x", status="status:in-progress", deps=[]))])
         self.assertNotEqual(d["kind"], "review-owned-dependencies")
+        # An idle member's own coupling record naming an open outside Issue.
+        idle_rec = self.pair(1, 2, priority=0)
+        idle_rec[1]["comments"].append(comment(29, 0.5, "BLOCKED agent=x time=t kind=owned-dependency "
+                                                        "needs=#300 recovery=combined"))
+        d = self.pick(idle_rec, dependency_states={"300": "OPEN"})
+        self.assertNotEqual(d["kind"], "review-owned-dependencies")
+        self.assertEqual(self.pick(idle_rec, dependency_states={"300": "CLOSED"})["kind"],
+                         "review-owned-dependencies")
         # Once the owned prerequisite is closed the group is advised again.
         closed3 = issue(3, "W-3", "x", status=None, state="CLOSED", deps=[])
         d = self.pick(items + [closed3])
@@ -1670,6 +1678,13 @@ class RecoveryRanking(unittest.TestCase):
                 self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 3))
                 self.assertTrue(any("stay unclaimable" in n or "deferred" in n or "HANDOFF" in n
                                     for n in d["notes"]))
+
+    def test_recorded_partner_with_malformed_lifecycle_stays_protected(self):
+        combined = "BLOCKED agent=x time=t kind=owned-dependency needs=#2 recovery=combined"
+        items = self.coupled_only(combined)
+        items[1]["comments"].append(comment(22, 2, "CLAIM time=t"))  # no agent=: malformed
+        d = self.pick(items)
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 3))
 
     def test_edited_blocker_record_changes_the_fingerprint(self):
         items = self.pair(1, 2, priority=0) + [self.ready(3, 2)]
