@@ -63,7 +63,8 @@ export async function revokeInvitation(householdId: string, invitationId: string
   return 'error';
 }
 
-export type AcceptResult = 'ok' | 'invalid' | 'alreadyMember' | 'householdConflict' | 'unauthenticated' | 'rateLimited' | 'error';
+/** `already_member` is the only invitation conflict: joining a second household is an ordinary success. */
+export type AcceptResult = 'ok' | 'invalid' | 'alreadyMember' | 'unauthenticated' | 'rateLimited' | 'error';
 function conflictCode(error: unknown): string | undefined { return (error as { code?: string } | undefined)?.code; }
 export async function acceptInvitationAsCurrentUser(token: string): Promise<AcceptResult> {
   try {
@@ -72,11 +73,7 @@ export async function acceptInvitationAsCurrentUser(token: string): Promise<Acce
     if (response.status === 404) return 'invalid';
     if (response.status === 401) return 'unauthenticated';
     if (response.status === 429) return 'rateLimited';
-    if (response.status === 409) {
-      const code = conflictCode(error);
-      if (code === 'already_member') return 'alreadyMember';
-      if (code === 'household_conflict') return 'householdConflict';
-    }
+    if (response.status === 409 && conflictCode(error) === 'already_member') return 'alreadyMember';
   } catch { /* fall through */ }
   return 'error';
 }

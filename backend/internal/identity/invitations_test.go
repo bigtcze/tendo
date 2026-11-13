@@ -74,15 +74,12 @@ func (t *invitationFakeTx) FindLogin(context.Context, string) error {
 	}
 	return ErrNotFound
 }
-func (t *invitationFakeTx) LockUser(context.Context, string) (string, string, error) {
-	return "", "invited_user", nil
+func (t *invitationFakeTx) LockUser(context.Context, string) (string, error) {
+	return "invited_user", nil
 }
 func (t *invitationFakeTx) EnsureMemberPerson(context.Context, string, string, string) error {
 	t.f.writes++
 	return nil
-}
-func (t *invitationFakeTx) HasOtherMembership(context.Context, string, string) (bool, error) {
-	return false, nil
 }
 func (t *invitationFakeTx) CreateUser(context.Context, string) (string, error) {
 	t.f.writes++

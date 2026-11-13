@@ -13,15 +13,22 @@ import (
 )
 
 type fakeSessionRepo struct {
-	logins     map[string]LoginRecord
-	sessions   map[string]SessionInfo // keyed by string(digest)
-	created    []NewSession
-	pruned     []string
-	prunedAt   []time.Time
-	findCalls  int
-	deleteCall int
-	writes     int
-	findErr    error
+	logins       map[string]LoginRecord
+	sessions     map[string]SessionInfo // keyed by string(digest)
+	created      []NewSession
+	pruned       []string
+	prunedAt     []time.Time
+	findCalls    int
+	deleteCall   int
+	writes       int
+	findErr      error
+	defaultCalls int
+	defaultUser  string
+	defaultHouse string
+	defaultErr   error
+	// defaultDeadline records whether SetDefaultHousehold received a bounded
+	// context, so the service budget is observable.
+	defaultDeadline bool
 }
 
 func newFakeSessionRepo() *fakeSessionRepo {
@@ -73,6 +80,13 @@ func (f *fakeSessionRepo) DeleteByTokenHash(_ context.Context, hash []byte) erro
 	f.deleteCall++
 	delete(f.sessions, string(hash))
 	return nil
+}
+
+func (f *fakeSessionRepo) SetDefaultHousehold(ctx context.Context, userID, householdID string) error {
+	f.defaultCalls++
+	f.defaultUser, f.defaultHouse = userID, householdID
+	_, f.defaultDeadline = ctx.Deadline()
+	return f.defaultErr
 }
 
 const testPassword = "correct horse battery"
@@ -200,6 +214,63 @@ type failingLoginRepo struct{ *fakeSessionRepo }
 
 func (f *failingLoginRepo) FindLogin(context.Context, string) (LoginRecord, error) {
 	return LoginRecord{}, errors.New("db down")
+}
+
+// SetDefaultHousehold is validated in the service: malformed identifiers never
+// reach persistence, repository sentinels pass through, and any other failure
+// stays opaque. The repository call is bounded by the service budget.
+func TestSetDefaultHouseholdValidatesBeforeRepositoryAndKeepsFailuresOpaque(t *testing.T) {
+	const userID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
+	const householdID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	infrastructure := errors.New("dial tcp 10.9.8.7:5432: connection refused")
+	for _, tc := range []struct {
+		name      string
+		user      string
+		household string
+		repoErr   error
+		want      error
+		calls     int
+	}{
+		{"empty user", "", householdID, nil, ErrUnauthenticated, 0},
+		{"malformed user", "user-1", householdID, nil, ErrUnauthenticated, 0},
+		{"empty household", userID, "", nil, ErrInvalidReference, 0},
+		{"malformed household", userID, "house-1", nil, ErrInvalidReference, 0},
+		{"invalid reference sentinel", userID, householdID, ErrInvalidReference, ErrInvalidReference, 1},
+		{"vanished user sentinel", userID, householdID, ErrUnauthenticated, ErrUnauthenticated, 1},
+		{"infrastructure failure", userID, householdID, infrastructure, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, repo, _ := newSessionFixture(t)
+			repo.defaultErr = tc.repoErr
+			err := service.SetDefaultHousehold(context.Background(), tc.user, tc.household)
+			if repo.defaultCalls != tc.calls {
+				t.Fatalf("repository calls=%d want %d", repo.defaultCalls, tc.calls)
+			}
+			if tc.calls > 0 {
+				if repo.defaultUser != tc.user || repo.defaultHouse != tc.household {
+					t.Fatalf("repository saw user=%q household=%q", repo.defaultUser, repo.defaultHouse)
+				}
+				if !repo.defaultDeadline {
+					t.Fatal("repository call had no deadline")
+				}
+			}
+			if tc.want != nil {
+				if err != tc.want {
+					t.Fatalf("err=%v want %v", err, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("infrastructure failure was not reported")
+			}
+			if errors.Is(err, ErrUnauthenticated) || errors.Is(err, ErrInvalidReference) {
+				t.Fatalf("infrastructure failure leaked a sentinel: %v", err)
+			}
+			if strings.Contains(err.Error(), "10.9.8.7") || strings.Contains(err.Error(), "5432") {
+				t.Fatalf("infrastructure failure leaked its cause: %v", err)
+			}
+		})
+	}
 }
 
 func TestAuthenticateAndLogout(t *testing.T) {

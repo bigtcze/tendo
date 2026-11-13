@@ -115,51 +115,43 @@ func TestInvitationParallelExistingAccountInvitesAcrossHouseholds(t *testing.T) 
 		close(start)
 		wg.Wait()
 		close(results)
-		success, conflict := 0, 0
 		for x := range results {
-			if x == nil {
-				success++
-			} else if errors.Is(x, identity.ErrHouseholdConflict) {
-				conflict++
-			} else {
+			if x != nil {
 				t.Fatalf("accept error=%v", x)
 			}
-		}
-		if success != 1 || conflict != 1 {
-			t.Fatalf("iteration=%d success=%d conflict=%d", n, success, conflict)
 		}
 		var def string
 		if e = admin.QueryRow(ctx, `SELECT default_household_id::text FROM user_accounts WHERE id=$1::uuid`, user).Scan(&def); e != nil {
 			t.Fatal(e)
 		}
-		var joined, totalMemberships int
+		if def != h1 && def != h2 {
+			t.Fatalf("iteration=%d default=%q not one of the invited households", n, def)
+		}
+		var joined int
 		if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid`, user, def).Scan(&joined); e != nil || joined != 1 {
 			t.Fatalf("membership=%d err=%v", joined, e)
 		}
-		if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid`, user).Scan(&totalMemberships); e != nil || totalMemberships != 1 {
+		var totalMemberships int
+		if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid`, user).Scan(&totalMemberships); e != nil || totalMemberships != 2 {
 			t.Fatalf("total memberships=%d err=%v", totalMemberships, e)
 		}
-		other := i1.Invitation.ID
-		if def == h1 {
-			other = i2.Invitation.ID
-		}
-		var accepted bool
-		if e = admin.QueryRow(ctx, `SELECT accepted_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, other).Scan(&accepted); e != nil || accepted {
-			t.Fatalf("other accepted=%v err=%v", accepted, e)
+		var acceptedCount int
+		if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_invitations WHERE id IN ($1::uuid,$2::uuid) AND accepted_at IS NOT NULL`, i1.Invitation.ID, i2.Invitation.ID).Scan(&acceptedCount); e != nil || acceptedCount != 2 {
+			t.Fatalf("accepted invitations=%d err=%v", acceptedCount, e)
 		}
 	}
 }
-func TestInvitationDifferentDefaultAndElsewhereMembershipConflict(t *testing.T) {
+func TestInvitationExistingAccountJoinsDespiteDefaultAndOtherMembership(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, h1 := invitationFixture(t, ctx, admin)
 	var h2 string
-	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('second conflict home','UTC') RETURNING id::text`).Scan(&h2); e != nil {
+	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('second join home','UTC') RETURNING id::text`).Scan(&h2); e != nil {
 		t.Fatal(e)
 	}
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	for n, withDefault := range []bool{true, false} {
 		var u string
-		if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("conflict_user_%d", n)).Scan(&u); e != nil {
+		if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("join_user_%d", n)).Scan(&u); e != nil {
 			t.Fatal(e)
 		}
 		if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, u, h2); e != nil {
@@ -170,21 +162,27 @@ func TestInvitationDifferentDefaultAndElsewhereMembershipConflict(t *testing.T) 
 				t.Fatal(e)
 			}
 		}
-		inv, e := svc.CreateInvitation(ctx, owner, h1, fmt.Sprintf("conflict_inv_%d", n))
+		inv, e := svc.CreateInvitation(ctx, owner, h1, fmt.Sprintf("join_inv_%d", n))
 		if e != nil {
 			t.Fatal(e)
 		}
-		_, e = svc.AcceptInvitationExistingAccount(ctx, u, inv.Token)
-		if !errors.Is(e, identity.ErrHouseholdConflict) {
-			t.Fatalf("conflict=%v", e)
+		result, e := svc.AcceptInvitationExistingAccount(ctx, u, inv.Token)
+		if e != nil {
+			t.Fatalf("withDefault=%v accept=%v", withDefault, e)
+		}
+		if result.HouseholdID != h1 || result.Role != household.RoleMember {
+			t.Fatalf("withDefault=%v result=%+v", withDefault, result)
 		}
 		var accepted bool
-		var members int
-		if e = admin.QueryRow(ctx, `SELECT accepted_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, inv.Invitation.ID).Scan(&accepted); e != nil || accepted {
+		var members, defaults int
+		if e = admin.QueryRow(ctx, `SELECT accepted_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, inv.Invitation.ID).Scan(&accepted); e != nil || !accepted {
 			t.Fatalf("accepted=%v err=%v", accepted, e)
 		}
-		if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid`, u, h1).Scan(&members); e != nil || members != 0 {
+		if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid AND role='member'`, u, h1).Scan(&members); e != nil || members != 1 {
 			t.Fatalf("members=%d err=%v", members, e)
+		}
+		if e = admin.QueryRow(ctx, `SELECT count(*) FROM user_accounts WHERE id=$1::uuid AND default_household_id=$2::uuid`, u, h1).Scan(&defaults); e != nil || defaults != 1 {
+			t.Fatalf("default switched=%d err=%v", defaults, e)
 		}
 	}
 }

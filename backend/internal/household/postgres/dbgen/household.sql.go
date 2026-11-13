@@ -45,3 +45,51 @@ func (q *Queries) FindMemberHousehold(ctx context.Context, arg FindMemberHouseho
 	)
 	return i, err
 }
+
+const listMemberHouseholds = `-- name: ListMemberHouseholds :many
+SELECT h.id::text AS id, h.name, h.timezone, h.created_at, m.role AS viewer_role
+FROM households h
+JOIN household_memberships m ON m.household_id = h.id
+WHERE m.user_id=$1 AND ($2::uuid IS NULL OR h.id > $2)
+ORDER BY h.id LIMIT $3
+`
+
+type ListMemberHouseholdsParams struct {
+	UserID  pgtype.UUID
+	Column2 pgtype.UUID
+	Limit   int32
+}
+
+type ListMemberHouseholdsRow struct {
+	ID         string
+	Name       string
+	Timezone   string
+	CreatedAt  pgtype.Timestamptz
+	ViewerRole string
+}
+
+func (q *Queries) ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error) {
+	rows, err := q.db.Query(ctx, listMemberHouseholds, arg.UserID, arg.Column2, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMemberHouseholdsRow{}
+	for rows.Next() {
+		var i ListMemberHouseholdsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Timezone,
+			&i.CreatedAt,
+			&i.ViewerRole,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

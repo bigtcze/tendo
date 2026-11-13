@@ -20,7 +20,6 @@ describe('invite acceptance model', () => {
     ['ok', { kind: 'accepted' }],
     ['invalid', { kind: 'error', error: 'invalid' }],
     ['alreadyMember', { kind: 'error', error: 'alreadyMember' }],
-    ['householdConflict', { kind: 'error', error: 'householdConflict' }],
     ['unauthenticated', { kind: 'unauthenticated' }],
     ['rateLimited', { kind: 'error', error: 'rateLimited' }],
     ['error', { kind: 'error', error: 'unavailable' }],
@@ -48,7 +47,7 @@ describe('invite acceptance model', () => {
       expect(isLoginError(error)).toBe(false);
       expect(isPasswordError(error)).toBe(true);
     }
-    for (const error of ['invalid', 'rateLimited', 'unavailable', 'alreadyMember', 'householdConflict'] as const) {
+    for (const error of ['invalid', 'rateLimited', 'unavailable', 'alreadyMember'] as const) {
       expect(isFieldError(error)).toBe(false);
       expect(isLoginError(error)).toBe(false);
       expect(isPasswordError(error)).toBe(false);
@@ -66,7 +65,6 @@ describe('invite acceptance model', () => {
     ['rateLimited', 'invite.error.rateLimited'],
     ['unavailable', 'invite.error.unavailable'],
     ['alreadyMember', 'invite.error.alreadyMember'],
-    ['householdConflict', 'invite.error.householdConflict'],
   ] as const)('maps %s to an existing message key %s', (error, key) => {
     expect(inviteErrorMessageKey(error)).toBe(key);
     expect(en[key]).toBeTruthy();

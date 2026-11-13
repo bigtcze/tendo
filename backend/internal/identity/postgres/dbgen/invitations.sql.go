@@ -277,20 +277,14 @@ func (q *Queries) ListInvitations(ctx context.Context, arg ListInvitationsParams
 }
 
 const lockUserForInvitation = `-- name: LockUserForInvitation :one
-SELECT id::text, login, COALESCE(default_household_id::text, '')::text AS default_household_id FROM user_accounts WHERE id=$1 FOR UPDATE
+SELECT login FROM user_accounts WHERE id=$1 FOR UPDATE
 `
 
-type LockUserForInvitationRow struct {
-	ID                 string
-	Login              string
-	DefaultHouseholdID string
-}
-
-func (q *Queries) LockUserForInvitation(ctx context.Context, id pgtype.UUID) (LockUserForInvitationRow, error) {
+func (q *Queries) LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, lockUserForInvitation, id)
-	var i LockUserForInvitationRow
-	err := row.Scan(&i.ID, &i.Login, &i.DefaultHouseholdID)
-	return i, err
+	var login string
+	err := row.Scan(&login)
+	return login, err
 }
 
 const revokeInvitation = `-- name: RevokeInvitation :execrows

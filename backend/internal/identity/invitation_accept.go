@@ -87,30 +87,8 @@ func (s *InvitationService) AcceptInvitationExistingAccount(ctx context.Context,
 		if lockErr != nil {
 			return lockErr
 		}
-		defaultHouseholdID, login, lockErr := tx.LockUser(ctx, userID)
-		if errors.Is(lockErr, ErrNotFound) {
-			return ErrNotFound
-		}
-		if lockErr != nil {
-			return lockErr
-		}
-		if _, membershipErr := tx.GetMembership(ctx, userID, invitation.HouseholdID); membershipErr == nil {
-			return ErrAlreadyMember
-		} else if !errors.Is(membershipErr, household.ErrNotFound) {
-			return membershipErr
-		}
-		otherMembership, membershipErr := tx.HasOtherMembership(ctx, userID, invitation.HouseholdID)
-		if membershipErr != nil {
-			return membershipErr
-		}
-		if defaultHouseholdID != "" || otherMembership {
-			return ErrHouseholdConflict
-		}
-		if err := joinInvitedHousehold(ctx, tx, userID, login, invitation.HouseholdID, invitation.ID, now); err != nil {
-			return err
-		}
-		result = InvitationUser{UserID: userID, HouseholdID: invitation.HouseholdID, Role: household.RoleMember}
-		return nil
+		result, lockErr = JoinAsExistingMember(ctx, tx, userID, invitation.HouseholdID, invitation.ID, now)
+		return lockErr
 	})
 	return result, e
 }

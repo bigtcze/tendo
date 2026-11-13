@@ -8,12 +8,14 @@ import (
 	"strconv"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 )
 
 type service interface {
 	Get(ctx context.Context, userID, householdID string) (household.Household, error)
+	ListForMember(ctx context.Context, userID, cursor string, limit int) ([]household.ListedHousehold, string, error)
 }
 
 // Handler serves household resources. Authentication is injected so this
@@ -31,7 +33,40 @@ func New(s service, auth func(http.Handler) http.Handler, userID func(context.Co
 }
 
 func (h *Handler) Register(r chi.Router) {
+	r.With(h.auth).Get("/api/v1/households", h.list)
 	r.With(h.auth).Get("/api/v1/households/{householdId}", h.get)
+}
+
+// list returns the caller's own memberships in household ID order. There is no
+// per-item ETag: the list is a navigation surface, not a resource version.
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.userID(r.Context())
+	if !ok {
+		problem(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	p, ok := httpx.ParseListParamsFor(w, r, 100, httpx.ListFilter(0))
+	if !ok {
+		return
+	}
+	items, next, err := h.service.ListForMember(r.Context(), userID, p.Cursor, p.Limit)
+	if err != nil {
+		var validation *household.ValidationError
+		if errors.As(err, &validation) && validation.Field == "cursor" {
+			httpx.QueryProblemResponse(w, "cursor")
+		} else {
+			problem(w, http.StatusServiceUnavailable, "unavailable")
+		}
+		return
+	}
+	out := apimodel.HouseholdList{Items: make([]apimodel.Household, 0, len(items)), NextCursor: nil}
+	for _, item := range items {
+		out.Items = append(out.Items, apimodel.Household{Id: item.ID, Name: item.Name, Timezone: item.Timezone, CreatedAt: item.CreatedAt.UTC(), ViewerRole: apimodel.MemberRole(item.ViewerRole)})
+	}
+	if next != "" {
+		out.NextCursor = &next
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

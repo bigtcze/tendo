@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
@@ -34,26 +33,10 @@ func acceptInvitationFor(ctx context.Context, tx pgx.Tx, r *Repository, userID s
 	if err != nil {
 		return "", err
 	}
-	defaultHouseholdID, login, err := adapter.LockUser(ctx, userID)
-	if errors.Is(err, identity.ErrNotFound) {
-		return identity.OIDCInvitationInvalid, nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err := adapter.GetMembership(ctx, userID, invitation.HouseholdID); err == nil {
-		return identity.OIDCInvitationInvalid, nil
-	} else if !errors.Is(err, household.ErrNotFound) {
-		return "", err
-	}
-	other, err := adapter.HasOtherMembership(ctx, userID, invitation.HouseholdID)
-	if err != nil {
-		return "", err
-	}
-	if defaultHouseholdID != "" || other {
-		return identity.OIDCInvitationInvalid, nil
-	}
-	if err := identity.JoinInvitedHousehold(ctx, adapter, userID, login, invitation.HouseholdID, invitation.ID, now); err != nil {
+	if _, err := identity.JoinAsExistingMember(ctx, adapter, userID, invitation.HouseholdID, invitation.ID, now); err != nil {
+		if errors.Is(err, identity.ErrAlreadyMember) || errors.Is(err, identity.ErrNotFound) {
+			return identity.OIDCInvitationInvalid, nil
+		}
 		return "", err
 	}
 	return identity.OIDCInvitationAccepted, nil
@@ -76,21 +59,17 @@ func (o *oidcInvitationTx) GetMembership(ctx context.Context, userID, householdI
 	return o.household.GetMembership(ctx, userID, householdID)
 }
 
-func (o *oidcInvitationTx) HasOtherMembership(ctx context.Context, userID, householdID string) (bool, error) {
-	return o.household.HasMembershipElsewhere(ctx, userID, householdID)
-}
-
-func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (string, string, error) {
+func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (string, error) {
 	id, err := uuidOrNull(userValue)
 	if err != nil {
-		return "", "", identity.ErrNotFound
+		return "", identity.ErrNotFound
 	}
-	var login, defaultHousehold string
-	err = o.tx.QueryRow(ctx, `SELECT login, COALESCE(default_household_id::text,'') FROM user_accounts WHERE id=$1 FOR UPDATE`, id).Scan(&login, &defaultHousehold)
+	var login string
+	err = o.tx.QueryRow(ctx, `SELECT login FROM user_accounts WHERE id=$1 FOR UPDATE`, id).Scan(&login)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", identity.ErrNotFound
+		return "", identity.ErrNotFound
 	}
-	return defaultHousehold, login, err
+	return login, err
 }
 
 func (o *oidcInvitationTx) EnsureMemberPerson(ctx context.Context, householdID, userID, name string) error {

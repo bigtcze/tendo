@@ -4,8 +4,7 @@ import type { MessageKey } from '../../i18n';
 
 export type ErrorState =
   | 'invalid' | 'loginTaken' | 'login' | 'loginInvalid' | 'password'
-  | 'passwordInvalid' | 'rateLimited' | 'unavailable' | 'alreadyMember'
-  | 'householdConflict';
+  | 'passwordInvalid' | 'rateLimited' | 'unavailable' | 'alreadyMember';
 export type NewAccountResult = Awaited<ReturnType<typeof acceptNewAccount>>;
 export type NewAccountOutcome = { kind: 'accepted' } | { kind: 'error'; error: ErrorState };
 export type SignedInOutcome = { kind: 'accepted' } | { kind: 'unauthenticated' } | { kind: 'error'; error: ErrorState };
@@ -28,7 +27,6 @@ export function mapSignedInResult(result: AcceptResult): SignedInOutcome {
   if (result === 'unauthenticated') return { kind: 'unauthenticated' };
   if (result === 'invalid') return { kind: 'error', error: 'invalid' };
   if (result === 'alreadyMember') return { kind: 'error', error: 'alreadyMember' };
-  if (result === 'householdConflict') return { kind: 'error', error: 'householdConflict' };
   if (result === 'rateLimited') return { kind: 'error', error: 'rateLimited' };
   return { kind: 'error', error: 'unavailable' };
 }
@@ -55,7 +53,6 @@ const inviteErrorMessageKeys: Record<ErrorState, MessageKey> = {
   rateLimited: 'invite.error.rateLimited',
   unavailable: 'invite.error.unavailable',
   alreadyMember: 'invite.error.alreadyMember',
-  householdConflict: 'invite.error.householdConflict',
 };
 
 export function inviteErrorMessageKey(error: ErrorState): MessageKey {

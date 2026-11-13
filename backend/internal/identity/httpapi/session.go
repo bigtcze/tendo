@@ -17,6 +17,7 @@ type sessionService interface {
 	Login(ctx context.Context, login, password string) (identity.Session, error)
 	Lookup(ctx context.Context, token string) (identity.SessionInfo, error)
 	Logout(ctx context.Context, token string) error
+	SetDefaultHousehold(ctx context.Context, userID, householdID string) error
 }
 
 type SessionHandler struct {
@@ -33,6 +34,7 @@ func NewSession(s sessionService, publicURL string) *SessionHandler {
 func (h *SessionHandler) Register(r chi.Router) {
 	r.Post("/api/v1/session", h.create)
 	r.Get("/api/v1/session", h.get)
+	r.Patch("/api/v1/session", h.update)
 	r.Delete("/api/v1/session", h.delete)
 }
 
@@ -106,6 +108,36 @@ func (h *SessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", `"session-`+info.ID+`"`)
 	writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt))
+}
+
+// update selects the account-wide default household. The value is a navigation
+// hint, never an authorization grant: the persisting statement also proves the
+// caller's membership, and every protected operation re-authorizes on its own.
+// There is no ETag and no If-Match; the last write wins.
+func (h *SessionHandler) update(w http.ResponseWriter, r *http.Request) {
+	info, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+	values, ok := httpx.ReadObject(w, r, map[string]httpx.Field{
+		"defaultHouseholdId": {Kind: httpx.KindString, Required: true},
+	}, 4096)
+	if !ok {
+		return
+	}
+	householdID := strings.ToLower(stringField(values, "defaultHouseholdId"))
+	switch err := h.service.SetDefaultHousehold(r.Context(), info.Principal.UserID, householdID); {
+	case errors.Is(err, identity.ErrUnauthenticated):
+		h.clear(w)
+		problem(w, 401, "unauthenticated")
+	case errors.Is(err, identity.ErrInvalidReference):
+		httpx.ValidationProblemResponse(w, "defaultHouseholdId", "invalid_reference")
+	case err != nil:
+		problem(w, 503, "unavailable")
+	default:
+		info.Principal.DefaultHouseholdID = householdID
+		writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt))
+	}
 }
 
 // authenticate resolves the session cookie. Only a definite 401 clears the

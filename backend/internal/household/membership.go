@@ -26,7 +26,6 @@ type MembershipRecord struct{ UserID, Role string }
 type MembershipRepository interface {
 	GetMembership(context.Context, string, string) (string, error)
 	LockHouseholdForMembership(context.Context, string, string) error
-	HasMembershipElsewhere(context.Context, string, string) (bool, error)
 	AddInvitedMember(context.Context, string, string) error
 	ListMembers(context.Context, string, string, int) ([]MembershipRecord, string, error)
 }
@@ -76,12 +75,6 @@ func (s *MembershipService) GetMembership(ctx context.Context, userID, household
 		return "", ErrNotFound
 	}
 	return role, nil
-}
-func (s *MembershipService) HasMembershipElsewhere(ctx context.Context, userID, householdID string) (bool, error) {
-	if !ids.IsCanonicalUUID(userID) || !ids.IsCanonicalUUID(householdID) {
-		return false, ErrNotFound
-	}
-	return s.repository.HasMembershipElsewhere(ctx, userID, householdID)
 }
 func (s *MembershipService) AddInvitedMember(ctx context.Context, userID, householdID string) error {
 	if !ids.IsCanonicalUUID(userID) || !ids.IsCanonicalUUID(householdID) {

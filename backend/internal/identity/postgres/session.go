@@ -9,6 +9,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -134,4 +135,54 @@ func (r *Repository) FindActive(ctx context.Context, tokenHash []byte, now time.
 
 func (r *Repository) DeleteByTokenHash(ctx context.Context, tokenHash []byte) error {
 	return identitydb.New(r.pool).DeleteSession(ctx, tokenHash)
+}
+
+// SetDefaultHousehold selects an existing membership as the account-wide default.
+// The value is validated by the composite foreign key
+// user_default_membership_fk, which is DEFERRABLE INITIALLY DEFERRED; the
+// transaction forces it to IMMEDIATE so a non-member household fails this
+// statement deterministically instead of at commit. A zero-row update means the
+// account row is gone.
+func (r *Repository) SetDefaultHousehold(ctx context.Context, userID, householdID string) error {
+	var user, house pgtype.UUID
+	if err := user.Scan(userID); err != nil {
+		return identity.ErrUnauthenticated
+	}
+	if err := house.Scan(householdID); err != nil {
+		return identity.ErrInvalidReference
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+	if _, err := tx.Exec(ctx, `SET CONSTRAINTS user_default_membership_fk IMMEDIATE`); err != nil {
+		return err
+	}
+	rows, err := identitydb.New(tx).SetAccountDefaultHousehold(ctx, identitydb.SetAccountDefaultHouseholdParams{ID: user, DefaultHouseholdID: house})
+	if err != nil {
+		return defaultHouseholdError(err)
+	}
+	if rows == 0 {
+		return identity.ErrUnauthenticated
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return defaultHouseholdError(err)
+	}
+	return nil
+}
+
+// defaultHouseholdError maps the deferred composite membership foreign key to
+// the uniform invalid-reference sentinel. Every other error stays
+// infrastructure.
+func defaultHouseholdError(err error) error {
+	var pgError *pgconn.PgError
+	if errors.As(err, &pgError) && pgError.Code == "23503" && pgError.ConstraintName == "user_default_membership_fk" {
+		return identity.ErrInvalidReference
+	}
+	return err
 }

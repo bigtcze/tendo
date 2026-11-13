@@ -17,7 +17,6 @@ import (
 type InvitationHouseholdService interface {
 	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
-	HasMembershipElsewhere(context.Context, string, string) (bool, error)
 	AddInvitedMember(context.Context, string, string) error
 }
 type InvitationHouseholdServiceFactory func(householddb.DBTX) InvitationHouseholdService
@@ -84,9 +83,6 @@ func (t *invitationTx) RequireAdmin(ctx context.Context, userID, householdID str
 }
 func (t *invitationTx) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
 	return t.h.GetMembership(ctx, userID, householdID)
-}
-func (t *invitationTx) HasOtherMembership(ctx context.Context, userID, householdID string) (bool, error) {
-	return t.h.HasMembershipElsewhere(ctx, userID, householdID)
 }
 func (t *invitationTx) CreateInvitation(ctx context.Context, input identity.CreateInvitationInput) (identity.Invitation, bool, error) {
 	var householdID, actorID pgtype.UUID
@@ -184,19 +180,19 @@ func (t *invitationTx) FindLogin(ctx context.Context, login string) error {
 	}
 	return err
 }
-func (t *invitationTx) LockUser(ctx context.Context, userValue string) (string, string, error) {
+func (t *invitationTx) LockUser(ctx context.Context, userValue string) (string, error) {
 	var userID pgtype.UUID
 	if err := userID.Scan(userValue); err != nil {
-		return "", "", identity.ErrNotFound
+		return "", identity.ErrNotFound
 	}
-	row, err := t.q.LockUserForInvitation(ctx, userID)
+	login, err := t.q.LockUserForInvitation(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", identity.ErrNotFound
+		return "", identity.ErrNotFound
 	}
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return row.DefaultHouseholdID, row.Login, nil
+	return login, nil
 }
 func (t *invitationTx) EnsureMemberPerson(ctx context.Context, householdID, userID, name string) error {
 	return t.memberPersons.EnsureMemberPerson(ctx, householdID, userID, name)

@@ -212,7 +212,14 @@ export interface paths {
         delete: operations["deleteSession"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Select the default household
+         * @description Sets the account-wide default household. The identifier must name a household the account already belongs to; a malformed, unknown, or non-member identifier returns the same 422 invalid_reference with field defaultHouseholdId.
+         *     The value is a navigation hint, never an authorization grant: every protected operation re-authorizes against memberships, and the persisting statement itself proves membership.
+         *     The update is last-write-wins with no precondition and no ETag; the response repeats the current session. The ETag of GET /api/v1/session identifies the session, not this body.
+         *     Requires the canonical Origin header.
+         */
+        patch: operations["updateSession"];
         trace?: never;
     };
     "/api/v1/auth/password-reset": {
@@ -310,7 +317,7 @@ export interface paths {
         put?: never;
         /**
          * Accept invitation with current account
-         * @description Adds the signed-in account as a member only if it has no conflicting household membership/default. Acceptance does not create a session.
+         * @description Adds the signed-in account as a member of the invited household and makes that household the account's default. Having a default household or other memberships is expected and is not a conflict. Acceptance does not create a session.
          */
         post: operations["acceptInvitation"];
         delete?: never;
@@ -423,6 +430,28 @@ export interface paths {
          * @description Household admin only and idempotent: 204 also when there is nothing to cancel. Self-targeting returns 409 cannot_reset_self. OIDC-only targets are accepted because there is no link to cancel.
          */
         delete: operations["revokeHouseholdAccountPasswordReset"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List my households
+         * @description Returns the households the authenticated account belongs to, in household identifier order. Membership is the only filter; the account identifier comes from the session and never from the request.
+         *     Each item uses the Household representation but list responses carry no per-item ETag and no resource version. Cursors are opaque; a malformed limit or cursor returns 400 invalid_query naming the parameter.
+         *     An administrator who needs every household in the installation uses a separate administrative resource, not this list.
+         */
+        get: operations["listHouseholds"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -739,6 +768,13 @@ export interface components {
             /** @description Maximum 512 UTF-8 bytes. */
             password: string;
         };
+        UpdateSessionRequest: {
+            /**
+             * Format: uuid
+             * @description Household the account belongs to. A navigation hint only; malformed, unknown, and non-member identifiers all return 422 invalid_reference.
+             */
+            defaultHouseholdId: string;
+        };
         Session: {
             /** Format: uuid */
             userId: string;
@@ -751,6 +787,12 @@ export interface components {
             /** Format: date-time */
             expiresAt: string;
         };
+        SessionValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "defaultHouseholdId";
+            /** @enum {string} */
+            code: "invalid_reference";
+        };
         Household: {
             /** Format: uuid */
             id: string;
@@ -761,6 +803,11 @@ export interface components {
             createdAt: string;
             /** @description The caller's membership role in this household. A navigation hint only; admin operations always re-authorize. */
             viewerRole: components["schemas"]["MemberRole"];
+        };
+        HouseholdList: {
+            items: components["schemas"]["Household"][];
+            /** @description Opaque cursor for the next page; null on the last page. */
+            nextCursor: string | null;
         };
         EmptyObject: Record<string, never>;
         /** @enum {string} */
@@ -3426,6 +3473,204 @@ export interface operations {
             };
         };
     };
+    updateSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Default household recorded. No ETag is returned. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "login": "owner",
+                     *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                     *       "expiresAt": "2026-11-05T10:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description Malformed JSON/body, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie; a vanished account is reported the same way. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing or does not match the configured canonical public origin. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The default household is malformed, unknown, or not one of the caller's memberships. All three cases are indistinguishable. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_reference",
+                     *       "field": "defaultHouseholdId"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["SessionValidationProblem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     redeemPasswordReset: {
         parameters: {
             query?: never;
@@ -4495,7 +4740,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Household conflict if the account has another default household/membership; already_member if it belongs to this household. */
+            /** @description already_member if the account already belongs to this household. household_conflict is a legacy code that is documented for old clients but never emitted. */
             409: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -6220,6 +6465,149 @@ export interface operations {
                 };
             };
             /** @description Persistence or identity lookup unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listHouseholds: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's households. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *           "name": "Veselí",
+                     *           "timezone": "Europe/Prague",
+                     *           "createdAt": "2026-10-06T10:00:00Z",
+                     *           "viewerRole": "member"
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HouseholdList"];
+                };
+            };
+            /** @description Malformed trusted forwarded metadata, or an invalid limit or cursor. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "cursor"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable, including an unknown stored membership role (fails closed). */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -133,6 +133,10 @@ raw_hex=base64.urlsafe_b64decode(token+'=').hex()
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{digest}','hex')")=='1','session digest not stored'
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{raw_hex}','hex') OR token_hash=convert_to('{token}','UTF8')")=='0','raw token stored'
 cookie_header={'Cookie':f'tendo_session={token}'}
+status,h,lh,_=call('GET','/api/v1/households',template='/api/v1/households',headers=cookie_header,sink=fixtures)
+assert status==200 and lh['items'][0]['id']==household and lh['items'][0]['viewerRole']=='admin' and lh['nextCursor'] is None and 'ETag' not in h,('list households',status,lh,dict(h))
+status,h,patched,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':origin},sink=fixtures)
+assert status==200 and patched['defaultHouseholdId']==household and 'ETag' not in h,('patch session default',status,patched,dict(h))
 def hreq(hid,headers=None,record=True):
  return call('GET','/api/v1/households/'+hid,template='/api/v1/households/{householdId}',headers=headers,sink=fixtures if record else None)[:3]
 status,h,hb=hreq(household,cookie_header)
@@ -147,6 +151,15 @@ status,_,_=hreq(household,{**cookie_header,'Origin':'http://foreign.example'},re
 other_id=psql("WITH x AS (INSERT INTO households(name,timezone) VALUES ('Other','UTC') RETURNING id) SELECT id FROM x")
 assert other_id!=household and psql(f"SELECT count(*) FROM households WHERE id='{other_id}'")=='1' and psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{other_id}'")=='0','other household fixture'
 status,h,b_other=hreq(other_id,cookie_header);assert status==404 and b_other==b_missing and 'ETag' not in h,('non-member household must match nonexistent 404',status,b_other,b_missing)
+status,_,anon_list,_=call('GET','/api/v1/households',template='/api/v1/households',sink=fixtures)
+assert status==401 and anon_list['code']=='unauthenticated',('list households without cookie',status,anon_list)
+status,_,bad_cursor,_=call('GET','/api/v1/households?cursor=h1bad',template='/api/v1/households',headers=cookie_header,sink=fixtures)
+assert status==400 and bad_cursor['code']=='invalid_query' and bad_cursor['parameter']=='cursor',('list households forged cursor',status,bad_cursor)
+status,_,foreign_default,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':other_id},headers={**cookie_header,'Origin':origin},sink=fixtures)
+assert status==422 and foreign_default['code']=='invalid_reference' and foreign_default['field']=='defaultHouseholdId',('patch session non-member household',status,foreign_default)
+assert psql("SELECT default_household_id FROM user_accounts WHERE login='owner_smoke'")==household,'rejected default selection persisted'
+status,_,foreign_origin,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':'http://foreign.example'},sink=fixtures)
+assert status==403,('patch session foreign Origin',status,foreign_origin)
 COLL='/api/v1/households/{householdId}/subjects'
 ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
 MEMBER_PERSON='/api/v1/households/{householdId}/members/{userId}/person'

@@ -32,7 +32,7 @@ UPDATE household_invitations SET accepted_at=$2 WHERE id=$1 AND accepted_at IS N
 SELECT EXISTS(SELECT 1 FROM household_invitations WHERE household_id=$1 AND id=$2);
 
 -- name: LockUserForInvitation :one
-SELECT id::text, login, COALESCE(default_household_id::text, '')::text AS default_household_id FROM user_accounts WHERE id=$1 FOR UPDATE;
+SELECT login FROM user_accounts WHERE id=$1 FOR UPDATE;
 
 -- name: FindLoginForInvitation :one
 SELECT id::text FROM user_accounts WHERE login=$1;

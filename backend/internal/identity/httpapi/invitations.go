@@ -222,8 +222,6 @@ func writeInvitationError(w http.ResponseWriter, e error) {
 		httpx.ProblemResponse(w, 404, "invalid_invitation")
 	case errors.Is(e, identity.ErrLoginUnavailable):
 		httpx.ProblemResponse(w, 409, "login_unavailable")
-	case errors.Is(e, identity.ErrHouseholdConflict):
-		httpx.ProblemResponse(w, 409, "household_conflict")
 	case errors.Is(e, identity.ErrAlreadyMember):
 		httpx.ProblemResponse(w, 409, "already_member")
 	case errors.Is(e, identity.ErrIdempotencyKeyRequired):

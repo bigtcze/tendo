@@ -1,6 +1,6 @@
 # ADR 0007: Invitation-based local account admission
 
-Status: accepted
+Status: accepted; conflict rule amended by ADR 0015
 
 ## Context
 
@@ -15,7 +15,7 @@ V1 households are multi-user. New access must be granted explicitly by the house
 - Acceptance is single-use and atomic. One transaction locks the invitation, re-checks status and expiry, creates the account (new-account path) or locks the current account (signed-in path), adds the membership through the household module, sets the default household, and marks the invitation accepted. Any failure rolls everything back and leaves the invitation pending. Password hashing happens before the transaction, never while holding locks; an invalid token never triggers hashing.
 - Every unusable token (malformed, unknown, expired, revoked, already used) gets the same `404 invalid_invitation`, so acceptance reveals nothing about invitation state. Owners see state in the list.
 - Acceptance does not create a session. A new account signs in through the existing `POST /api/v1/session`.
-- A signed-in account that already has a default household or any other membership gets `409 household_conflict`; an account already in the target household gets `409 already_member` (owners are never downgraded).
+- A signed-in account that already has a default household or any other membership joins the invited household instead of being refused, keeps its independent role in every other household, and switches its default household to the accepted one. The only remaining refusal is an account already in the target household (`409 already_member`); the former `409 household_conflict` is never emitted. See [ADR 0015](0015-multi-household-membership.md).
 - Revocation (`DELETE`) and acceptance are one-way transitions serialized by a row lock, so invitations have no version, `ETag`, or `If-Match`. Revoking an invitation that is already accepted, revoked, or expired is a successful no-op and never removes the member.
 
 ## Consequences

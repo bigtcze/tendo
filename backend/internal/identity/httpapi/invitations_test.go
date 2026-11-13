@@ -297,7 +297,7 @@ func TestInvitationAcceptSuccessAndErrorMatrix(t *testing.T) {
 		status      int
 		code, field string
 		newAccount  bool
-	}{{&identity.ValidationError{Field: "login", Code: "invalid_format"}, 422, "invalid_format", "login", true}, {&identity.ValidationError{Field: "password", Code: "invalid_length"}, 422, "invalid_length", "password", true}, {identity.ErrInvalidInvitation, 404, "invalid_invitation", "", true}, {identity.ErrLoginUnavailable, 409, "login_unavailable", "", true}, {identity.ErrHouseholdConflict, 409, "household_conflict", "", false}, {identity.ErrAlreadyMember, 409, "already_member", "", false}, {identity.ErrNotFound, 401, "unauthenticated", "", false}, {security.ErrPasswordWorkLimit, 429, "rate_limited", "", true}, {errors.New("secret persistence"), 503, "unavailable", "", true}} {
+	}{{&identity.ValidationError{Field: "login", Code: "invalid_format"}, 422, "invalid_format", "login", true}, {&identity.ValidationError{Field: "password", Code: "invalid_length"}, 422, "invalid_length", "password", true}, {identity.ErrInvalidInvitation, 404, "invalid_invitation", "", true}, {identity.ErrLoginUnavailable, 409, "login_unavailable", "", true}, {identity.ErrAlreadyMember, 409, "already_member", "", false}, {identity.ErrNotFound, 401, "unauthenticated", "", false}, {security.ErrPasswordWorkLimit, 429, "rate_limited", "", true}, {errors.New("secret persistence"), 503, "unavailable", "", true}} {
 		f := &invitationFakeService{err: tc.err, user: identity.InvitationUser{UserID: "u", Login: "login", HouseholdID: "h", Role: "member"}}
 		r := makeRouter(f, nilAuth, true)
 		path, body := "/api/v1/invitations/accept", `{"token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`

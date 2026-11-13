@@ -27,3 +27,6 @@ WHERE s.token_hash=$1 AND s.expires_at>$2;
 
 -- name: DeleteSession :exec
 DELETE FROM user_sessions WHERE token_hash=$1;
+
+-- name: SetAccountDefaultHousehold :execrows
+UPDATE user_accounts SET default_household_id=$2 WHERE id=$1;

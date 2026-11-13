@@ -19,8 +19,8 @@ type Querier interface {
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
 	GetMembershipAccount(ctx context.Context, arg GetMembershipAccountParams) (GetMembershipAccountRow, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
-	HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error)
 	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error
+	ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error)
 	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
 	ListMembershipAccounts(ctx context.Context, arg ListMembershipAccountsParams) ([]ListMembershipAccountsRow, error)
 	LockHouseholdForMembership(ctx context.Context, arg LockHouseholdForMembershipParams) (pgtype.UUID, error)
