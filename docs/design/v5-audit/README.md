@@ -1,7 +1,8 @@
 # V5 design audit and direction choice
 
 status=V5-05_evidence (Issue #449)
-source_commit=5bd7647 (main, application code identical to published v4.0.0 UI)
+source_commit=5bd7647 (application code identical to published v4.0.0 UI; the baseline run below is this branch at 7aeab28,
+whose frontend and backend are unchanged from 5bd7647)
 approval=none. No human has reviewed, approved or user-tested anything in this document. The chosen direction is an
 agent decision based on the evidence below and stays open to the owner's override.
 governing=`.autonomous/UX.md` ("Production screenshot workflow", "Visual direction"; it carries the former V5 design
@@ -35,13 +36,14 @@ reference household), home-large (1000+ items), all-items, all-items-no-match, i
 add-item, add-item-repeat, edit-item, people, members, account, admin, not-found, server-error.
 
 Runs (scratch evidence, not committed in full; about 31 MiB each). All three were regenerated back to back on
-2026-11-12 with the identical harness, under one lock against the same native PostgreSQL 18.6 test cluster:
+2026-11-13 with the final harness (which asserts exactly 504 entries and one PNG per entry), under one lock against
+the same native PostgreSQL 18.6 test cluster:
 
 | Run | Build | Result | `metrics.json` SHA-256 |
 | --- | --- | --- | --- |
-| v4 baseline | `main` 5bd7647 | exit 0, 504 entries (488 viewport + 16 full-page) | `78247de99ffcda3ebbdc0582435411b2612e93646714fa805755cf40f72147ab` |
-| Direction B | `proto/v5-direction-b` 3174c0d | exit 0, 504 entries | `f55f2c75c158ecba7c5f5f14d7fc578a7fd9c5fadb892cbc789d5bac9c0eab58` |
-| Direction A | `proto/v5-direction-a` 0b138d2 | exit 0, 504 entries | `a37a88418de6eb5bc282393b95eac54c161e2814a96c7653666b763ab4aa3b5a` |
+| v4 baseline | `docs/v5-05-design-audit` 7aeab28 (v4 application code) | exit 0, 504 entries (488 viewport + 16 full-page) | `0d3b10cc0e36e3ead22ea42a67f66c7825b9bf4baf4fb7e1dea3c4abda1d3267` |
+| Direction B | `proto/v5-direction-b` c0583c5 | exit 0, 504 entries | `f776b22b1216ddb8808f9710fa3c94687dfee98c84151789507e0c75a49cef98` |
+| Direction A | `proto/v5-direction-a` 0b138d2 | exit 0, 504 entries | `d2449d1be9bacc5c5ddc258ce80cfed7312a58cb0fc6bb8df2c845211653d8cb` |
 
 Harness on the prototypes: the prototype branches do not contain the harness. Each prototype worktree was captured
 with uncommitted copies of the seven harness files that are byte-identical to the versions committed with this
@@ -51,11 +53,13 @@ Measurement caveats:
 
 - The small-target check runs right after the viewport is resized. It is not deterministic: occasionally one capture
   catches the phone bottom bar mid-reflow (links measured 4 x 56 px while the screenshot shows a normal bar), and which
-  capture is hit differs between runs. In the runs above it hit v4 `item-detail-cs-dark-320` (5 bottom-bar links)
-  and nothing else. Such one-off 4 px-wide readings are treated as harness noise, not as findings.
-- The per-capture count of small targets is complete, but the runs above recorded at most 5 named offenders per
-  capture (the harness now keeps all of them). The offender tables below therefore list the controls that were named;
-  a capture with more offenders than names may hide further controls of the same kind.
+  capture is hit differs between runs. In the runs above it hit v4 `home-empty-cs-light-320` and B
+  `people-cs-dark-320` (5 bottom-bar links each); in an earlier run it hit v4 `item-detail-cs-dark-320` and B
+  `admin-cs-dark-320` instead. Such one-off 4 px-wide readings are treated as harness noise, not as findings.
+- The per-capture count of small targets is complete; the names are capped at 8 per capture by the shared audit
+  measurement (`frontend/e2e/audit/metrics.ts`). In v4 and B no capture exceeds that cap. In A 100 of 488 captures
+  have more than 8 offenders, so A's offender table below lists the controls that were named and may miss further
+  controls of the same kind.
 
 ### 1.1 Coverage and exclusions
 
@@ -182,37 +186,51 @@ direction is implemented through the later V5 design Issues.
 
 ### 3.1 Direction B: structured workspace
 
-Intent and full self-critique: `docs/design/v5-directions/b/README.md` on `proto/v5-direction-b` (3174c0d).
-Validation on that commit: lint, typecheck, vitest 1033/1033, build and the required E2E smoke all pass.
+Intent and full self-critique: `docs/design/v5-directions/b/README.md` on `proto/v5-direction-b` (c0583c5). B was
+built in two passes: shell and Home (3174c0d), then item detail, create/edit and admin (c0583c5) after an independent
+review found that the first pass did not cover the screen families the brief requires. Validation on c0583c5: lint,
+typecheck, vitest 1033/1033 and build pass; the required E2E smoke result is in section 3.3.
 
 Measured against v4 (488 viewport captures each):
 
 | Check | v4 | B |
 | --- | --- | --- |
 | Overflow | 0 | 0 |
-| Targets under 44 px | 0 real | 0 in this run. The earlier run flagged `admin-cs-dark-320` (switcher 20 x 44 px plus mid-reflow bottom-bar readings); the switcher truncation to "N…" is still visible in that screenshot, so it stays a finding |
+| Targets under 44 px | 0 real | 1 capture: `people-cs-dark-320` reads the household switcher at 20 x 44 px (plus mid-reflow bottom-bar noise). The switcher truncates to "N…" at 320 px Czech on every signed-in screen ([admin 320](b/admin-cs-dark-320.png)), so it stays a finding |
 | Header full width | no at 1920 signed in, no at 1440+ signed out | yes signed in at every width (57 px); still no at 1440+ signed out |
 | Home h1 | 34/36/40 px with period | 24 px "Overview" / "Přehled" |
+| Detail, edit and admin h1 | 28–36 px detail and edit, 30 px admin | 24 px |
 | Home first row y (390 / 1440) | 409 / 327 | 254 / 262 |
 | Rows above fold (390 / 768 / 1440) | 3 / 6–7 / 7 | 5 / 8 / 8 |
 | All items first row y (390 / 1440) | 456 / 480 | 444 / 473 |
 | Main left inset at 1920 | 464 (frame) | 224 (sidebar only) |
 | Primary action right gap | 0 | 0 |
 | Home DOM, 10 / 1000+ items | 398 / 1298 | 401 / 1301 |
+| Detail / edit / admin DOM | 121 / 143 / 132 | 133 / 152 / 141 |
 
-Observed in screenshots: the eyebrow, household-name hero, tagline and top-bar slogan are gone on Home
-([1920](b/home-populated-en-light-1920.png), [cs 390](b/home-populated-cs-light-390.png)); the household switcher sits in
-the header; subject pills became plain text; groups use small uppercase headings. Unchanged from v4: item detail
-([1440](b/item-detail-en-light-1440.png), [cs 390](b/item-detail-cs-dark-390.png)), add/edit forms
-([edit](b/edit-item-en-light-1440.png), [add](b/add-item-cs-dark-390.png)), admin ([1440](b/admin-en-dark-1440.png)),
-people, members and account, all of which still carry eyebrows and subtitles. The header search sits left-centre with
-account actions next to it rather than at the right edge, leaving about half of the 1920 bar empty. At 320 px
-Czech the switcher truncates to "N…" ([admin 320](b/admin-cs-dark-320.png)). Sign-in remains framed
-([login 1920](b/login-cs-light-1920.png)). The pill row at the top of Home is kept, so status is still stated three
-times. Rows keep v4's card frame, a coloured icon tile per row and an outlined Done button per row; at 1920 the subject,
-date and Done columns sit 800+ px away from the title, so the eye travels the full width per row. Detail keeps the
-eyebrow, the card-in-card facts and the five equal-weight buttons plus a separate Archive
-([detail 1440](b/item-detail-en-light-1440.png)).
+Observed in screenshots:
+
+- **Giant hero, tagline:** gone on Home ([1920](b/home-populated-en-light-1920.png),
+  [cs 390](b/home-populated-cs-light-390.png)); the top-bar slogan is gone. Signed-out screens keep the v4 eyebrow and
+  tagline and remain framed ([login 1920](b/login-cs-light-1920.png)).
+- **Framed header:** fixed signed in; the household switcher and a header search sit in the bar. The search and
+  account actions sit left of centre, leaving about half of the 1920 bar empty.
+- **Hierarchy on Home:** subject pills became plain text and groups use small uppercase headings, but the pill row at
+  the top is kept, so status is still stated three times. Rows keep a card frame, a coloured icon tile and an outlined
+  Done button; at 1920 the subject, date and Done columns sit 800+ px from the title.
+- **Detail:** 24 px title with the subject as an uppercase eyebrow and an uppercase status label on the right; facts,
+  actions and history are three separate bordered panels. Done is the one filled action (with a check icon), but Edit
+  has the same size as Done and Start/Waiting/Pause sit directly beside them; Archive is in the same panel below a rule
+  ([1440](b/item-detail-en-light-1440.png), [cs 390](b/item-detail-cs-dark-390.png)). The sidebar still highlights
+  "All items" for an item opened from Home.
+- **Create/edit:** spacing and type refined, structure unchanged from v4: the same stacked dialog with Cancel twice
+  (header and footer), a divider between fields, the Czech `mm/dd/yyyy` date placeholder and the bare "Add notes
+  (optional)" link ([edit 1440](b/edit-item-en-light-1440.png), [add 390](b/add-item-cs-dark-390.png)).
+- **Admin:** avatar circles and role pills are gone; each account is a row (login, uppercase role · sign-in method,
+  actions at the row end) inside one panel. The "YOUR HOUSEHOLD" eyebrow and the subtitle remain. On phones the action
+  buttons stack under each account, two per member ([1440](b/admin-en-dark-1440.png), [cs 320](b/admin-cs-dark-320.png)).
+- **Untouched:** People, Members and Account keep v4's eyebrows, subtitles and card-in-card layout
+  ([members](b/members-cs-light-1440.png), [account](b/account-cs-light-1440.png), [people 390](b/people-en-light-390.png)).
 
 ### 3.2 Direction A: calm list
 
@@ -225,7 +243,7 @@ Measured against v4 and B (488 viewport captures each):
 | Check | v4 | B | A |
 | --- | --- | --- | --- |
 | Overflow | 0 | 0 | 0 |
-| Captures with targets under 44 px | 0 real | 0 | **368 of 488** (every signed-in state; 0 on signed-out states) |
+| Captures with targets under 44 px | 0 real | 1 (switcher at 320 cs) | **368 of 488** (every signed-in state; 0 on signed-out states) |
 | Header full width, signed in | no at 1920 | yes (57 px) | yes (56 px phone/tablet, 64 px desktop) |
 | Header full width, signed out | no at 1440+ | no at 1440+ | no at 1440+ (1152 px frame) |
 | Home h1 | 34/36/40 px | 24 px | 26 px |
@@ -236,18 +254,18 @@ Measured against v4 and B (488 viewport captures each):
 | Main left inset at 1920 | 464 | 224 | 232 |
 | Content measure | frame | full width | 760 px column |
 | Home DOM, 10 / 1000+ items | 398 / 1298 | 401 / 1301 | 377 / 1216 |
-| Detail DOM | 121 | 130 | 159 |
+| Detail DOM | 121 | 133 | 159 |
 
 Small-target offenders in A (each repeats on every signed-in capture where it is shown):
 
 | Control | Measured box | Where |
 | --- | --- | --- |
-| Household menu button in the header | 126 x 36 px | every signed-in capture, all widths |
-| Sidebar links (Home … Admin center) | 207 x 40 px (216 x 40 px in 12 captures at 1024) | every signed-in capture at 1024+ |
-| Home "Add item" | 121 x 40 px (Czech "Přidat položku" 164 x 40 px) | Home at every width |
-| Home "Add an item…" entry row | full column x 40 px | Home at every width |
-| Row Done circle | 28 x 28 px | every Home row. A's README (W11) says a pseudo-element extends the hit area to about 44 px; the harness measures the element box, so the larger hit area is unverified |
-| Row title link | column x 24 px | every Home row (the whole row is not the link) |
+| Household menu button in the header | 126 x 36 px | all 368 signed-in captures, all widths |
+| Sidebar links (Home … Admin center) | 207 x 40 px (216 or 232 x 40 px in some captures) | signed-in captures at 1024+ |
+| Row Done circle | 28 x 28 px | 288 captures (Home and All items rows) at every width. A's README (W11) says a pseudo-element extends the hit area to about 44 px; the harness measures the element box, so the larger hit area is unverified |
+| Row title link | 252–724 x 24 px | 208 captures; the whole row is not the link |
+| Home "Add item" | 121 x 40 px (Czech "Přidat položku" 164 x 40 px) | 56 captures, Home at every width |
+| Home "Add an item…" entry row | 288–760 x 40 px | 32 captures, Home at every width |
 
 Observed in screenshots:
 
@@ -285,10 +303,11 @@ Observed in screenshots:
 
 | Branch | Result |
 | --- | --- |
-| B `proto/v5-direction-b` 3174c0d | exit 0, "Native production-binary E2E passed." |
+| B `proto/v5-direction-b` 3174c0d (first pass) | exit 0, "Native production-binary E2E passed." |
+| B `proto/v5-direction-b` c0583c5 (final) | three runs: the Chromium suite passed 69/69 each time; the Firefox cross-browser test failed twice with `frame.evaluate: Page crashed` inside the 390 px axe scan of the shared routes, then the third run passed every suite (exit 0, "Native production-binary E2E passed."). The crash is not in a screen B changed in that pass; whether v4 shows the same intermittent crash was not established |
 | A `proto/v5-direction-a` 0b138d2 | exit 1: 63 passed, 1 failed, 5 did not run. The failure is `n23` (real browser zoom at 200 %): the detail `Pause` button has viewport ratio 0.9989 against `toBeInViewport({ ratio: 1 })`, i.e. it ends about 0.5 px below the 406 px layout viewport. Same result as A's own README W1; the assertion was not changed |
 
-Both runs were made on 2026-11-13 against the same test cluster, one after the other under the shared E2E lock.
+All runs were made on 2026-11-13 against the same test cluster, one at a time under the shared E2E lock.
 
 ## 4. Comparative critique
 
@@ -302,15 +321,16 @@ above, not taste.
 | Usefulness: dedicated Archive entry on phone | no (Items → Show: Archived) | no (same) | yes (More → Archive) |
 | Usefulness: global search | All items only | header search at 640+ | All items only |
 | Usefulness: household in header | no | yes, truncates to "N…" at 320 cs | yes |
-| Accessible density: targets ≥ 44 px | yes | yes | **no** (368 captures) |
+| Accessible density: targets ≥ 44 px | yes | yes except the 320 px Czech switcher | **no** (368 captures) |
 | Accessible density: 200 % zoom (n23) | pass | pass | **fail** (0.5 px) |
 | Accessible density: smallest text | 12 px | 12 px | 12 px |
-| Polish: hero/tagline/slogan removed | no | Home only | Home and app shell |
+| Polish: hero/tagline/slogan removed | no | Home and shell; eyebrows and subtitles remain elsewhere | Home and shell; subtitles remain |
 | Polish: framed header | signed in and out | signed out only | signed out only |
-| Polish: detail hierarchy (one primary) | no | no (unchanged) | yes |
-| Polish: card-in-card admin/members/account | yes | yes (unchanged) | no |
+| Polish: detail hierarchy (one primary) | no | partly: one filled Done, but Edit equal in size and three bordered panels | yes |
+| Polish: card-in-card admin/members/account | yes | admin flattened to rows in one panel; members/account unchanged | no |
 | Polish: icon tiles and pills on every row | yes | tiles kept, pills removed | both removed |
-| Scope covered by the prototype | — | shell + Home | shell, Home, detail, lists, people, members, account, admin, phone nav |
+| Polish: create/edit form | v4 | v4 structure, refined spacing | v4 structure, restyled sheet |
+| Scope covered by the prototype | — | shell, Home, detail, create/edit, admin, phone nav | shell, Home, detail, create/edit, lists, people, members, account, admin, phone nav |
 
 **Maturity benchmark (brief step 2).** The former brief asked to benchmark the information-architecture discipline
 of mature task apps (Things 3) and dense but clear tools (Linear), principles only. No such app was opened or measured
@@ -321,10 +341,11 @@ pills on every row; no decorative cards or generic AI dashboard visuals; 44 px t
 in a wide empty canvas. Each row of the table above applies one of these to a measured or visible difference.
 
 **B's strengths:** it keeps every v4 accessibility guarantee intact (no target regressions), its header search is a
-real usability gain on desktop, and it is the smaller, safer diff. **B's weakness:** it is a shell-and-Home pass. The
-generic dashboard grammar the brief rejects (cards, icon tiles, per-row outlined Done buttons, pill row, eyebrows,
-card-in-card admin and detail) survives everywhere except the top of Home, and the wide 1920 rows are harder to scan
-than v4's.
+real usability gain on desktop, it is the smaller, safer diff, and its admin rows read well. **B's weakness:** it
+restyles v4 rather than restructuring it. The grammar `.autonomous/UX.md` rejects survives on every screen B covers:
+bordered panels around facts, actions and history; icon tiles, per-row outlined Done buttons and the pill row on Home;
+uppercase eyebrows and decorative subtitles on detail and admin; and People, Members and Account are untouched. The
+wide 1920 rows are harder to scan than v4's, and the Czech switcher truncates to one letter at 320 px.
 
 **A's strengths:** it answers every composition finding in section 2 on the signed-in app, not only on Home; it shows
 the most rows above the fold on phones, the lowest DOM per item, the clearest detail hierarchy and the only phone path
@@ -349,11 +370,13 @@ V5 design Issues before any screen family ships:**
 7. Reconsider the 760 px measure at 1440+ (for example aligning the primary action to the workspace edge) with a
    captured comparison, not by assertion.
 
-Why A over B: the brief's core complaint is generic, dashboard-like composition across the app. B fixes it on one
-screen and leaves the rest of v4 as is, so choosing B would mean designing the remaining screens later without a tested
-direction. A demonstrates a coherent direction on every signed-in screen family in the real app, and its main failures
-(target size, zoom) are measured, specific and fixable inside that direction without changing its character. B's
-failures are the absence of a direction on most screens. This is an agent decision from the evidence above.
+Why A over B: the brief's core complaint is generic, dashboard-like composition across the app. Both directions now
+cover Home, create/edit, detail, admin and phone, but B keeps the composition the complaint is about (panels, tiles,
+pills, eyebrows, subtitles) and changes its type and spacing, while A removes it on every signed-in screen family and
+shows the clearer detail hierarchy and the denser phone list. A's main failures (target size, 200 % zoom, two add
+entry points) are measured, specific and fixable inside that direction without changing its character; B's main
+weakness is the direction itself. B is the better accessibility baseline today, which is why correction 1 and 2 are
+exit criteria and correction 6 takes B's header search. This is an agent decision from the evidence above.
 
 ## 6. Approval status
 
