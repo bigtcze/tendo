@@ -235,7 +235,7 @@ def run_screen_reader(root, env, log, audit_dir):
             orca_session.cleanup_private_runtime(runtime)
 
 
-def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=None, audit_dir=None, sr_audit_dir=None, visual=False):
+def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=None, audit_dir=None, sr_audit_dir=None, visual=False, design_capture_dir=None):
     env = process_env(inherited, "2026-05-14T08:00:00Z")
     env.update({"DATABASE_URL": inherited["TEST_DATABASE_URL"], "TENDO_TEST_CLOCK_NOW": "2026-05-14T08:00:00Z"})
     run_migration(root, app_path, inherited, env, log)
@@ -262,6 +262,9 @@ def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=Non
     elif audit_dir is not None:
         env["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
         playwright(root, env, log, "ux-audit", 3600)
+    elif design_capture_dir is not None:
+        env["E2E_DESIGN_CAPTURE_DIR"] = str(design_capture_dir.resolve())
+        playwright(root, env, log, "design-capture", 3600)
     elif visual:
         env["TENDO_VISUAL_MODE"] = "1"
         env["TENDO_VISUAL_UPDATE"] = os.environ.get("TENDO_VISUAL_UPDATE", "0")
@@ -331,9 +334,10 @@ def main():
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--audit-dir", type=Path)
     parser.add_argument("--sr-audit-dir", type=Path)
+    parser.add_argument("--design-capture-dir", type=Path)
     parser.add_argument("--visual", action="store_true")
     args = parser.parse_args()
-    if sum(value is not None for value in (args.screenshot, args.audit_dir, args.sr_audit_dir)) + int(args.visual) > 1:
+    if sum(value is not None for value in (args.screenshot, args.audit_dir, args.sr_audit_dir, args.design_capture_dir)) + int(args.visual) > 1:
         parser.error("opt-in modes are mutually exclusive")
     root = args.root.resolve()
     for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
@@ -369,12 +373,14 @@ def main():
     try:
         with (artifact_dir / "process.log").open("a", encoding="utf-8") as log:
             try:
-                if args.screenshot or args.audit_dir or args.sr_audit_dir or args.visual:
-                    run_opt_in(root, args.app.resolve(), os.environ.copy(), log, artifact_dir, args.screenshot, args.audit_dir, args.sr_audit_dir, args.visual)
+                if args.screenshot or args.audit_dir or args.sr_audit_dir or args.design_capture_dir or args.visual:
+                    run_opt_in(root, args.app.resolve(), os.environ.copy(), log, artifact_dir, args.screenshot, args.audit_dir, args.sr_audit_dir, args.visual, args.design_capture_dir)
                     if args.sr_audit_dir:
                         print(f"Screen-reader audit artifacts saved at {args.sr_audit_dir.resolve()}")
                     elif args.audit_dir:
                         print(f"UX audit artifacts saved at {args.audit_dir.resolve()}")
+                    elif args.design_capture_dir:
+                        print(f"Design capture artifacts saved at {args.design_capture_dir.resolve()}")
                     elif args.visual:
                         print("Visual regression suite passed.")
                     else:

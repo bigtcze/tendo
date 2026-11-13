@@ -1,8 +1,10 @@
 # V4-04 All items, item lifecycle and People and things
 
+> Historical record. It describes the V4 stage (released as `v4.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=V4-04_implemented
 issue=#412 (V4-04)
-direction=`.autonomous/V4_DESIGN_BRIEF.md` (reference images are visual targets only)
+direction=[`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md) (reference images are visual targets only)
 tokens=`v4-design-system.md` (V4-02)
 shell=`v4-home.md` (V4-03)
 siblings=`v4-auth-settings.md` (V4-05)

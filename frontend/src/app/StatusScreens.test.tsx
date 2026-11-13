@@ -10,10 +10,12 @@ function renderInApp(node: React.ReactNode) {
 }
 
 describe('secondary status screens', () => {
-  it('not found shows an eyebrow, the page heading and the household recovery link', () => {
+  it('not found shows the page heading and the household recovery link, with no shell eyebrow', () => {
     renderInApp(<NotFoundScreen />);
-    expect(screen.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
-    expect(screen.getByText(en['app.notFound.eyebrow'])).toBeVisible();
+    const heading = screen.getByRole('heading', { level: 1, name: en['app.notFound.title'] });
+    expect(heading).toBeVisible();
+    // The shell names these screens with their heading alone: the panel opens on the heading itself.
+    expect(heading.parentElement?.firstElementChild).toBe(heading);
     expect(screen.getByRole('link', { name: en['app.notFound.home'] })).toHaveAttribute('href', '/');
     expect(document.title).toBe(`${en['app.notFound.title']} — Tendo`);
   });
@@ -26,8 +28,9 @@ describe('secondary status screens', () => {
   it('error state is an alert-free page with a retry action and no V3 accent rule', async () => {
     const retry = vi.fn();
     const { container } = renderInApp(<ErrorScreen onRetry={retry} />);
-    expect(screen.getByRole('heading', { level: 1, name: en['app.error.title'] })).toBeVisible();
-    expect(screen.getByText(en['app.error.eyebrow'])).toBeVisible();
+    const heading = screen.getByRole('heading', { level: 1, name: en['app.error.title'] });
+    expect(heading).toBeVisible();
+    expect(heading.parentElement?.firstElementChild).toBe(heading);
     expect(container.querySelector('.border-l-2')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: en['app.error.retry'] }));
     expect(retry).toHaveBeenCalledOnce();
@@ -37,7 +40,8 @@ describe('secondary status screens', () => {
     renderInApp(<LoadingScreen />);
     const main = screen.getByRole('status');
     expect(main).toHaveTextContent(en['app.loading']);
-    expect(screen.getByText(en['app.loading.eyebrow'])).toBeVisible();
+    // The status is the panel's first child: no eyebrow line precedes it.
+    expect(main.parentElement?.firstElementChild).toBe(main);
     expect(within(main).queryByRole('heading')).not.toBeInTheDocument();
   });
 });

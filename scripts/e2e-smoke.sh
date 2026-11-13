@@ -22,11 +22,11 @@ find "$root/backend/internal/platform/webui/dist/assets" -type f -print -quit | 
 [[ -s "$tmp/tendo" && -s "$tmp/oidc-provider" ]] || { printf 'native production binaries were not built\n' >&2; exit 1; }
 runner_args=(--root "$root" --app "$tmp/tendo" --provider "$tmp/oidc-provider")
 mode_count=0
-for mode in TENDO_README_SCREENSHOT TENDO_UX_AUDIT_DIR TENDO_SR_AUDIT_DIR TENDO_VISUAL_MODE; do
+for mode in TENDO_README_SCREENSHOT TENDO_UX_AUDIT_DIR TENDO_SR_AUDIT_DIR TENDO_DESIGN_CAPTURE_DIR TENDO_VISUAL_MODE; do
   [[ -n "${!mode:-}" ]] && ((mode_count+=1))
 done
 if (( mode_count > 1 )); then
-  printf 'TENDO_README_SCREENSHOT, TENDO_UX_AUDIT_DIR, TENDO_SR_AUDIT_DIR and TENDO_VISUAL_MODE are mutually exclusive\n' >&2
+  printf 'TENDO_README_SCREENSHOT, TENDO_UX_AUDIT_DIR, TENDO_SR_AUDIT_DIR, TENDO_DESIGN_CAPTURE_DIR and TENDO_VISUAL_MODE are mutually exclusive\n' >&2
   exit 1
 fi
 if [[ -n "${TENDO_README_SCREENSHOT:-}" ]]; then
@@ -41,6 +41,10 @@ elif [[ -n "${TENDO_SR_AUDIT_DIR:-}" ]]; then
   audit_path=$(realpath -m -- "$TENDO_SR_AUDIT_DIR")
   mkdir -p "$audit_path"
   runner_args+=(--sr-audit-dir "$audit_path")
+elif [[ -n "${TENDO_DESIGN_CAPTURE_DIR:-}" ]]; then
+  design_path=$(realpath -m -- "$TENDO_DESIGN_CAPTURE_DIR")
+  mkdir -p "$design_path"
+  runner_args+=(--design-capture-dir "$design_path")
 elif [[ -n "${TENDO_VISUAL_MODE:-}" ]]; then
   if [[ "${TENDO_VISUAL_MODE}" != 1 ]]; then printf 'TENDO_VISUAL_MODE must be 1\n' >&2; exit 1; fi
   if [[ "${TENDO_VISUAL_UPDATE:-0}" != 0 && "${TENDO_VISUAL_UPDATE}" != 1 ]]; then printf 'TENDO_VISUAL_UPDATE must be 0 or 1\n' >&2; exit 1; fi

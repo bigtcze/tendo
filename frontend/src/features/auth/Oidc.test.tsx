@@ -65,7 +65,7 @@ describe('sign in with the configured provider', () => {
     await userEvent.type(screen.getByLabelText('Password'), 'password');
     await userEvent.click(signIn);
     await waitFor(() => expect(fake.requests.some((request) => request.path === '/api/v1/session' && request.method === 'POST')).toBe(true));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
   });
 
   it('retries a network failure, shows the provider, and moves focus from Retry', async () => {
@@ -303,14 +303,14 @@ describe('callback results', () => {
     window.history.replaceState(null, '', '/login');
     installFakeServer({ ...signedIn, ...enabled });
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
   });
 
   it('a successful login callback (/) lands on home without any notice', async () => {
     installFakeServer({ ...signedIn, ...enabled });
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
     expect(screen.queryByText(/sign-in/i)).not.toBeInTheDocument();
   });
 });

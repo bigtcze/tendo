@@ -482,6 +482,20 @@ expect_eq "markers: three loops still select work" 3 "$(sel_calls)"
 expect_eq "markers: no session for an idle backlog" 0 "$(run_calls)"
 expect_grep "markers: the loop stops only at its test bound" 'max loops reached' "${OUT_FILE}"
 
+# A completed release still permits a new unit of maintenance/recovery work.
+new_case post-release-work
+echo "complete" >"${REPO}/.autonomous/V99_COMPLETE"
+printf 'DECISION priority=6 kind=review-owned-dependencies target=issue #900 existing claimant only\nNOTE Never authorises takeover\n' >"${STATE}/selout.1"
+printf 'DECISION priority=7 kind=dependency-pr target=pr #901 maintenance after release\n' >"${STATE}/selout.2"
+printf 'DECISION priority=idle kind=none target=-\n' >"${STATE}/selout.3"
+run_controller AUTONOMY_MAX_LOOPS=3
+expect_eq "post-release: controller remains operational" 0 "${RC}"
+expect_eq "post-release: recovery and maintenance sessions both run" 2 "$(run_calls)"
+expect_eq "post-release: idle polling continues afterward" 3 "$(sel_calls)"
+expect_grep "post-release: advisory kind passed unchanged" 'kind=review-owned-dependencies' "${STATE}/prompt.1"
+expect_grep "post-release: no automatic claim permission added" 'Never authorises takeover' "${STATE}/prompt.1"
+expect_grep "post-release: dependency maintenance remains available" 'kind=dependency-pr' "${STATE}/prompt.2"
+
 # --- 6. selection failures back off and are never idle ----------------------
 
 new_case selection-error
@@ -1160,6 +1174,368 @@ rm "${REPO}/.autonomous/AUTONOMY_PROMPT.md"
 run_controller AUTONOMY_MAX_LOOPS=1
 expect_eq "missing-prompt: a missing prompt file is refused" 2 "${RC}"
 expect_eq "missing-prompt: no selection call" 0 "$(sel_calls)"
+
+# --- 17. concise journal, private per-cycle diagnostics ----------------------
+
+# Default location: $HOME/.local/state/tendo-autonomy/cycles (HOME=${CASE}).
+cycle_logs_root() { printf '%s' "${CYCLE_LOGS:-${CASE}/.local/state/tendo-autonomy/cycles}"; }
+cycle_dirs() {
+  local root
+  root=$(cycle_logs_root)
+  find "${root}" -mindepth 1 -maxdepth 1 -type d -name '*T*Z-c*-p*' 2>/dev/null | sort
+}
+cycle_dir_count() { cycle_dirs | grep -c . || true; }
+mode_of() { stat -c %a -- "$1" 2>/dev/null; }
+
+# Noisy session output: never in the journal, byte-exact in private files.
+new_case logs-noisy
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #920 Noisy work\nREASON noisy\n' \
+  >"${STATE}/selout.1"
+printf 'DECISION priority=idle kind=none target=-\nREASON nothing left\n' >"${STATE}/selout.2"
+python3 - "${STATE}/expected-stdout" "${STATE}/expected-stderr" <<'EOF'
+import sys
+out = b"".join(b"NOISY-STDOUT diff line %d +added -removed\n" % i for i in range(3000))
+out += b"token-stream progress \r\x1b[2K\xff\xfe binary tail without newline"
+err = b"".join(b"NOISY-STDERR tool output %d ghp_FAKEsecretTOKEN\n" % i for i in range(500))
+open(sys.argv[1], "wb").write(out)
+open(sys.argv[2], "wb").write(err)
+EOF
+hook 'cat "${FAKE_STATE}/expected-stdout"
+cat "${FAKE_STATE}/expected-stderr" >&2
+readlink "/proc/$$/fd/1" >"${FAKE_STATE}/session-fd1"
+readlink "/proc/$$/fd/2" >"${FAKE_STATE}/session-fd2"
+pgid=$(ps -o pgid= -p $$ | tr -d " ")
+ps -o comm= -p "${pgid}" >"${FAKE_STATE}/session-leader-comm"
+ps -o pgid= -p "${pgid}" | tr -d " " >"${FAKE_STATE}/session-leader-pgid"
+echo "${pgid}" >"${FAKE_STATE}/session-pgid"'
+run_controller AUTONOMY_MAX_LOOPS=2
+expect_eq "logs-noisy: controller runs normally" 0 "${RC}"
+expect_eq "logs-noisy: exactly one cycle directory" 1 "$(cycle_dir_count)"
+cdir=$(cycle_dirs | head -n 1)
+expect_absent_grep "logs-noisy: session stdout never reaches the journal" 'NOISY-STDOUT' "${OUT_FILE}"
+expect_absent_grep "logs-noisy: session stderr never reaches the journal" 'NOISY-STDERR' "${OUT_FILE}"
+expect_absent_grep "logs-noisy: secrets in session output never reach the journal" 'ghp_FAKE' "${OUT_FILE}"
+if cmp -s "${STATE}/expected-stdout" "${cdir}/stdout.log"; then
+  pass "logs-noisy: stdout is preserved byte-for-byte"
+else
+  fail "logs-noisy: stdout is preserved byte-for-byte" "stdout.log differs ($(stat -c %s "${cdir}/stdout.log" 2>/dev/null) bytes)"
+fi
+if cmp -s "${STATE}/expected-stderr" "${cdir}/stderr.log"; then
+  pass "logs-noisy: stderr is preserved byte-for-byte"
+else
+  fail "logs-noisy: stderr is preserved byte-for-byte" "stderr.log differs"
+fi
+expect_eq "logs-noisy: session stdout is the private file, not a pipe" "${cdir}/stdout.log" "$(cat "${STATE}/session-fd1" 2>/dev/null)"
+expect_eq "logs-noisy: session stderr is the private file, not a pipe" "${cdir}/stderr.log" "$(cat "${STATE}/session-fd2" 2>/dev/null)"
+expect_eq "logs-noisy: the session's process group has a live leader" \
+  "$(cat "${STATE}/session-pgid" 2>/dev/null)" "$(cat "${STATE}/session-leader-pgid" 2>/dev/null)"
+expect_eq "logs-noisy: timeout itself leads the session's process group" timeout "$(cat "${STATE}/session-leader-comm" 2>/dev/null)"
+expect_eq "logs-noisy: state tree directory is private" 700 "$(mode_of "${CASE}/.local/state/tendo-autonomy")"
+expect_eq "logs-noisy: cycles directory is private" 700 "$(mode_of "$(cycle_logs_root)")"
+expect_eq "logs-noisy: cycle directory is private" 700 "$(mode_of "${cdir}")"
+for f in stdout.log stderr.log status; do
+  expect_eq "logs-noisy: ${f} is 0600" 600 "$(mode_of "${cdir}/${f}")"
+done
+if [[ "$(basename "${cdir}")" =~ ^[0-9]{8}T[0-9]{6}Z-c1-p[0-9]+$ ]]; then
+  pass "logs-noisy: cycle directory name carries UTC start, cycle and controller pid"
+else
+  fail "logs-noisy: cycle directory name carries UTC start, cycle and controller pid" "$(basename "${cdir}")"
+fi
+expect_grep "logs-noisy: status records the cycle number" '^cycle=1$' "${cdir}/status"
+expect_grep "logs-noisy: status records the decision" '^decision=DECISION priority=6 kind=claim-issue target=issue #920' "${cdir}/status"
+expect_grep "logs-noisy: status records the start time" '^started=[0-9-]*T[0-9:]*Z$' "${cdir}/status"
+expect_grep "logs-noisy: status records the finish time" '^finished=[0-9-]*T[0-9:]*Z$' "${cdir}/status"
+expect_grep "logs-noisy: status records the exit code" '^exit_code=0$' "${cdir}/status"
+expect_grep "logs-noisy: status records the duration" '^duration_seconds=[0-9][0-9]*$' "${cdir}/status"
+expect_grep "logs-noisy: journal keeps the cycle start line" 'cycle 1 start: DECISION priority=6' "${OUT_FILE}"
+expect_grep "logs-noisy: journal names the diagnostics path at start" "cycle 1 diagnostics: ${cdir}" "${OUT_FILE}"
+expect_grep "logs-noisy: journal summary has rc, duration and path" \
+  "cycle 1 exit rc=0 duration=[0-9]*s stdout=$(stat -c %s "${STATE}/expected-stdout")B stderr=$(stat -c %s "${STATE}/expected-stderr")B diagnostics=${cdir}" "${OUT_FILE}"
+expect_grep "logs-noisy: journal keeps the finish line" 'cycle 1 finished' "${OUT_FILE}"
+expect_grep "logs-noisy: journal keeps the idle line" 'idle: REASON nothing left ; next poll in 300s' "${OUT_FILE}"
+journal_lines=$(wc -l <"${OUT_FILE}")
+if ((journal_lines <= 10)); then
+  pass "logs-noisy: the journal stays concise (${journal_lines} lines)"
+else
+  fail "logs-noisy: the journal stays concise" "${journal_lines} lines"
+fi
+if git -C "${REPO}" status --porcelain --ignored | grep -q .; then
+  fail "logs-noisy: nothing is written into the checkout" "$(git -C "${REPO}" status --porcelain --ignored)"
+else
+  pass "logs-noisy: nothing is written into the checkout"
+fi
+
+# A failing session keeps its exit code; the journal gets an actionable
+# summary without the raw output.
+new_case logs-failure
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #921 Failing work\nREASON failing\n' \
+  >"${STATE}/selout.1"
+printf 'DECISION priority=idle kind=none target=-\nREASON nothing left\n' >"${STATE}/selout.2"
+echo 3 >"${STATE}/rc.1"
+hook 'echo "RAW-FAILURE-STDOUT tool output"
+echo "RAW-FAILURE-STDERR Error: provider exploded" >&2'
+run_controller AUTONOMY_MAX_LOOPS=2
+cdir=$(cycle_dirs | head -n 1)
+expect_eq "logs-failure: controller continues" 0 "${RC}"
+expect_grep "logs-failure: journal summary keeps rc and path" "cycle 1 exit rc=3 duration=[0-9]*s .*diagnostics=${cdir}" "${OUT_FILE}"
+expect_grep "logs-failure: existing failure line is kept" 'cycle 1 failed rc=3' "${OUT_FILE}"
+expect_grep "logs-failure: retry backoff line is kept" 'retrying after 120s' "${OUT_FILE}"
+expect_absent_grep "logs-failure: raw stdout is not journalled" 'RAW-FAILURE-STDOUT' "${OUT_FILE}"
+expect_absent_grep "logs-failure: raw stderr is not journalled" 'RAW-FAILURE-STDERR' "${OUT_FILE}"
+expect_grep "logs-failure: stderr is preserved in the file" 'RAW-FAILURE-STDERR Error: provider exploded' "${cdir}/stderr.log"
+expect_grep "logs-failure: status records the exit code" '^exit_code=3$' "${cdir}/status"
+expect_eq "logs-failure: failure backoff unchanged" "120 300" "$(sleep_log)"
+
+# Timeout: the timeout status and the partial output are preserved.
+new_case logs-timeout
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #922 Slow work\nREASON slow\n' \
+  >"${STATE}/selout.1"
+printf 'DECISION priority=idle kind=none target=-\nREASON nothing left\n' >"${STATE}/selout.2"
+hook 'echo "PARTIAL-BEFORE-TIMEOUT"
+/bin/sleep 30'
+run_controller AUTONOMY_MAX_LOOPS=2 CYCLE_TIMEOUT=2s CYCLE_KILL_AFTER=1s
+cdir=$(cycle_dirs | head -n 1)
+expect_grep "logs-timeout: exit 124 is kept in the summary" "cycle 1 exit rc=124 .*diagnostics=${cdir}" "${OUT_FILE}"
+expect_grep "logs-timeout: the timeout line is kept" 'cycle 1 timed out after 2s' "${OUT_FILE}"
+expect_grep "logs-timeout: status records the timeout code" '^exit_code=124$' "${cdir}/status"
+expect_grep "logs-timeout: output before the timeout is preserved" 'PARTIAL-BEFORE-TIMEOUT' "${cdir}/stdout.log"
+expect_absent_grep "logs-timeout: partial output is not journalled" 'PARTIAL-BEFORE-TIMEOUT' "${OUT_FILE}"
+
+# Wrapper recovery sessions are logged the same way.
+new_case logs-recovery
+CYCLE_LOGS=""
+touch "${STATE}/pending.marker"
+echo 78 >"${STATE}/rc.1"
+hook 'echo "RECOVERY-STDOUT resumed session"
+echo "RECOVERY-STDERR wrapper detail" >&2'
+run_controller AUTONOMY_MAX_LOOPS=1 OPENCODE_BIN="${CASE}/bin/opencode-tendo-safe"
+cdir=$(cycle_dirs | head -n 1)
+expect_eq "logs-recovery: one recovery cycle directory" 1 "$(cycle_dir_count)"
+expect_grep "logs-recovery: status names the recovery decision" '^decision=DECISION priority=3 kind=wrapper-recovery' "${cdir}/status"
+expect_grep "logs-recovery: status records rc 78" '^exit_code=78$' "${cdir}/status"
+expect_grep "logs-recovery: recovery stdout preserved" 'RECOVERY-STDOUT resumed session' "${cdir}/stdout.log"
+expect_grep "logs-recovery: recovery stderr preserved" 'RECOVERY-STDERR wrapper detail' "${cdir}/stderr.log"
+expect_absent_grep "logs-recovery: recovery output not journalled" 'RECOVERY-STD' "${OUT_FILE}"
+expect_grep "logs-recovery: RECOVERY BLOCKED is still journalled" 'RECOVERY BLOCKED' "${OUT_FILE}"
+expect_grep "logs-recovery: summary names rc 78 and the path" "cycle 1 exit rc=78 .*diagnostics=${cdir}" "${OUT_FILE}"
+
+# Diagnostics that cannot be created: the session is never started.
+new_case logs-unwritable
+CYCLE_LOGS="${CASE}/not-a-dir/cycles"
+printf 'regular file\n' >"${CASE}/not-a-dir"
+printf 'DECISION priority=6 kind=claim-issue target=issue #923 Unloggable work\nREASON unloggable\n' \
+  >"${STATE}/selout.1"
+printf 'DECISION priority=idle kind=none target=-\nREASON nothing left\n' >"${STATE}/selout.2"
+run_controller AUTONOMY_MAX_LOOPS=2 CYCLE_LOG_DIR="${CYCLE_LOGS}"
+expect_eq "logs-unwritable: controller keeps running" 0 "${RC}"
+expect_eq "logs-unwritable: no session starts without diagnostics" 0 "$(run_calls)"
+expect_grep "logs-unwritable: the refusal is journalled" "cycle 1 not started: cannot create private diagnostics under ${CYCLE_LOGS}" "${OUT_FILE}"
+expect_absent_grep "logs-unwritable: no start line for an unstarted cycle" 'cycle 1 start:' "${OUT_FILE}"
+expect_eq "logs-unwritable: it backs off like a failure, then polls" "120 300" "$(sleep_log)"
+
+new_case logs-unwritable-recovery
+CYCLE_LOGS="${CASE}/not-a-dir/cycles"
+printf 'regular file\n' >"${CASE}/not-a-dir"
+touch "${STATE}/pending.marker"
+run_controller AUTONOMY_MAX_LOOPS=1 OPENCODE_BIN="${CASE}/bin/opencode-tendo-safe" CYCLE_LOG_DIR="${CYCLE_LOGS}"
+expect_eq "logs-unwritable-recovery: no recovery session without diagnostics" 0 "$(run_calls)"
+expect_eq "logs-unwritable-recovery: failure backoff" "120" "$(sleep_log)"
+
+# A symlinked log directory (possible redirection) is refused.
+new_case logs-symlink
+mkdir -p "${CASE}/elsewhere"
+CYCLE_LOGS="${CASE}/linked-cycles"
+ln -s "${CASE}/elsewhere" "${CYCLE_LOGS}"
+printf 'DECISION priority=6 kind=claim-issue target=issue #924 Linked work\nREASON linked\n' \
+  >"${STATE}/selout.1"
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_DIR="${CYCLE_LOGS}"
+expect_eq "logs-symlink: no session through a symlinked log directory" 0 "$(run_calls)"
+expect_eq "logs-symlink: nothing written through the link" "" "$(ls -A "${CASE}/elsewhere")"
+expect_grep "logs-symlink: the refusal is journalled" "cycle 1 not started: cannot create private diagnostics" "${OUT_FILE}"
+
+# Invalid locations are refused at startup.
+new_case logs-config
+for bad in "relative/cycles" "${REPO}/.cycle-logs" "${RUNTIME}/cycles" "${TMP}/cycles"; do
+  run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_DIR="${bad}"
+  expect_eq "logs-config: CYCLE_LOG_DIR=${bad#"${CASE}"/} is refused" 2 "${RC}"
+  expect_grep "logs-config: CYCLE_LOG_DIR=${bad#"${CASE}"/} refusal is explained" 'invalid CYCLE_LOG_DIR=' "${OUT_FILE}"
+done
+for knob in CYCLE_LOG_KEEP_COUNT CYCLE_LOG_MAX_AGE_DAYS CYCLE_LOG_MAX_BYTES; do
+  run_controller AUTONOMY_MAX_LOOPS=1 "${knob}=0"
+  expect_eq "logs-config: ${knob}=0 is refused" 2 "${RC}"
+  expect_grep "logs-config: ${knob}=0 refusal is explained" "invalid ${knob}='0' (minimum 1)" "${OUT_FILE}"
+done
+expect_eq "logs-config: no selection before any refusal" 0 "$(sel_calls)"
+
+# Bounded retention by count, age and bytes; the newest cycle always stays and
+# unrelated entries are never touched.
+make_old_cycle() { # <name> <bytes> [touch date]
+  local dir
+  dir="$(cycle_logs_root)/$1"
+  mkdir -p "${dir}"
+  head -c "$2" /dev/zero >"${dir}/stdout.log"
+  : >"${dir}/stderr.log"
+  : >"${dir}/status"
+  if [[ -n "${3:-}" ]]; then touch -d "$3" "${dir}" "${dir}"/*; fi
+}
+
+new_case logs-retention-count
+CYCLE_LOGS=""
+for n in 1 2 3 4 5; do make_old_cycle "2026010${n}T000000Z-c${n}-p1" 10; done
+mkdir -p "$(cycle_logs_root)/unrelated-dir"
+ln -s "${CASE}" "$(cycle_logs_root)/20260109T000000Z-c9-p1"
+printf 'DECISION priority=6 kind=claim-issue target=issue #925 Work\nREASON work\n' >"${STATE}/selout.1"
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_KEEP_COUNT=3
+expect_eq "logs-retention-count: keeps CYCLE_LOG_KEEP_COUNT cycle dirs" 3 "$(cycle_dir_count)"
+if [[ "$(cycle_dirs | grep -c -- '-c1-p[0-9]*$' || true)" == 1 &&
+  -d "$(cycle_logs_root)/20260105T000000Z-c5-p1" && -d "$(cycle_logs_root)/20260104T000000Z-c4-p1" ]]; then
+  pass "logs-retention-count: the newest cycles survive"
+else
+  fail "logs-retention-count: the newest cycles survive" "$(cycle_dirs | xargs -n1 basename | tr '\n' ' ')"
+fi
+expect_eq "logs-retention-count: oldest is removed" no "$([[ -d "$(cycle_logs_root)/20260101T000000Z-c1-p1" ]] && echo yes || echo no)"
+expect_eq "logs-retention-count: unrelated entries are untouched" yes "$([[ -d "$(cycle_logs_root)/unrelated-dir" ]] && echo yes || echo no)"
+expect_eq "logs-retention-count: symlinks are never followed or removed" yes "$([[ -L "$(cycle_logs_root)/20260109T000000Z-c9-p1" && -d "${REPO}" ]] && echo yes || echo no)"
+expect_grep "logs-retention-count: pruning is journalled" 'cycle log retention: removed 3 old cycle log directories' "${OUT_FILE}"
+
+new_case logs-retention-age
+CYCLE_LOGS=""
+make_old_cycle "20200101T000000Z-c1-p1" 10 "2020-01-01"
+make_old_cycle "20200102T000000Z-c2-p1" 10 "2020-01-02"
+make_old_cycle "29990101T000000Z-c3-p1" 10
+printf 'DECISION priority=6 kind=claim-issue target=issue #926 Work\nREASON work\n' >"${STATE}/selout.1"
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_MAX_AGE_DAYS=30
+expect_eq "logs-retention-age: aged cycle dirs are removed" 2 "$(cycle_dir_count)"
+expect_eq "logs-retention-age: recent cycle dirs stay" yes "$([[ -d "$(cycle_logs_root)/29990101T000000Z-c3-p1" ]] && echo yes || echo no)"
+
+new_case logs-retention-bytes
+CYCLE_LOGS=""
+make_old_cycle "20260101T000000Z-c1-p1" 40000
+make_old_cycle "20260102T000000Z-c2-p1" 40000
+make_old_cycle "20260103T000000Z-c3-p1" 40000
+printf 'DECISION priority=6 kind=claim-issue target=issue #927 Work\nREASON work\n' >"${STATE}/selout.1"
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_MAX_BYTES=100000
+expect_eq "logs-retention-bytes: total stays under CYCLE_LOG_MAX_BYTES" 3 "$(cycle_dir_count)"
+expect_eq "logs-retention-bytes: oldest removed first" no "$([[ -d "$(cycle_logs_root)/20260101T000000Z-c1-p1" ]] && echo yes || echo no)"
+total=$(du -sb "$(cycle_logs_root)" | cut -f1)
+if ((total <= 100000 + 8192)); then
+  pass "logs-retention-bytes: remaining bytes are bounded (${total})"
+else
+  fail "logs-retention-bytes: remaining bytes are bounded" "${total}"
+fi
+
+new_case logs-retention-newest
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #928 Big work\nREASON big\n' >"${STATE}/selout.1"
+hook 'head -c 50000 /dev/zero'
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_MAX_BYTES=1000
+expect_eq "logs-retention-newest: the newest cycle survives even above the byte cap" 1 "$(cycle_dir_count)"
+expect_eq "logs-retention-newest: its output is complete" 50000 "$(stat -c %s "$(cycle_dirs | head -n 1)/stdout.log" 2>/dev/null)"
+
+# A crafted name with newlines must never split into a relative path that
+# pruning would resolve against the checkout (the controller's cwd).
+new_case logs-retention-newline
+CYCLE_LOGS=""
+mkdir -p "${REPO}/victim" "$(cycle_logs_root)"
+touch "${REPO}/victim/sentinel"
+# Split on newlines, "zz" would sort first (kept as "newest") and the relative
+# "victim" second, so a line-based prune would remove ${REPO}/victim.
+crafted="$(cycle_logs_root)/20200101T000000Z-c0-p0"$'\n'"zz"$'\n'"victim"$'\n'"20200101T000000Z-c0-p0"
+mkdir -p "${crafted}"
+touch -d 2020-01-01 "${crafted}"
+make_old_cycle "20200101T000000Z-c1-p1" 10 "2020-01-01"
+printf 'DECISION priority=6 kind=claim-issue target=issue #932 Work\nREASON work\n' >"${STATE}/selout.1"
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_KEEP_COUNT=1
+expect_eq "logs-retention-newline: nothing outside CYCLE_LOG_DIR is removed" yes \
+  "$([[ -f "${REPO}/victim/sentinel" ]] && echo yes || echo no)"
+expect_eq "logs-retention-newline: a non-matching crafted name is left alone" yes \
+  "$([[ -d "${crafted}" ]] && echo yes || echo no)"
+expect_eq "logs-retention-newline: genuine aged cycles are still pruned" no \
+  "$([[ -d "$(cycle_logs_root)/20200101T000000Z-c1-p1" ]] && echo yes || echo no)"
+
+# The current cycle's evidence survives even when a future-stamped directory
+# sorts above it and the byte cap is exceeded.
+new_case logs-retention-current
+CYCLE_LOGS=""
+make_old_cycle "29990101T000000Z-c9-p1" 40000
+printf 'DECISION priority=6 kind=claim-issue target=issue #933 Work\nREASON work\n' >"${STATE}/selout.1"
+hook 'head -c 20000 /dev/zero'
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_MAX_BYTES=30000
+current=$(cycle_dirs | grep -- '-c1-p[0-9]*$' | head -n 1)
+expect_eq "logs-retention-current: the just-summarised cycle survives" 20000 \
+  "$(stat -c %s "${current}/stdout.log" 2>/dev/null)"
+expect_grep "logs-retention-current: its journal path stays valid" "diagnostics=${current}" "${OUT_FILE}"
+
+# Signals: the in-flight cycle's evidence names the interruption.
+new_case logs-sigterm
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #929 Long work\nREASON long\n' >"${STATE}/selout.1"
+hook 'echo "BEFORE-SIGNAL output"
+touch "${FAKE_STATE}/cycle-started"
+while :; do /bin/sleep 0.1; done'
+start_controller_bg CYCLE_STOP_GRACE=1 CYCLE_TIMEOUT=300
+if wait_for "${STATE}/cycle-started"; then
+  kill -TERM "${CTRL_PID}"
+  RC=0
+  wait "${CTRL_PID}" || RC=$?
+  cdir=$(cycle_dirs | head -n 1)
+  expect_eq "logs-sigterm: exit status unchanged" 143 "${RC}"
+  expect_grep "logs-sigterm: status records the interruption" '^interrupted=SIGTERM$' "${cdir}/status"
+  expect_grep "logs-sigterm: status records the controller exit" '^controller_exit_code=143$' "${cdir}/status"
+  expect_grep "logs-sigterm: journal names the interrupted cycle and path" "cycle 1 interrupted (SIGTERM); controller exit 143; diagnostics=${cdir}" "${OUT_FILE}"
+  expect_grep "logs-sigterm: output before the signal is preserved" 'BEFORE-SIGNAL output' "${cdir}/stdout.log"
+  expect_absent_grep "logs-sigterm: output is not journalled" 'BEFORE-SIGNAL' "${OUT_FILE}"
+  if lock_free "${RUNTIME}/tendo-autonomous-${UID}.lock" && lock_free "${RUNTIME}/tendo-maintenance-${UID}.lock"; then
+    pass "logs-sigterm: locks are released only at exit"
+  else
+    fail "logs-sigterm: locks are released only at exit" "a lock is still held"
+  fi
+else
+  kill -KILL "${CTRL_PID}" 2>/dev/null || true
+  wait "${CTRL_PID}" 2>/dev/null || true
+  fail "logs-sigterm: TERM during a logged cycle" "the session never started"
+fi
+
+new_case logs-fail-closed
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #930 Stuck work\nREASON stuck\n' >"${STATE}/selout.1"
+hook 'touch "${FAKE_STATE}/job-started"'
+touch "${STATE}/group-never-gone"
+run_controller AUTONOMY_MAX_LOOPS=2 CYCLE_DRAIN_TIMEOUT=1 CYCLE_STOP_GRACE=1 \
+  AUTONOMY_TEST_GROUP_ALIVE_FILE="${STATE}/group-never-gone"
+cdir=$(cycle_dirs | head -n 1)
+expect_eq "logs-fail-closed: still exits 70" 70 "${RC}"
+expect_grep "logs-fail-closed: the session exit code is kept before the drain" '^exit_code=0$' "${cdir}/status"
+expect_grep "logs-fail-closed: status records the fail-closed exit" '^interrupted=fail-closed$' "${cdir}/status"
+expect_grep "logs-fail-closed: journal names the path" "cycle 1 interrupted (fail-closed); controller exit 70; diagnostics=${cdir}" "${OUT_FILE}"
+
+# A second controller never creates cycle logs.
+new_case logs-concurrent
+CYCLE_LOGS=""
+printf 'DECISION priority=6 kind=claim-issue target=issue #931 Held work\nREASON held\n' >"${STATE}/selout.1"
+hook 'touch "${FAKE_STATE}/job-started"
+for _ in $(seq 400); do
+  [[ -e "${FAKE_STATE}/release-job" ]] && break
+  /bin/sleep 0.05
+done'
+start_controller_bg AUTONOMY_MAX_LOOPS=1
+if wait_for "${STATE}/job-started"; then
+  mkdir -p "${CASE}/state-b"
+  OUT_FILE="${CASE}/out-b"
+  run_controller AUTONOMY_MAX_LOOPS=1 FAKE_STATE="${CASE}/state-b"
+  OUT_FILE="${CASE}/out"
+  expect_eq "logs-concurrent: the second controller exits 75" 75 "${RC}"
+  expect_eq "logs-concurrent: only the running cycle has a log directory" 1 "$(cycle_dir_count)"
+  touch "${STATE}/release-job"
+  wait "${CTRL_PID}" 2>/dev/null || true
+else
+  kill -KILL "${CTRL_PID}" 2>/dev/null || true
+  wait "${CTRL_PID}" 2>/dev/null || true
+  fail "logs-concurrent: second controller during a logged cycle" "the session never started"
+fi
 
 # --- summary ----------------------------------------------------------------
 

@@ -30,7 +30,7 @@ SPEC.loader.exec_module(sel)
 
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
 LABEL = "release"
-V5_MILESTONE = "Tendo v5.0.0 - Refined & Reliable"
+V5_MILESTONE = "Legacy milestone A"  # arbitrary: ownership must ignore milestones
 
 
 def iso(delta_hours: float) -> str:
@@ -978,6 +978,783 @@ class Collection(unittest.TestCase):
         with self.assertRaises(sel.SelectionError):
             sel.collect("o/r", self.fake_gh(endless_merged=True), NOW)
         self.assertEqual(len(self.pulls_calls()), sel.MERGED_PAGE_CAP)
+
+
+def comment(cid, hours_ago, body, assoc="OWNER", login="bigtcze"):
+    return {"id": cid, "createdAt": iso(hours_ago), "updatedAt": iso(hours_ago),
+            "author": {"login": login}, "authorAssociation": assoc, "body": body}
+
+
+# Recorded server time of the real #446 blocker comment (before the cutoff).
+LEGACY_446_TIME = "2026-11-12T14:21:00Z"
+
+
+def legacy_comment(cid, body, login="tendo-autonomous-orchestrator", created=LEGACY_446_TIME):
+    """Historical blocker comment pinned to its recorded server time."""
+    return {"id": cid, "createdAt": created, "updatedAt": created,
+            "author": {"login": login}, "authorAssociation": "OWNER", "body": body}
+
+
+# Verbatim comment body recorded for #446 (read-only evidence fixture; the
+# source file is never modified). It starts with a BLOCKED line and carries the
+# markdown `## Blocker:` heading and the combined-delivery proposal.
+LEGACY_446_BODY = """BLOCKED agent=tendo-autonomous-orchestrator time=2026-11-12
+
+## Evidence (PR #464, head 532c188, required run 43234440474)
+Audit: `docs/development/recurrence-audit.md` on the PR branch. Independent review (oracle): approve after rework.
+
+Commit `aecad02` turned failing rows into expected-failure locks and inverted the frontend assertion. The reviewer rejected it (that weakens tests) and `9b23415` reverted it. Every assertion now states the contract value directly.
+
+Required CI fails **only** on these reproducers. api, e2e, visual and all deployment smokes pass:
+- **R1 anchor drift** (engine `TestNextCycleContractGolden/Coverage`, service `TestCompletionContractGoldenReturnedAndPersisted`, real PostgreSQL `TestCompletionContractGoldenPostgres`, which now runs Golden()+Coverage()). The same 8 rows fail on all three layers: fixed anchor restoration (2027-03-28, want 03-31), yearly leap day (2032-02-28, want 02-29), quarterly (05-28, want 05-30), half-yearly (08-28, want 08-31), 12-month leap day, 2-month early (04-28, want 04-30), leap century 2000 (2000-02-28, want 02-29), 2104 after non-leap 2100. Causes: no persisted anchor, and `NextCycle` catch-up clamps sequentially.
+- **R2 same-date Done** (`ItemDetailScreen.test.tsx`, fixed and after_completion). When the first completion commits while detail is unmounted, its Idempotency-Key is not cleared. The next Done reuses the key, gets the old receipt replayed and does not advance.
+- **R3 undo vs intervening edit** (`TestCompletionContractUndoRejectsInterveningAttentionEdit`): undo succeeds and overwrites the 2026-10-25 edit back to 2026-10-20. This collides with the contract rule "reject undo for an intervening changed state". The current behavior is documented in api/openapi.yaml and `TestUndoOverwritesAttentionEditedAfterCompletion`.
+- Pass on all layers: year rollover, early/late fixed, fluid, 2-month late, 7/14-day December crossing, daily into Feb 29, DST (Europe/Prague) local date.
+
+## Blocker: dependency ordering (owner decision needed)
+Acceptance needs failing tests that are merged. Merging needs green required CI, and the tests must not be weakened (GUARDRAILS, FLOW, V2_1_SCOPE). So #446 cannot merge on its own. #447 (the fix) is `Blocked by: #446`, and #446 can only close after a merged PR and green main. Neither Issue can proceed autonomously.
+
+Proposed resolution (needs owner authorization because it changes Issue-level ordering): deliver #446 and #447 as one PR. The #447 fix builds on branch `test/v5-02-recurrence-golden`; the tests and the fix merge together through normal green checks; both Issues close after a verified green main. Until then PR #464 stays draft as recorded red evidence. Production recurrence logic is unchanged."""
+
+
+def legacy_issues(claim_comments=(), extra_446=(), body_446=None):
+    """Actual #446/#447 shape: #446 blocked with the recorded blocker body; #447 depends on #446."""
+    body_446 = LEGACY_446_BODY if body_446 is None else body_446
+    return owned_graph(
+        [issue(446, "V5-02", "Recurrence audit", status="status:blocked", deps=[444]),
+         issue(447, "V5-03", "Fix recurrence engine", status="status:idle", deps=[446])],
+        {446: [legacy_comment(10, body_446),
+               *claim_comments, *extra_446]})
+
+
+def with_comments(item, *comments):
+    item = copy.deepcopy(item)
+    item["comments"] = list(comments)
+    return item
+
+
+def owned_graph(items, comments=None):
+    """Closed #444 plus the given owned Issues; `comments` maps number -> list."""
+    comments = comments or {}
+    base = [issue(444, "V5-00", "Gov", status=None, state="CLOSED")] + list(items)
+    return [with_comments(i, *comments.get(i["number"], [])) for i in base]
+
+
+def legacy_pr(number, refs_number):
+    pr = feature_pr(number, refs_number)
+    pr["isDraft"] = True
+    return pr
+
+
+def merged_default():
+    return merged(1, 30, dependency=True)
+
+
+class DependencyRecovery(unittest.TestCase):
+    def pick(self, issues, dependency_states=None, open_prs=None, merged=None):
+        return sel.select(snapshot(issues=issues, dependency_states=dependency_states or {},
+                                   open_prs=open_prs or [], merged_prs=merged or [merged_default()]), NOW)
+
+    def assertNoRecovery(self, decision):
+        self.assertNotEqual(decision["kind"], "review-owned-dependencies")
+        self.assertNotEqual(decision["kind"], "dependency-recovery")
+
+    # -- explicit records: advisory only, never executable -----------------
+    def test_explicit_pair_is_advisory_review_not_executable(self):
+        items = owned_graph(
+            [issue(446, "V5-02", "Audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix", status="status:idle", deps=[446])],
+            {446: [comment(1, 5, "BLOCKED kind=owned-dependency needs=#447 recovery=combined")]})
+        d = self.pick(items)
+        self.assertEqual((d["priority"], d["kind"]), (6, "review-owned-dependencies"))
+        self.assertEqual(d["target"]["group"], [446, 447])
+        self.assertEqual(d["target"]["blocker"]["comment"], 1)
+
+    def test_ordinary_ready_issue_beats_advisory(self):
+        items = legacy_issues() + [issue(900, "V6-01", "Ready", deps=[444])]
+        d = self.pick(items)
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]), (6, "claim-issue", 900))
+
+    def test_eligible_outside_work_is_claimed_before_any_held_advisory(self):
+        # A foreign active claim on the legacy group must not pre-empt an eligible claim-issue.
+        foreign = [comment(11, 4, "CLAIM agent=other time=x", login="other")]
+        items = legacy_issues(claim_comments=foreign) + [issue(900, "V6-01", "Ready", deps=[444])]
+        d = self.pick(items)
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 900))
+
+    def test_unknown_blocked_prose_is_never_recommended(self):
+        items = legacy_issues(body_446="BLOCKED agent=a time=x\n\nWaiting on the owner to decide.")
+        self.assertNoRecovery(self.pick(items))
+
+    def test_external_blocker_excludes_the_group_even_when_idle(self):
+        items = owned_graph(
+            [issue(446, "V5-02", "Audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix", status="status:idle", deps=[446])],
+            {446: [comment(1, 5, "BLOCKED kind=external recovery=none")]})
+        self.assertNoRecovery(self.pick(items))
+
+    def test_external_member_blocker_excludes_a_declared_cycle(self):
+        items = owned_graph(
+            [issue(510, "V5-10", "a", status="status:idle", deps=[511]),
+             issue(511, "V5-11", "b", status="status:idle", deps=[510])],
+            {511: [comment(1, 5, "BLOCKED kind=external recovery=none")]})
+        self.assertNoRecovery(self.pick(items))
+
+    def test_untrusted_blocker_comment_is_ignored(self):
+        items = owned_graph(
+            [issue(446, "V5-02", "Audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix", status="status:idle", deps=[446])],
+            {446: [comment(1, 5, "BLOCKED kind=owned-dependency needs=#447 recovery=combined",
+                           assoc="NONE")]})
+        self.assertNoRecovery(self.pick(items))
+
+    # -- legacy #446/#447 evidence review (advisory, claimant only) ---------
+    def test_legacy_446_447_is_reviewed_for_the_existing_claimant(self):
+        d = self.pick(legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")]),
+                      open_prs=[legacy_pr(470, 446)])
+        self.assertEqual((d["priority"], d["kind"]), (6, "review-owned-dependencies"))
+        self.assertEqual(d["target"]["evidence"], "legacy-ordering")
+        self.assertEqual(d["target"]["group"], [446, 447])
+        self.assertEqual(d["target"]["number"], 446)
+        self.assertEqual(d["target"]["pr"], 470)
+        self.assertEqual(d["target"]["claim"]["agent"], "a")
+        self.assertEqual(d["target"]["blocker"]["comment"], 10)
+
+    def test_legacy_group_without_a_claimant_or_pr_is_not_reviewed(self):
+        self.assertNoRecovery(self.pick(legacy_issues(), open_prs=[legacy_pr(470, 446)]))
+        claimed = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")])
+        self.assertNoRecovery(self.pick(claimed))
+
+    def test_incidental_evidence_wording_in_the_body_does_not_block_review(self):
+        # Body prose mentioning credentials/secrets is evidence, not a decision.
+        body = (LEGACY_446_BODY + "\n\nNo credentials or infrastructure are missing. "
+                "Checks run without secrets.")
+        items = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")],
+                              body_446=body)
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertEqual((d["priority"], d["kind"]), (6, "review-owned-dependencies"))
+        self.assertEqual(d["target"]["evidence"], "legacy-ordering")
+
+    def test_external_decision_heading_excludes_the_review(self):
+        body = LEGACY_446_BODY.replace(
+            "## Blocker: dependency ordering (owner decision needed)",
+            "## Blocker: external service outage (waiting on upstream)")
+        items = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")],
+                              body_446=body)
+        self.assertNoRecovery(self.pick(items, open_prs=[legacy_pr(470, 446)]))
+
+    def test_current_external_blocker_supersedes_an_earlier_ordering_review(self):
+        # The latest trusted blocker decides: an explicit external record posted
+        # after the ordering proposal genuinely blocks, so no review is emitted.
+        comments = [
+            legacy_comment(10, LEGACY_446_BODY),
+            comment(11, 8, "CLAIM agent=a time=x", login="bigtcze"),
+            comment(12, 7, "BLOCKED kind=external recovery=none", login="bigtcze"),
+        ]
+        items = owned_graph(
+            [issue(446, "V5-02", "Recurrence audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix recurrence engine", status="status:idle", deps=[446])],
+            {446: comments})
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertNoRecovery(d)
+        self.assertEqual((d["priority"], d["kind"]), ("idle", "none"))
+
+    def test_legacy_review_refuses_when_dependency_is_not_a_declared_reverse_edge(self):
+        items = owned_graph(
+            [issue(446, "V5-02", "Audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix", status="status:idle", deps=[444])],
+            {446: [legacy_comment(10, LEGACY_446_BODY),
+                   comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")]})
+        self.assertNoRecovery(self.pick(items, open_prs=[legacy_pr(470, 446)]))
+
+    def test_legacy_review_is_stable_over_time_main_and_unrelated_comments(self):
+        base_items = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")])
+        first = self.pick(base_items, open_prs=[legacy_pr(470, 446)])
+        later = copy.deepcopy(base_items)
+        later[1]["comments"].append(comment(20, 1, "Unrelated discussion."))
+        later_snap = snapshot(issues=later, open_prs=[legacy_pr(470, 446)],
+                              merged_prs=[merged_default()])
+        later_snap["main_head_sha"] = "newer"
+        second = sel.select(later_snap, NOW + timedelta(days=3))
+        self.assertEqual(first["kind"], second["kind"])
+        self.assertEqual(first["target"]["group"], second["target"]["group"])
+
+    # -- HANDOFF and RELEASE authorization ----------------------------------
+    def test_actual_446_fixture_reviews_via_cli_twice_with_identical_output(self):
+        issues = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "snap.json"
+            path.write_text(json.dumps(snapshot(issues=issues, open_prs=[legacy_pr(464, 446)])))
+            runs = [subprocess.run([sys.executable, str(SCRIPT), "--snapshot", str(path),
+                                    "--now", NOW.isoformat()],
+                                   check=True, capture_output=True, text=True).stdout
+                    for _ in range(2)]
+        self.assertEqual(runs[0], runs[1])
+        self.assertIn("DECISION priority=6 kind=review-owned-dependencies", runs[0])
+        self.assertIn('"evidence": "legacy-ordering"', runs[0])
+        self.assertIn('"group": [446, 447]', runs[0])
+        self.assertIn('"pr": 464', runs[0])
+
+    def test_release_then_reclaim_starts_a_new_active_epoch(self):
+        items = legacy_issues(claim_comments=[
+            comment(11, 8, "CLAIM agent=a time=x", login="bigtcze"),
+            comment(12, 7, "RELEASE agent=a time=y", login="bigtcze"),
+            comment(13, 6, "CLAIM agent=a time=z", login="bigtcze")])
+        issue_446 = next(i for i in items if i["number"] == 446)
+        life = sel.deps.replay(issue_446["comments"])
+        self.assertEqual(life["claim"]["id"], 13)
+        self.assertEqual(life["conflicts"], [])
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertEqual(d["target"]["claim"]["id"], 13)
+
+    def test_old_claim_then_blocker_then_release_then_reclaim_stays_review_not_idle(self):
+        # Regression: CLAIM -> BLOCKED -> RELEASE -> CLAIM. The holder RELEASE
+        # retires only the old epoch; the recorded blocker persists, so the
+        # re-claim still gets the claimant-only review. There is no ack mechanism.
+        comments = [
+            legacy_comment(11, "CLAIM agent=a time=x", login="bigtcze", created="2026-11-12T12:00:00Z"),
+            legacy_comment(10, LEGACY_446_BODY),
+            legacy_comment(12, "RELEASE agent=a time=y", login="bigtcze", created="2026-11-12T15:00:00Z"),
+            legacy_comment(13, "CLAIM agent=a time=z", login="bigtcze", created="2026-11-12T16:00:00Z"),
+        ]
+        items = owned_graph(
+            [issue(446, "V5-02", "Recurrence audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix recurrence engine", status="status:idle", deps=[446])],
+            {446: comments})
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertEqual((d["priority"], d["kind"]), (6, "review-owned-dependencies"))
+        self.assertEqual(d["target"]["evidence"], "legacy-ordering")
+        self.assertEqual(d["target"]["claim"]["id"], 13)
+        self.assertEqual(d["target"]["conflicts"], [])
+
+    def test_transition_review_then_active_pr_then_idle_after_closed(self):
+        items = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")])
+        review = self.pick(items, open_prs=[legacy_pr(464, 446)])
+        self.assertEqual((review["priority"], review["kind"]), (6, "review-owned-dependencies"))
+        self.assertEqual(review["target"]["number"], 446)
+        self.assertEqual(review["target"]["claim"]["agent"], "a")
+
+        # The claimant reconciles live: #446 -> in-progress and a non-draft PR Refs both Issues.
+        working = copy.deepcopy(items)
+        member = next(i for i in working if i["number"] == 446)
+        member["labels"] = [{"name": "status:in-progress"}, {"name": "release"}]
+        pr = feature_pr(480, 446)
+        pr["body"] = "Refs #446\nRefs #447"
+        active = self.pick(working, open_prs=[pr])
+        self.assertEqual((active["priority"], active["kind"], active["target"]["number"]),
+                         (3, "active-pr", 480))
+        self.assertEqual(active["target"]["issues"], [446, 447])
+
+        # Merged + both Issues closed: no work left. The selector never closes Issues itself.
+        closed = [issue(444, "V5-00", "Gov", status=None, state="CLOSED"),
+                  issue(446, "V5-02", "Recurrence audit", status="status:in-progress",
+                        deps=[444], state="CLOSED"),
+                  issue(447, "V5-03", "Fix recurrence engine", status="status:idle",
+                        deps=[446], state="CLOSED")]
+        merged_pr = merged(480, 1, refs=446)
+        done = sel.select(snapshot(issues=closed, merged_prs=[merged_pr]), NOW)
+        self.assertEqual((done["priority"], done["kind"], done["target"]), ("idle", "none", None))
+
+    def test_handoff_by_the_claimant_login_and_agent_releases_the_claim(self):
+        items = legacy_issues(claim_comments=[
+            comment(11, 6, "CLAIM agent=a time=x", login="bigtcze"),
+            comment(12, 5, "HANDOFF agent=a to=b time=y", login="bigtcze")])
+        self.assertNoRecovery(self.pick(items, open_prs=[legacy_pr(470, 446)]))
+
+    def test_handoff_by_a_different_login_with_the_same_agent_string_is_ignored(self):
+        items = legacy_issues(claim_comments=[
+            comment(11, 6, "CLAIM agent=a time=x", login="bigtcze"),
+            comment(12, 5, "HANDOFF agent=a to=b time=y", login="intruder")])
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertEqual(d["kind"], "review-owned-dependencies")
+        self.assertEqual(d["target"]["claim"]["login"], "bigtcze")
+
+    def test_untrusted_handoff_is_ignored(self):
+        items = legacy_issues(claim_comments=[
+            comment(11, 6, "CLAIM agent=a time=x", login="bigtcze"),
+            comment(12, 5, "HANDOFF agent=a to=b time=y", login="bigtcze", assoc="NONE")])
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertEqual(d["target"]["claim"]["agent"], "a")
+
+    def test_repeated_claim_keeps_the_first_claim_id(self):
+        items = legacy_issues(claim_comments=[
+            comment(11, 6, "CLAIM agent=a time=x", login="bigtcze"),
+            comment(13, 5, "CLAIM agent=a time=again", login="bigtcze")])
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertEqual(d["target"]["claim"]["id"], 11)
+
+    def test_foreign_claim_is_a_conflict_that_clears_when_the_loser_releases(self):
+        held = [comment(11, 6, "CLAIM agent=a time=x", login="bigtcze"),
+                comment(12, 5, "CLAIM agent=b time=y", login="other")]
+        d = self.pick(legacy_issues(claim_comments=held), open_prs=[legacy_pr(470, 446)])
+        self.assertEqual([c["agent"] for c in d["target"]["conflicts"]], ["b"])
+        released = held + [comment(13, 4, "RELEASE agent=b time=z", login="other")]
+        d = self.pick(legacy_issues(claim_comments=released), open_prs=[legacy_pr(470, 446)])
+        self.assertEqual(d["target"]["conflicts"], [])
+
+    def test_holder_release_clears_all_conflicts(self):
+        held = [comment(11, 6, "CLAIM agent=a time=x", login="bigtcze"),
+                comment(12, 5, "CLAIM agent=b time=y", login="other"),
+                comment(13, 4, "RELEASE agent=a time=z", login="bigtcze")]
+        issue_446 = next(i for i in legacy_issues(claim_comments=held) if i["number"] == 446)
+        life = sel.deps.replay(issue_446["comments"])
+        self.assertIsNone(life["claim"])
+        self.assertEqual(life["conflicts"], [])
+
+    def test_unknown_and_external_blockers_stay_unrecovered_across_time_main_and_comments(self):
+        claim = [comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")]
+        cases = {
+            # No structured heading/proposal: unknown prose fails closed even for a claimant.
+            "unknown": legacy_issues(claim_comments=claim,
+                                     body_446="BLOCKED agent=a time=x\n\nWaiting on the owner."),
+            # Explicit external record excludes the group even with a claimant and PR.
+            "external": owned_graph(
+                [issue(446, "V5-02", "Audit", status="status:blocked", deps=[444]),
+                 issue(447, "V5-03", "Fix", status="status:idle", deps=[446])],
+                {446: [comment(10, 9, "BLOCKED kind=external recovery=none"), *claim]}),
+        }
+        for name, items in cases.items():
+            with self.subTest(case=name):
+                for hours, main_sha, extra in ((0, "abc", []), (24 * 30, "newer", []),
+                                               (1, "newer", [comment(30, 1, "Unrelated note.")])):
+                    current = copy.deepcopy(items)
+                    current[1]["comments"].extend(extra)
+                    snap = snapshot(issues=current, open_prs=[legacy_pr(470, 446)],
+                                    merged_prs=[merged_default()])
+                    snap["main_head_sha"] = main_sha
+                    decision = sel.select(snap, NOW + timedelta(hours=hours))
+                    self.assertNoRecovery(decision)
+
+    # -- declared cycles ------------------------------------------------------
+    def cycle_issues(self, edges, status="status:idle", comments=None):
+        items = [issue(n, f"V5-{n}", f"c{n}", deps=list(deps), status=status)
+                 for n, deps in edges.items()]
+        return owned_graph(items, comments)
+
+    def test_self_two_and_three_cycles_are_advisory_and_deterministic(self):
+        import random
+        cases = [({500: [500]}, "self"),
+                 ({510: [511], 511: [510]}, "two"),
+                 ({520: [521], 521: [522], 522: [520]}, "three")]
+        for edges, shape in cases:
+            with self.subTest(shape=shape):
+                outputs = set()
+                for seed in range(5):
+                    items = self.cycle_issues(edges)
+                    random.Random(seed).shuffle(items)
+                    outputs.add(json.dumps(self.pick(items), sort_keys=True))
+                self.assertEqual(len(outputs), 1)
+                d = json.loads(outputs.pop())
+                self.assertEqual((d["priority"], d["kind"]), (6, "review-owned-dependencies"))
+                self.assertEqual(d["target"]["evidence"], "cycle")
+
+    def test_cycle_with_an_unresolved_outside_dependency_is_not_reported(self):
+        items = self.cycle_issues({510: [511, 300], 511: [510]})
+        self.assertNoRecovery(self.pick(items, dependency_states={"300": "OPEN"}))
+
+    def test_claimed_cycle_member_is_not_reported_as_recoverable(self):
+        items = self.cycle_issues({510: [511], 511: [510]},
+                                  comments={511: [comment(1, 3, "CLAIM agent=a time=x", login="bigtcze")]})
+        self.assertNoRecovery(self.pick(items))
+
+    def test_cycle_member_with_non_idle_status_is_not_reported(self):
+        items = self.cycle_issues({510: [511], 511: [510]})
+        member = next(i for i in items if i["number"] == 511)
+        member["labels"] = [{"name": "status:in-progress"}, {"name": "release"}]
+        self.assertNoRecovery(self.pick(items))
+
+    # -- fail closed on malformed lifecycle data --------------------------------
+    def test_issues_without_fetched_comments_keep_existing_behavior(self):
+        items = [issue(444, "V5-00", "Gov", status=None, state="CLOSED"),
+                 issue(510, "V5-10", "a", deps=[511]), issue(511, "V5-11", "b", deps=[510])]
+        self.assertEqual(self.pick(items)["priority"], "idle")
+
+    def test_malformed_comment_without_id_is_a_selection_error(self):
+        with self.assertRaises(sel.SelectionError):
+            sel._normalise_issue_comment({"created_at": iso(1), "body": "x"})
+
+    # -- actual legacy shape through the CLI, twice ------------------------------
+    def test_actual_legacy_shape_via_cli_is_advisory_and_stable_across_runs(self):
+        issues = legacy_issues(claim_comments=[comment(11, 4, "CLAIM agent=a time=x", login="bigtcze")])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "snap.json"
+            path.write_text(json.dumps(snapshot(issues=issues, open_prs=[legacy_pr(470, 446)])))
+            runs = [subprocess.run([sys.executable, str(SCRIPT), "--snapshot", str(path),
+                                    "--now", NOW.isoformat()],
+                                   check=True, capture_output=True, text=True).stdout for _ in range(2)]
+        self.assertEqual(runs[0], runs[1])
+        self.assertIn("DECISION priority=6 kind=review-owned-dependencies", runs[0])
+        self.assertNotIn("kind=dependency-recovery", runs[0])
+
+
+class RecoveryRanking(unittest.TestCase):
+    """Recovery competes with ready work by the same rank; generic graphs; neutrality."""
+
+    MERGED = [merged(1, 30, dependency=True)]
+
+    def pick(self, items, open_prs=(), dependency_states=None, now=NOW, **overrides):
+        snap = snapshot(issues=items, open_prs=list(open_prs), merged_prs=list(self.MERGED),
+                        dependency_states=dependency_states or {})
+        snap.update(overrides)
+        return sel.select(snap, now)
+
+    @staticmethod
+    def pair(a, b, priority=0, claim=None, record=None, code_a=None, code_b=None):
+        """Test-first `a` blocked, implementation `b` Blocked by `a` (structured record on `a`)."""
+        record = record or f"BLOCKED agent=x time=t kind=owned-dependency needs=#{b} recovery=combined"
+        comments = [comment(a * 10 + 1, 5, record)]
+        if claim:
+            comments.append(comment(a * 10 + 2, 4, f"CLAIM agent={claim[1]} time=t", login=claim[0]))
+        return [with_comments(issue(a, code_a or f"W-{a}", "tests", status="status:blocked",
+                                    deps=[], body_priority=priority), *comments),
+                with_comments(issue(b, code_b or f"W-{b}", "impl", deps=[a], body_priority=priority))]
+
+    def ready(self, number, priority, code=None):
+        return with_comments(issue(number, code or f"W-{number}", "feature", deps=[],
+                                   body_priority=priority))
+
+    # -- the reported starvation, generalised ---------------------------------
+    def test_recoverable_p0_blocker_beats_lower_priority_ready_work(self):
+        for a, b, other in ((446, 447, 449), (12, 7, 3), (9001, 9000, 5)):
+            with self.subTest(numbers=(a, b, other)):
+                d = self.pick(self.pair(a, b, priority=0) + [self.ready(other, 2)])
+                self.assertEqual((d["priority"], d["kind"]), (6, "review-owned-dependencies"))
+                self.assertEqual(d["target"]["group"], sorted([a, b]))
+                self.assertEqual(d["target"]["evidence"], "explicit")
+
+    def test_recovery_never_outranks_higher_priority_ready_work(self):
+        d = self.pick(self.pair(30, 31, priority=2) + [self.ready(40, 1)])
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 40))
+        d = self.pick(self.pair(30, 31, priority=2) + [self.ready(40, 3)])
+        self.assertEqual(d["kind"], "review-owned-dependencies")
+
+    def test_equal_priority_uses_the_existing_code_and_number_tie_break(self):
+        group = self.pair(60, 61, priority=1, code_a="V9-05", code_b="V9-06")
+        d = self.pick(group + [self.ready(70, 1, code="V9-04")])
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 70))
+        d = self.pick(group + [self.ready(70, 1, code="V9-07")])
+        self.assertEqual(d["kind"], "review-owned-dependencies")
+
+    def test_group_ranks_at_its_most_urgent_member(self):
+        items = self.pair(80, 81, priority=3)
+        items[1] = with_comments(issue(81, "W-81", "impl", deps=[80], body_priority=0))
+        d = self.pick(items + [self.ready(90, 1)])
+        self.assertEqual(d["kind"], "review-owned-dependencies")
+
+    def test_recurrence_group_is_p0_by_the_existing_policy(self):
+        items = self.pair(50, 51, priority=None, code_a="V5-02", code_b="V5-03")
+        items[0]["title"] = "V5-02 Recurrence golden tests"
+        d = self.pick(items + [self.ready(52, 1)])
+        self.assertEqual(d["kind"], "review-owned-dependencies")
+
+    def test_coordinator_member_does_not_lift_a_group(self):
+        items = self.pair(20, 21, priority=0)
+        items[0]["body"] += "\nRelease: v9.0.0\n"
+        items[1]["body"] += "\nRelease: v9.0.0\n"
+        d = self.pick(items + [self.ready(22, 5)])
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 22))
+
+    # -- higher precedence is preserved --------------------------------------
+    def test_red_main_security_active_and_resumed_work_still_come_first(self):
+        group = self.pair(100, 101, priority=0)
+        red = [{"id": 9, "status": "completed", "conclusion": "failure",
+                "created_at": iso(1), "head_sha": "abc"}]
+        self.assertEqual(self.pick(group, main_runs=red)["kind"], "red-main")
+        alert = [{"number": 1, "security_vulnerability": {"first_patched_version": {"identifier": "1"}}}]
+        self.assertEqual(self.pick(group, security_alerts=alert)["kind"], "security-alert")
+        busy = self.ready(102, 4)
+        self.assertEqual(self.pick(group + [busy], open_prs=[feature_pr(700, 102)])["kind"], "active-pr")
+        busy["labels"] = [{"name": "status:in-progress"}, {"name": LABEL}]
+        self.assertEqual(self.pick(group + [busy])["kind"], "resume-claimed-issue")
+
+    def test_renovate_fairness_is_unchanged(self):
+        group = self.pair(100, 101, priority=0)
+        aged = renovate_pr(600, "chore(deps): update x to v2", 72)
+        self.assertEqual(self.pick(group, open_prs=[aged])["kind"], "triage-aged-renovate")
+        young = renovate_pr(601, "chore(deps): update y to v3", 2,
+                            triage=("actionable", "chore(deps): update y to v3"))
+        two_features = [merged(1, 30, dependency=True), merged(2, 20, refs=101), merged(3, 10, refs=101)]
+        self.assertEqual(self.pick(group, open_prs=[young], merged_prs=two_features)["kind"],
+                         "dependency-slot")
+        self.assertEqual(self.pick(group, open_prs=[young])["kind"], "review-owned-dependencies")
+        self.assertEqual(self.pick([], open_prs=[young])["kind"], "dependency-pr")
+
+    # -- arbitrary graphs and fail-closed eligibility --------------------------
+    def test_multi_issue_record_and_reorder_recovery(self):
+        items = [with_comments(issue(5, "W-5", "a", status="status:blocked", deps=[]),
+                               comment(1, 3, "BLOCKED kind=owned-dependency needs=#6,#7 recovery=reorder")),
+                 with_comments(issue(6, "W-6", "b", deps=[5])),
+                 with_comments(issue(7, "W-7", "c", deps=[6]))]
+        d = self.pick(items)
+        self.assertEqual(d["target"]["group"], [5, 6, 7])
+        self.assertEqual(d["target"]["recovery"], "reorder")
+
+    def test_self_dependency_and_long_cycles_with_random_numbers(self):
+        import random
+        rng = random.Random(7)
+        for size in (1, 2, 4, 6):
+            numbers = rng.sample(range(10, 5000), size)
+            items = [with_comments(issue(n, f"W-{n}", "c", deps=[numbers[(i + 1) % size]]))
+                     for i, n in enumerate(numbers)]
+            with self.subTest(size=size, numbers=numbers):
+                d = self.pick(items)
+                self.assertEqual((d["kind"], d["target"]["evidence"]), ("review-owned-dependencies", "cycle"))
+                self.assertEqual(d["target"]["group"], sorted(numbers))
+
+    def test_unsafe_groups_fail_closed(self):
+        ext = "BLOCKED kind=external recovery=none"
+        cases = {
+            "external member": [*self.pair(1, 2)[:1],
+                                with_comments(issue(2, "W-2", "i", status="status:blocked", deps=[1]),
+                                              comment(5, 2, ext))],
+            "unknown record": self.pair(1, 2, record="BLOCKED agent=x time=t\nwaiting for someone"),
+            "malformed needs": self.pair(1, 2, record="BLOCKED kind=owned-dependency needs=2 recovery=combined"),
+            "blocked without a record": [with_comments(issue(1, "W-1", "t", status="status:blocked", deps=[2])),
+                                         with_comments(issue(2, "W-2", "i", deps=[1]))],
+            "open outside prerequisite": [*self.pair(1, 2)[:1],
+                                          with_comments(issue(2, "W-2", "i", deps=[1, 300]))],
+            "coupling to a non-owned Issue": [
+                with_comments(issue(1, "W-1", "t", status="status:blocked", deps=[]),
+                              comment(9, 3, "BLOCKED kind=owned-dependency needs=#300 recovery=combined")),
+                with_comments(issue(2, "W-2", "i", deps=[1]))],
+            "untrusted record": [with_comments(issue(1, "W-1", "t", status="status:blocked", deps=[]),
+                                               comment(9, 3, "BLOCKED kind=owned-dependency needs=#2 recovery=combined",
+                                                       assoc="CONTRIBUTOR")),
+                                 with_comments(issue(2, "W-2", "i", deps=[1]))],
+            "in-progress member": [*self.pair(1, 2)[:1],
+                                   with_comments(issue(2, "W-2", "i", status="status:in-progress", deps=[1]))],
+        }
+        for name, items in cases.items():
+            with self.subTest(case=name):
+                d = self.pick(items, dependency_states={"300": "OPEN"}, open_prs=[feature_pr(9, 77)])
+                self.assertNotEqual(d["kind"], "review-owned-dependencies")
+                self.assertNotEqual(d["kind"], "claim-issue")  # nothing in the group becomes executable
+
+    def test_foreign_claims_are_never_combined_without_handoff(self):
+        items = self.pair(1, 2, claim=("alice", "runner-a"))
+        items[1]["comments"].append(comment(99, 1, "CLAIM agent=runner-b time=t", login="bob"))
+        d = self.pick(items)
+        self.assertNotEqual(d["kind"], "review-owned-dependencies")
+        self.assertTrue(any("HANDOFF" in note for note in d["notes"]))
+        items[0]["comments"].append(comment(100, 0.5, "HANDOFF agent=runner-a to=runner-b time=t",
+                                            login="alice"))
+        d = self.pick(items)
+        self.assertEqual((d["kind"], d["target"]["claim"]["agent"]), ("review-owned-dependencies", "runner-b"))
+
+    def test_post_cutoff_legacy_prose_is_unknown_not_a_protocol(self):
+        late = legacy_comment(10, LEGACY_446_BODY, created="2026-11-20T00:00:00Z")
+        items = owned_graph(
+            [issue(446, "V5-02", "Recurrence audit", status="status:blocked", deps=[444]),
+             issue(447, "V5-03", "Fix recurrence engine", status="status:idle", deps=[446])],
+            {446: [late, comment(11, 4, "CLAIM agent=a time=x")]})
+        d = self.pick(items, open_prs=[legacy_pr(470, 446)])
+        self.assertNotEqual(d["kind"], "review-owned-dependencies")
+
+    def test_historical_446_447_now_competes_by_priority(self):
+        claim = [comment(11, 4, "CLAIM agent=a time=x")]
+        lower = issue(451, "V5-07", "Professional UI", deps=[444])
+        d = self.pick(legacy_issues(claim_comments=claim) + [with_comments(lower)],
+                      open_prs=[legacy_pr(464, 446)])
+        self.assertEqual((d["kind"], d["target"]["group"], d["target"]["pr"]),
+                         ("review-owned-dependencies", [446, 447], 464))
+        explicit_p0 = issue(900, "V9-01", "Urgent", deps=[444], body_priority=0)
+        explicit_p0["title"] = "V0-01 Urgent"
+        d = self.pick(legacy_issues(claim_comments=claim) + [with_comments(explicit_p0)],
+                      open_prs=[legacy_pr(464, 446)])
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 900))
+
+    # -- identity neutrality --------------------------------------------------
+    def test_selection_is_independent_of_runner_identity(self):
+        runners = ["tendo-autonomous-orchestrator", "codex", "claude-code", "cursor-agent",
+                   "future.runner:v2"]
+        shapes = set()
+        for runner in runners:
+            items = self.pair(1, 2, priority=0, claim=("bot-" + runner[:5], runner))
+            d = self.pick(items + [self.ready(3, 1)])
+            self.assertEqual(d["target"]["claim"]["agent"], runner)
+            target = {k: v for k, v in d["target"].items() if k not in ("claim", "fingerprint")}
+            shapes.add(json.dumps([d["priority"], d["kind"], target], sort_keys=True))
+            foreign = copy.deepcopy(items)
+            foreign[0]["comments"].append(comment(50, 1, f"HANDOFF agent={runner} to=x time=t",
+                                                  login="someone-else"))
+            self.assertEqual(self.pick(foreign + [self.ready(3, 1)])["target"]["claim"]["agent"], runner)
+        self.assertEqual(len(shapes), 1)
+
+    # -- repeated unchanged advice -------------------------------------------
+    def test_deferral_suppresses_only_unchanged_advice(self):
+        items = self.pair(1, 2, priority=0) + [self.ready(3, 2)]
+        first = self.pick(items)
+        basis = first["target"]["fingerprint"]
+        self.assertRegex(basis, r"^[0-9a-f]{16}$")
+        self.assertEqual(self.pick(copy.deepcopy(items), now=NOW + timedelta(days=9))["target"]["fingerprint"],
+                         basis)
+        deferred = copy.deepcopy(items)
+        deferred[0]["comments"].append(comment(70, 1, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        d = self.pick(deferred)
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 3))
+        self.assertTrue(any("deferred" in note for note in d["notes"]))
+        # Unrelated discussion, time and main changes do not re-open it.
+        noisy = copy.deepcopy(deferred)
+        noisy[1]["comments"].append(comment(71, 0.5, "Unrelated note."))
+        self.assertEqual(self.pick(noisy, now=NOW + timedelta(days=30), main_head_sha="zzz")["kind"],
+                         "claim-issue")
+        # A relevant change (new linked PR head) produces new advice.
+        pr = feature_pr(800, 1)
+        pr["headRefOid"] = "f00d"
+        changed = self.pick(deferred, open_prs=[pr])
+        self.assertEqual(changed["kind"], "review-owned-dependencies")
+        self.assertNotEqual(changed["target"]["fingerprint"], basis)
+        pr["headRefOid"] = "beef"
+        self.assertNotEqual(self.pick(deferred, open_prs=[pr])["target"]["fingerprint"],
+                            changed["target"]["fingerprint"])
+
+    def test_malformed_deferral_and_recovery_comment_never_block(self):
+        items = self.pair(1, 2, priority=0)
+        items[0]["comments"].append(comment(70, 1, "RECOVERY agent=a decision=deferred basis=nothex"))
+        self.assertEqual(self.pick(items)["kind"], "review-owned-dependencies")
+
+    # -- review findings: outside prerequisites, protected members, edits ----
+    def test_open_owned_prerequisite_outside_the_group_fails_closed(self):
+        items = self.pair(1, 2, priority=0)
+        items[1] = with_comments(issue(2, "W-2", "impl", deps=[1, 3], body_priority=0))
+        for extra in (self.ready(3, 2),
+                      with_comments(issue(3, "W-3", "x", status="status:in-progress", deps=[]))):
+            with self.subTest(prerequisite_status=extra["labels"]):
+                d = self.pick(items + [extra])
+                self.assertNotEqual(d["kind"], "review-owned-dependencies")
+                self.assertNotIn(d["target"].get("number"), (1, 2))
+        # Recorded (not declared) coupling to an open owned Issue outside the SCC.
+        rec = self.pair(1, 2, priority=0,
+                        record="BLOCKED agent=x time=t kind=owned-dependency needs=#2 recovery=combined")
+        rec[0]["comments"].append(comment(19, 0.5, "BLOCKED agent=x time=t kind=owned-dependency "
+                                                   "needs=#2,#3 recovery=combined"))
+        d = self.pick(rec + [with_comments(issue(3, "W-3", "x", status="status:in-progress", deps=[]))])
+        self.assertNotEqual(d["kind"], "review-owned-dependencies")
+        # An idle member's own coupling record naming an open outside Issue.
+        idle_rec = self.pair(1, 2, priority=0)
+        idle_rec[1]["comments"].append(comment(29, 0.5, "BLOCKED agent=x time=t kind=owned-dependency "
+                                                        "needs=#300 recovery=combined"))
+        d = self.pick(idle_rec, dependency_states={"300": "OPEN"})
+        self.assertNotEqual(d["kind"], "review-owned-dependencies")
+        self.assertEqual(self.pick(idle_rec, dependency_states={"300": "CLOSED"})["kind"],
+                         "review-owned-dependencies")
+        # Once the owned prerequisite is closed the group is advised again.
+        closed3 = issue(3, "W-3", "x", status=None, state="CLOSED", deps=[])
+        d = self.pick(items + [closed3])
+        self.assertEqual((d["kind"], d["target"]["group"]), ("review-owned-dependencies", [1, 2]))
+
+    def coupled_only(self, record, claim_b=None):
+        """#1 blocked with a coupling record; #2 linked only by that record."""
+        one = with_comments(issue(1, "W-1", "tests", status="status:blocked", deps=[], body_priority=0),
+                            comment(11, 5, record),
+                            comment(12, 4, "CLAIM agent=runner-a time=t", login="alice"))
+        two = with_comments(issue(2, "W-2", "impl", deps=[], body_priority=0),
+                            *([comment(21, 3, f"CLAIM agent={claim_b[1]} time=t", login=claim_b[0])]
+                              if claim_b else []))
+        return [one, two, self.ready(3, 2)]
+
+    def test_members_of_a_recorded_group_are_never_offered_as_claims(self):
+        combined = "BLOCKED agent=x time=t kind=owned-dependency needs=#2 recovery=combined"
+        advised = self.pick(self.coupled_only(combined))
+        self.assertEqual((advised["kind"], advised["target"]["group"]),
+                         ("review-owned-dependencies", [1, 2]))
+        deferred = self.coupled_only(combined)
+        deferred[0]["comments"].append(comment(
+            70, 1, f"RECOVERY agent=any time=t decision=deferred basis={advised['target']['fingerprint']}"))
+        cases = {
+            "deferred": (deferred, {}),
+            "open non-owned prerequisite": (self.coupled_only(
+                "BLOCKED agent=x time=t kind=owned-dependency needs=#2,#300 recovery=combined"),
+                {"300": "OPEN"}),
+            "contested by another claimant": (self.coupled_only(combined, claim_b=("bob", "runner-b")), {}),
+            "reorder record": (self.coupled_only(
+                "BLOCKED agent=x time=t kind=owned-dependency needs=#2,#300 recovery=reorder"),
+                {"300": "OPEN"}),
+        }
+        for name, (items, states) in cases.items():
+            with self.subTest(case=name):
+                d = self.pick(items, dependency_states=states)
+                self.assertNotEqual(d["kind"], "review-owned-dependencies")
+                self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 3))
+                self.assertTrue(any("stay unclaimable" in n or "deferred" in n or "HANDOFF" in n
+                                    for n in d["notes"]))
+
+    def test_recorded_partner_with_malformed_lifecycle_stays_protected(self):
+        combined = "BLOCKED agent=x time=t kind=owned-dependency needs=#2 recovery=combined"
+        items = self.coupled_only(combined)
+        items[1]["comments"].append(comment(22, 2, "CLAIM time=t"))  # no agent=: malformed
+        d = self.pick(items)
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 3))
+
+    def test_edited_blocker_record_changes_the_fingerprint(self):
+        items = self.pair(1, 2, priority=0) + [self.ready(3, 2)]
+        basis = self.pick(items)["target"]["fingerprint"]
+        items[0]["comments"].append(comment(70, 1, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        self.assertEqual(self.pick(items)["kind"], "claim-issue")
+        edited = copy.deepcopy(items)
+        record = edited[0]["comments"][0]
+        record["body"] = record["body"].replace("recovery=combined", "recovery=reorder")
+        record["updatedAt"] = iso(0.1)  # same comment id, edited in place
+        d = self.pick(edited)
+        self.assertEqual((d["kind"], d["target"]["recovery"]), ("review-owned-dependencies", "reorder"))
+        self.assertNotEqual(d["target"]["fingerprint"], basis)
+        touched = copy.deepcopy(items)
+        touched[0]["comments"][0]["updatedAt"] = iso(0.1)  # any edit is new evidence
+        self.assertEqual(self.pick(touched)["kind"], "review-owned-dependencies")
+
+    def test_deferral_never_applies_when_a_linked_pr_head_is_unknown(self):
+        items = self.pair(1, 2, priority=0) + [self.ready(3, 2)]
+        pr = feature_pr(800, 1)  # no headRefOid in the snapshot
+        basis = self.pick(items, open_prs=[pr])["target"]["fingerprint"]
+        items[0]["comments"].append(comment(70, 1, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        self.assertEqual(self.pick(items, open_prs=[pr])["kind"], "review-owned-dependencies")
+        pr["headRefOid"] = "f00d"
+        basis = self.pick(items, open_prs=[pr])["target"]["fingerprint"]
+        items[0]["comments"].append(comment(71, 0.5, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        self.assertEqual(self.pick(items, open_prs=[pr])["kind"], "claim-issue")
+
+
+class CommentCollection(unittest.TestCase):
+    def test_open_owned_issue_comments_are_paginated_and_fail_closed(self):
+        calls = []
+        pages = {1: [{"id": 1, "created_at": iso(3), "updated_at": iso(3), "user": {"login": "bigtcze"},
+                      "author_association": "OWNER", "body": "CLAIM agent=a time=x"}],
+                 2: [{"id": 2, "created_at": iso(2), "updated_at": iso(2), "user": {"login": "bigtcze"},
+                      "author_association": "MEMBER", "body": "RELEASE agent=a time=y"}]}
+
+        def run_gh(args):
+            calls.append(list(args))
+            joined = " ".join(args)
+            if args[:2] == ["api", "rate_limit"]:
+                return json.dumps({"resources": {"core": {"remaining": 5000, "reset": 1},
+                                                 "graphql": {"remaining": 5000, "reset": 1}}})
+            if "workflows/required.yml/runs" in joined:
+                return json.dumps({"workflow_runs": []})
+            if "commits/main" in joined:
+                return json.dumps({"sha": "abc"})
+            if "dependabot/alerts" in joined:
+                return json.dumps([])
+            if args[:2] == ["pr", "list"]:
+                return json.dumps([])
+            if args[:2] == ["issue", "list"]:
+                return json.dumps([issue(910, "V6-01", "Open", deps=())])
+            if "/issues/910/comments" in joined:
+                # `--paginate --slurp` returns every page as one list of pages.
+                return json.dumps([pages[1], pages[2]])
+            if args[0] == "api" and "--paginate" in args:
+                return json.dumps([[]])
+            if "pulls?state=closed" in joined:
+                return json.dumps([])
+            return "null"
+
+        snap = sel.collect("o/r", run_gh, NOW)
+        comments = snap["issues"][0]["comments"]
+        self.assertEqual([c["id"] for c in comments], [1, 2])
+        self.assertEqual([c["authorAssociation"] for c in comments], ["OWNER", "MEMBER"])
+
+    def test_comment_without_timestamp_is_a_selection_error(self):
+        with self.assertRaises(sel.SelectionError):
+            sel._normalise_issue_comment({"id": 3, "body": "CLAIM agent=a"})
 
 
 class CommandLine(unittest.TestCase):

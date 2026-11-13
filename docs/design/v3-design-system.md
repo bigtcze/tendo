@@ -1,5 +1,7 @@
 # V3 design system — foundation (V3-06)
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 > Superseded for visual tokens, typography, radii and control styling by [v4-design-system.md](v4-design-system.md) (V4-02). This document remains the V3 history and behavior reference.
 
 Practical foundation for Direction A's calm list-first language and a dedicated detail page. This defines reusable visual/interaction rules, not a shell or screen redesign. Tokens are in `frontend/src/index.css`; hex source and measured contrast checks are `frontend/src/designTokens.ts` and `.test.ts`.

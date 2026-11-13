@@ -9,8 +9,8 @@ import { auditContrast, collectContrastCandidates, contrastShortfalls } from './
 // Covers System / Light / Dark against an emulated OS scheme: first paint, persistence across reload, color-scheme,
 // and live OS switching while the preference is System.
 
-const LIGHT_PAPER = 'rgb(241, 245, 250)';
-const DARK_PAPER = 'rgb(15, 26, 36)';
+const LIGHT_PAPER = 'rgb(248, 247, 243)';
+const DARK_PAPER = 'rgb(23, 22, 20)';
 type Scheme = 'light' | 'dark';
 type Preference = 'system' | 'light' | 'dark';
 
@@ -223,7 +223,7 @@ test.describe('appearance preference on signed-out routes', () => {
 
 test.describe('contrast auditor surface base', () => {
   test('rejects translucent root surfaces, falls back only to an opaque body, and fails closed otherwise', async ({ page }) => {
-    await page.setContent('<html style="background: rgba(1, 2, 3, .5)"><body style="background: rgb(241, 245, 250)"><p>Fallback body</p></body></html>');
+    await page.setContent('<html style="background: rgba(1, 2, 3, .5)"><body style="background: rgb(248, 247, 243)"><p>Fallback body</p></body></html>');
     const rows = await collectContrastCandidates(page);
     const paragraph = rows.find((row) => row.kind === 'text' && row.name === 'p');
     expect(paragraph, 'text candidate is collected using an opaque body fallback').toBeDefined();

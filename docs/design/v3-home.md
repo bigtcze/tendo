@@ -1,5 +1,7 @@
 # V3 Home: attention and household tasks (V3-08)
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 ## Decisions
 
 | Area | Decision | Reason |

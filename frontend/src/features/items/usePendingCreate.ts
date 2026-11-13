@@ -37,6 +37,8 @@ export function usePendingCreate(userId: string, householdId: string) {
       return Boolean(pending);
     },
     track(pending: PendingItemCreate) { setPendingCreate(pending); },
+    /** Retires a reused-create notice once the user has read it; the stored draft is untouched. */
+    dismissNotice() { setCreateNotice(null); },
     signedOut() { if (pendingCreate) clearPendingItemCreate(userId, householdId, pendingCreate.key); setPendingCreate(undefined); },
     invalid(key: string, subjectId: string) {
       setCreateNotice(null);

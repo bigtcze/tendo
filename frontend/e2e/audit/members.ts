@@ -246,7 +246,7 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
   await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expect(memberPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
   await memberPage.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await memberPage.reload();
   for (const width of [390, 1440] as const) {

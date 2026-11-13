@@ -57,7 +57,6 @@ export function HomeScreen({
             key={`${session.userId}:${household.data.household.id}`}
             userId={session.userId}
             householdId={household.data.household.id}
-            householdName={household.data.household.name}
             onOpenPeople={onOpenPeople}
             onOpenItem={onOpenItem}
             onOpenAllItems={onOpenAllItems}

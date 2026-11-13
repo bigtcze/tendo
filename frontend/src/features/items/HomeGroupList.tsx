@@ -25,7 +25,7 @@ type HomeGroupListProps = {
   onOpenItem: (itemId: string) => void;
 };
 
-/** Attention first, then the quieter groups; every group spans the available main width. */
+/** Attention first, then the quieter groups; one reading column, never a grid of cards. */
 export function HomeGroupList(props: HomeGroupListProps) {
   const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, subjectType, userId, members, membersLoaded, busy } = props;
   const { t, locale } = useI18n();
@@ -61,7 +61,7 @@ export function HomeGroupList(props: HomeGroupListProps) {
       />)}
     </HomeGroupSection>;
   };
-  return <div data-home-layout="wide" className="min-w-0 space-y-6">
+  return <div data-home-layout="list" className="min-w-0 space-y-8">
     {groups.map(renderGroup)}
   </div>;
 }

@@ -1,5 +1,7 @@
 # V3 direction review — A vs B, and the chosen direction
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 issue=#326 (V3-05)
 inputs=`docs/design/v3-baseline-audit.md`, `docs/design/v3-directions/a/README.md`, `docs/design/v3-directions/b/README.md`, all committed captures in those folders, prototype branches `proto/v3-direction-a` and `proto/v3-direction-b`
 decision=Direction A visual language and list-first layout, with Direction B's dedicated-page model (item detail is its own page; no persistent split pane)

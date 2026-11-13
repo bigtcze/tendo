@@ -67,7 +67,7 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
   };
 
   const routeChecks = [
-    { path: '/', heading: 'Veselí' },
+    { path: '/', heading: en['home.overview'] },
     { path: '/items', heading: en['allItems.title'] },
     { path: '/people', heading: en['subjects.title'] },
     { path: '/members', heading: en['members.title'] },
@@ -87,7 +87,7 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
     const detailPath = await link.getAttribute('href');
     expect(detailPath).toMatch(/^\/items\//);
     await page.goto('/');
-    await assertViewport('/', 'Veselí', width, 'light');
+    await assertViewport('/', en['home.overview'], width, 'light');
     await page.getByRole('button', { name: en['items.add'], exact: true }).click();
     const form = page.getByRole('form', { name: en['items.add.formLabel'] });
     const itemTitle = uniqueTitle(width);
