@@ -1354,16 +1354,19 @@ printf 'DECISION priority=6 kind=claim-issue target=issue #924 Linked work\nREAS
 run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_DIR="${CYCLE_LOGS}"
 expect_eq "logs-symlink: no session through a symlinked log directory" 0 "$(run_calls)"
 expect_eq "logs-symlink: nothing written through the link" "" "$(ls -A "${CASE}/elsewhere")"
+expect_grep "logs-symlink: the refusal is journalled" "cycle 1 not started: cannot create private diagnostics" "${OUT_FILE}"
 
 # Invalid locations are refused at startup.
 new_case logs-config
 for bad in "relative/cycles" "${REPO}/.cycle-logs" "${RUNTIME}/cycles" "${TMP}/cycles"; do
   run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_DIR="${bad}"
   expect_eq "logs-config: CYCLE_LOG_DIR=${bad#"${CASE}"/} is refused" 2 "${RC}"
+  expect_grep "logs-config: CYCLE_LOG_DIR=${bad#"${CASE}"/} refusal is explained" 'invalid CYCLE_LOG_DIR=' "${OUT_FILE}"
 done
 for knob in CYCLE_LOG_KEEP_COUNT CYCLE_LOG_MAX_AGE_DAYS CYCLE_LOG_MAX_BYTES; do
   run_controller AUTONOMY_MAX_LOOPS=1 "${knob}=0"
   expect_eq "logs-config: ${knob}=0 is refused" 2 "${RC}"
+  expect_grep "logs-config: ${knob}=0 refusal is explained" "invalid ${knob}='0' (minimum 1)" "${OUT_FILE}"
 done
 expect_eq "logs-config: no selection before any refusal" 0 "$(sel_calls)"
 
@@ -1432,6 +1435,40 @@ run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_MAX_BYTES=1000
 expect_eq "logs-retention-newest: the newest cycle survives even above the byte cap" 1 "$(cycle_dir_count)"
 expect_eq "logs-retention-newest: its output is complete" 50000 "$(stat -c %s "$(cycle_dirs | head -n 1)/stdout.log" 2>/dev/null)"
 
+# A crafted name with newlines must never split into a relative path that
+# pruning would resolve against the checkout (the controller's cwd).
+new_case logs-retention-newline
+CYCLE_LOGS=""
+mkdir -p "${REPO}/victim" "$(cycle_logs_root)"
+touch "${REPO}/victim/sentinel"
+# Split on newlines, "zz" would sort first (kept as "newest") and the relative
+# "victim" second, so a line-based prune would remove ${REPO}/victim.
+crafted="$(cycle_logs_root)/20200101T000000Z-c0-p0"$'\n'"zz"$'\n'"victim"$'\n'"20200101T000000Z-c0-p0"
+mkdir -p "${crafted}"
+touch -d 2020-01-01 "${crafted}"
+make_old_cycle "20200101T000000Z-c1-p1" 10 "2020-01-01"
+printf 'DECISION priority=6 kind=claim-issue target=issue #932 Work\nREASON work\n' >"${STATE}/selout.1"
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_KEEP_COUNT=1
+expect_eq "logs-retention-newline: nothing outside CYCLE_LOG_DIR is removed" yes \
+  "$([[ -f "${REPO}/victim/sentinel" ]] && echo yes || echo no)"
+expect_eq "logs-retention-newline: a non-matching crafted name is left alone" yes \
+  "$([[ -d "${crafted}" ]] && echo yes || echo no)"
+expect_eq "logs-retention-newline: genuine aged cycles are still pruned" no \
+  "$([[ -d "$(cycle_logs_root)/20200101T000000Z-c1-p1" ]] && echo yes || echo no)"
+
+# The current cycle's evidence survives even when a future-stamped directory
+# sorts above it and the byte cap is exceeded.
+new_case logs-retention-current
+CYCLE_LOGS=""
+make_old_cycle "29990101T000000Z-c9-p1" 40000
+printf 'DECISION priority=6 kind=claim-issue target=issue #933 Work\nREASON work\n' >"${STATE}/selout.1"
+hook 'head -c 20000 /dev/zero'
+run_controller AUTONOMY_MAX_LOOPS=1 CYCLE_LOG_MAX_BYTES=30000
+current=$(cycle_dirs | grep -- '-c1-p[0-9]*$' | head -n 1)
+expect_eq "logs-retention-current: the just-summarised cycle survives" 20000 \
+  "$(stat -c %s "${current}/stdout.log" 2>/dev/null)"
+expect_grep "logs-retention-current: its journal path stays valid" "diagnostics=${current}" "${OUT_FILE}"
+
 # Signals: the in-flight cycle's evidence names the interruption.
 new_case logs-sigterm
 CYCLE_LOGS=""
@@ -1471,6 +1508,7 @@ run_controller AUTONOMY_MAX_LOOPS=2 CYCLE_DRAIN_TIMEOUT=1 CYCLE_STOP_GRACE=1 \
   AUTONOMY_TEST_GROUP_ALIVE_FILE="${STATE}/group-never-gone"
 cdir=$(cycle_dirs | head -n 1)
 expect_eq "logs-fail-closed: still exits 70" 70 "${RC}"
+expect_grep "logs-fail-closed: the session exit code is kept before the drain" '^exit_code=0$' "${cdir}/status"
 expect_grep "logs-fail-closed: status records the fail-closed exit" '^interrupted=fail-closed$' "${cdir}/status"
 expect_grep "logs-fail-closed: journal names the path" "cycle 1 interrupted (fail-closed); controller exit 70; diagnostics=${cdir}" "${OUT_FILE}"
 

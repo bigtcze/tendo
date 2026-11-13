@@ -40,14 +40,19 @@ tags (`.autonomous/FLOW.md` at `v3.0.0`, `v4.0.0`).
   group (TERM, then KILL) before the locks are released.
 - Logging: journald (`journalctl --user -u tendo-autonomous.service`)
   receives only the controller's `[autonomy]` lines (selection, cycle
-  start/finish, `exit rc=… duration=… diagnostics=<path>`, idle polls,
-  backoff, recovery, rate limits, signals, failures). Each session's complete
+  start/finish, the summary
+  `cycle <n> exit rc=<code> duration=<s>s stdout=<bytes>B stderr=<bytes>B diagnostics=<path>`,
+  idle polls, backoff, recovery, rate limits, signals with
+  `cycle <n> interrupted (<reason>); controller exit <code>; diagnostics=<path>`,
+  failures). Each session's complete
   stdout/stderr is redirected (no pipe) into private per-cycle files under
   `CYCLE_LOG_DIR` (default `${XDG_STATE_HOME:-~/.local/state}/tendo-autonomy/cycles`,
   dirs 0700, files 0600; `<UTC>-c<cycle>-p<pid>/{stdout.log,stderr.log,status}`),
   pruned by `CYCLE_LOG_KEEP_COUNT` (200), `CYCLE_LOG_MAX_AGE_DAYS` (30) and
-  `CYCLE_LOG_MAX_BYTES` (2 GiB), newest always kept. A cycle never starts
-  when its diagnostics cannot be created. Inspect a failed cycle through the
+  `CYCLE_LOG_MAX_BYTES` (2 GiB) after each cycle; the current cycle is always
+  kept, so one session's output is bounded only by `CYCLE_TIMEOUT`. A cycle
+  never starts (failure backoff, cycle number consumed) when its diagnostics
+  cannot be created. Inspect a failed cycle through the
   path in its journal summary.
 - The controller never exits because of a completion marker. It replaces the
   separate daily maintenance timer: dependency, security, CI recovery and

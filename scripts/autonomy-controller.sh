@@ -100,7 +100,7 @@ fail_closed() {
 cycle_interrupted() {
   [[ "${cycle_running:-0}" -eq 1 && -n "${cycle_log_dir:-}" ]] || return 0
   cycle_running=0
-  printf '%s\n' "finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "interrupted=${1}" \
+  printf '%s\n' "interrupted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "interrupted=${1}" \
     "controller_exit_code=${2}" >>"${cycle_log_dir}/status" 2>/dev/null || true
   err "cycle ${cycle} interrupted (${1}); controller exit ${2}; diagnostics=${cycle_log_dir}"
 }
@@ -185,7 +185,13 @@ log_dir_real="$(realpath -m -- "${CYCLE_LOG_DIR}")"
 root_real="$(realpath -m -- "${ROOT}")"
 runtime_real="$(realpath -m -- "${XDG_RUNTIME_DIR:-/tmp}")"
 tmp_real="$(realpath -m -- "${TMPDIR:-/tmp}")"
+if [[ "${log_dir_real}" == / ]]; then
+  err "invalid CYCLE_LOG_DIR='${CYCLE_LOG_DIR}' (must not be /)"
+  exit 2
+fi
 for forbidden in "${root_real}" "${runtime_real}" "${tmp_real}"; do
+  # A volatile location of "/" would forbid everything; it is not a log tree.
+  [[ "${forbidden}" != / ]] || continue
   if [[ "${log_dir_real}" == "${forbidden}" || "${log_dir_real}" == "${forbidden}"/* ]]; then
     err "invalid CYCLE_LOG_DIR='${CYCLE_LOG_DIR}' (must be outside ${forbidden})"
     exit 2
@@ -372,22 +378,9 @@ run_child() {
   return "${rc}"
 }
 
-# run_child_group <cmd...>: the command leads its own process group (anything
-# wrapped in `timeout`, which calls setpgid(0,0)); killed as a group.
-run_child_group() {
-  local rc
-  "$@" 8>&- 9>&- </dev/null &
-  child_pid=$!
-  child_group=1
-  last_pid="${child_pid}"
-  wait "${child_pid}"
-  rc=$?
-  child_pid=""
-  child_group=0
-  return "${rc}"
-}
-
-# run_capture_group <stdout-file> <stderr-file> <cmd...>
+# run_capture_group <stdout-file> <stderr-file> <cmd...>: the command leads its
+# own process group (anything wrapped in `timeout`, which calls setpgid(0,0)),
+# its output goes by plain redirection to the files; killed as a group.
 run_capture_group() {
   local out="$1" errf="$2"
   shift 2
@@ -454,36 +447,46 @@ file_bytes() {
 }
 
 # prune_cycle_logs: bounded retention. Cycle directories are ordered newest
-# first by their UTC-stamped name; the newest is always kept, older ones are
-# removed beyond CYCLE_LOG_KEEP_COUNT, CYCLE_LOG_MAX_AGE_DAYS or a cumulative
-# CYCLE_LOG_MAX_BYTES. Only controller-named, non-symlink directories directly
-# inside CYCLE_LOG_DIR are ever removed. Failure is logged, never fatal.
+# first by their fixed-width UTC-stamped name; the current cycle's directory is
+# always kept (even when a clock jump or a future-stamped name sorts it lower),
+# older ones are removed beyond CYCLE_LOG_KEEP_COUNT, CYCLE_LOG_MAX_AGE_DAYS or a
+# cumulative CYCLE_LOG_MAX_BYTES. Only non-symlink directories directly inside
+# CYCLE_LOG_DIR whose whole basename matches the controller's naming scheme are
+# ever removed; names are held in an array (never split on newlines) and
+# always absolute. Failure is logged, never fatal.
 prune_cycle_logs() {
-  local entries=() dir index=0 total=0 bytes mtime now cutoff removed=0
+  local LC_ALL=C
+  local entries=() dir name i index=0 total=0 bytes mtime now cutoff removed=0
   [[ -d "${CYCLE_LOG_DIR}" && ! -L "${CYCLE_LOG_DIR}" ]] || return 0
-  for dir in "${CYCLE_LOG_DIR}"/[0-9]*T[0-9]*Z-c[0-9]*-p[0-9]*; do
+  for dir in "${CYCLE_LOG_DIR}"/*; do
+    name="${dir##*/}"
+    [[ "${name}" =~ ^[0-9]{8}T[0-9]{6}Z-c[0-9]+-p[0-9]+$ ]] || continue
     [[ -d "${dir}" && ! -L "${dir}" ]] || continue
     entries+=("${dir}")
   done
   ((${#entries[@]} > 0)) || return 0
   now="$(date +%s)"
   cutoff=$((now - CYCLE_LOG_MAX_AGE_DAYS * 86400))
-  while IFS= read -r dir; do
+  # The glob is sorted ascending (C collation); walk it newest first.
+  for ((i = ${#entries[@]} - 1; i >= 0; i--)); do
+    dir="${entries[i]}"
     bytes="$(du -sb -- "${dir}" 2>/dev/null)" || bytes=0
     bytes="${bytes%%[[:space:]]*}"
     [[ "${bytes}" =~ ^[0-9]+$ ]] || bytes=0
     total=$((total + bytes))
+    index=$((index + 1))
+    [[ "${dir}" != "${cycle_log_dir}" ]] || continue
     mtime="$(stat -c %Y -- "${dir}" 2>/dev/null)" || mtime="${now}"
-    if ((index > 0)) && ((index >= CYCLE_LOG_KEEP_COUNT || mtime < cutoff || total > CYCLE_LOG_MAX_BYTES)); then
-      if rm -rf -- "${dir}" 2>/dev/null; then
+    if ((index > CYCLE_LOG_KEEP_COUNT || mtime < cutoff || total > CYCLE_LOG_MAX_BYTES)); then
+      if rm -rf -- "${dir}" 2>/dev/null && [[ ! -e "${dir}" ]]; then
         removed=$((removed + 1))
+        total=$((total - bytes))
+        index=$((index - 1))
       else
         err "cycle log retention: cannot remove ${dir}"
       fi
-      total=$((total - bytes))
     fi
-    index=$((index + 1))
-  done < <(printf '%s\n' "${entries[@]}" | sort -r)
+  done
   if ((removed > 0)); then
     log "cycle log retention: removed ${removed} old cycle log director$( ((removed == 1)) && echo y || echo ies)"
   fi
@@ -540,14 +543,16 @@ run_cycle() { # <prompt> <decision line>
     --title "Tendo autonomy cycle ${cycle}" \
     "${prompt}"
   rc=$?
-  drain_group "${last_pid}"
-  cycle_running=0
   finished="$(date +%s)"
   duration=$((finished - started))
+  # Recorded before the drain, so even a fail-closed drain keeps the code.
   if ! record_cycle_status "finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "duration_seconds=${duration}" "exit_code=${rc}"; then
     err "cycle ${cycle} could not record its exit status in ${cycle_log_dir}/status"
   fi
+  drain_group "${last_pid}"
+  cycle_running=0
+  record_cycle_status "drained=$(date -u +%Y-%m-%dT%H:%M:%SZ)" || true
   local summary
   summary="cycle ${cycle} exit rc=${rc} duration=${duration}s"
   summary+=" stdout=$(file_bytes "${cycle_log_dir}/stdout.log")B"
