@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
-import { formatDate } from '../src/features/items/formatDate';
 import { expectNoAxeViolations } from './a11y';
 import { createTabRepeatGuard } from './tabRepeatGuard';
 import { measureMotion } from './motion';
@@ -1242,10 +1241,12 @@ test.describe('Tendo production journey', () => {
 
   test('n30. month-end and leap-day fixed cadence: Done/Undo show and persist the exact next date and restore the anchor', async () => {
     test.setTimeout(120_000);
-    // Home and item detail render every date through the app's own formatter (formatDate: "medium" style joined by
-    // no-break spaces), so the expected strings are built from the same locale template and the same function. A
-    // "Next time:" substring check would not prove which date the household actually sees.
-    const medium = (value: string) => formatDate(value, 'en');
+    // Independent date oracle: the expected strings are formatted here with Intl's "medium" date style, exactly the
+    // style the UI renders, joined by no-break spaces the way every date is drawn. Nothing is imported from the code
+    // under test; only the locale templates below are shared. A "Next time:" substring check would not prove which
+    // date the household actually sees.
+    const medium = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
+      .format(new Date(`${value}T00:00:00Z`)).replace(/\s/g, '\u00a0');
     const doneNotice = (title: string, next: string) => en['items.notice.doneNext'].replace('{title}', title).replace('{date}', medium(next));
     const nextAttention = (value: string) => en['itemDetail.nextAttention'].replace('{date}', medium(value));
     // A history row is three stacked paragraphs, so its raw text content is the three lines with no separator between
@@ -1256,130 +1257,154 @@ test.describe('Tendo production journey', () => {
       + `${escapeRegExp(en['itemDetail.historyNext'].replace('{date}', medium(next)))}$`,
     );
     const main = page.getByRole('main');
-    // The home notice region also holds Undo and Dismiss, so its sentence is contained in the region, not its whole text.
-    const homeNotice = (title: string, next: string) => expect(main.getByRole('status').filter({ hasText: title })).toContainText(doneNotice(title, next));
+    // The home notice region also holds Undo and Dismiss, so the sentence is asserted on the notice's own paragraph,
+    // where it is the element's entire text.
+    const homeNotice = (title: string, next: string) => expect(
+      main.getByRole('status').filter({ hasText: title }).getByRole('paragraph'),
+    ).toHaveText(doneNotice(title, next));
 
-    await page.goto('/');
-    await waitForSettledHome(page, householdName);
+    // This test creates three active items; later tests read the first page of the active list, so archive them again
+    // exactly like n11 does, even when an assertion fails, and report the primary failure first.
+    const createdIds: string[] = [];
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
 
-    // 1. A fixed monthly item anchored on the 31st, completed early on 15 January: the clamped February occurrence.
-    const monthlyTitle = 'Rotate the pantry stock';
-    await addItem({ title: monthlyTitle, subject: 'Anička', attentionOn: '2026-01-31', repeat: { value: '1', unit: 'month', fluid: false } });
-    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: monthlyTitle })).toBeVisible();
-    const monthly = await serverItem(monthlyTitle);
-    expect(monthly).toMatchObject({ attentionOn: '2026-01-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' } });
+      // 1. A fixed monthly item anchored on the 31st, completed early on 15 January: the clamped February occurrence.
+      const monthlyTitle = 'Rotate the pantry stock';
+      await addItem({ title: monthlyTitle, subject: 'Anička', attentionOn: '2026-01-31', repeat: { value: '1', unit: 'month', fluid: false } });
+      await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: monthlyTitle })).toBeVisible();
+      const monthly = await serverItem(monthlyTitle);
+      createdIds.push(monthly.id);
+      expect(monthly).toMatchObject({ attentionOn: '2026-01-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' } });
 
-    await row(monthlyTitle).getByRole('button', { name: en['items.done.label'].replace('{title}', monthlyTitle), exact: true }).click();
-    await homeNotice(monthlyTitle, '2026-02-28');
-    await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-02-28');
-    expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', done: false, lastCompletedOn: expectedCompletionDate });
-    await expect.poll(async () => (await serverCompletions(monthly.id)).length).toBe(1);
-    expect((await serverCompletions(monthly.id))[0]).toMatchObject({
-      completedOn: expectedCompletionDate, cycleAttentionOn: '2026-01-31', nextAttentionOn: '2026-02-28', undoneAt: null,
-    });
-
-    // 2. The detail screen offers the same early Done and keeps the app-provided Undo control beside the history the
-    // next step reads, so the anchor-restoring second completion happens there.
-    await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', monthlyTitle) }).click();
-    await expect(page).toHaveURL(new RegExp(`/items/${monthly.id}$`));
-    await expect(page.getByRole('heading', { level: 1, name: monthlyTitle })).toBeVisible();
-    await expect(page.getByText(nextAttention('2026-02-28'), { exact: true })).toBeVisible();
-    const detailDone = main.getByRole('button', { name: en['items.done.label'].replace('{title}', monthlyTitle), exact: true });
-    await detailDone.click();
-    // The detail notice holds only its own sentence, so its whole text is the exact expected wording.
-    const detailNotice = main.getByRole('status').filter({ hasText: monthlyTitle });
-    await expect(detailNotice).toHaveText(doneNotice(monthlyTitle, '2026-03-31'));
-    await expect(page.getByText(nextAttention('2026-03-31'), { exact: true })).toBeVisible();
-    await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-03-31');
-    const afterSecond = await serverItem(monthlyTitle);
-    expect(afterSecond).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
-    // The anchor is restored, so March is the 31st and never the clamped 28th of the February cycle.
-    expect(afterSecond.attentionOn).not.toBe('2026-03-28');
-    await expect.poll(async () => (await serverCompletions(monthly.id)).length).toBe(2);
-    const twoReceipts = await serverCompletions(monthly.id);
-    expect(twoReceipts[1]).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: null });
-
-    // 3. Both Done receipts are visible with their exact planned and next dates, newest first.
-    const history = main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
-    const historyRows = history.getByRole('listitem');
-    await expect(historyRows).toHaveCount(2);
-    await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
-    await expect(historyRows.nth(1)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-01-31', '2026-02-28'));
-
-    // 4. Undo the latest completion through the app's detail control: the visible and persisted state returns to the
-    // February occurrence, and the receipt keeps its facts with undoneAt set.
-    await main.getByRole('button', { name: en['items.undo'], exact: true }).click();
-    await expect(main.getByRole('status').filter({ hasText: en['itemDetail.completionUndone'] })).toBeVisible();
-    await expect(page.getByText(nextAttention('2026-02-28'), { exact: true })).toBeVisible();
-    await expect.poll(async () => (await serverCompletions(monthly.id)).filter((receipt) => receipt.undoneAt !== null).length).toBe(1);
-    expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
-    const afterUndo = await serverCompletions(monthly.id);
-    expect(afterUndo).toHaveLength(2);
-    expect(afterUndo[1]).toMatchObject({ cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: expect.any(String) });
-    await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyUndone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
-
-    // Done again after the undo: no drift, the same anchor-restored March date, and a fresh receipt (the undone one
-    // is never resurrected).
-    await detailDone.click();
-    await expect(detailNotice).toHaveText(doneNotice(monthlyTitle, '2026-03-31'));
-    await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-03-31');
-    expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming' });
-    await expect.poll(async () => (await serverCompletions(monthly.id)).length).toBe(3);
-    const afterRedo = await serverCompletions(monthly.id);
-    expect(afterRedo[2]).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: null });
-    expect(afterRedo[2]!.id).not.toBe(afterUndo[1]!.id);
-
-    // 5. A yearly item anchored on a leap day walks the clamped leap years and returns to 29 February.
-    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
-    await waitForSettledHome(page, householdName);
-    const yearlyTitle = 'Inspect the chimney flue';
-    await addItem({ title: yearlyTitle, subject: 'Anička', attentionOn: '2028-02-29', repeat: { value: '1', unit: 'year', fluid: false } });
-    const yearly = await serverItem(yearlyTitle);
-    expect(yearly).toMatchObject({ attentionOn: '2028-02-29', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
-    await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', yearlyTitle) }).click();
-    await expect(page.getByRole('heading', { level: 1, name: yearlyTitle })).toBeVisible();
-    await expect(page.getByText(nextAttention('2028-02-29'), { exact: true })).toBeVisible();
-    const yearlyDone = main.getByRole('button', { name: en['items.done.label'].replace('{title}', yearlyTitle), exact: true });
-    const yearlyNotice = main.getByRole('status').filter({ hasText: yearlyTitle });
-    const yearlySteps = ['2029-02-28', '2030-02-28', '2031-02-28', '2032-02-29'];
-    for (const [index, expected] of yearlySteps.entries()) {
-      await yearlyDone.click();
-      await expect(yearlyNotice).toHaveText(doneNotice(yearlyTitle, expected));
-      await expect(page.getByText(nextAttention(expected), { exact: true })).toBeVisible();
-      await expect.poll(async () => (await serverItem(yearlyTitle)).attentionOn).toBe(expected);
-      await expect.poll(async () => (await serverCompletions(yearly.id)).length).toBe(index + 1);
-      expect((await serverCompletions(yearly.id))[index]).toMatchObject({
-        completedOn: expectedCompletionDate,
-        cycleAttentionOn: index === 0 ? '2028-02-29' : yearlySteps[index - 1],
-        nextAttentionOn: expected,
-        undoneAt: null,
+      await row(monthlyTitle).getByRole('button', { name: en['items.done.label'].replace('{title}', monthlyTitle), exact: true }).click();
+      await homeNotice(monthlyTitle, '2026-02-28');
+      await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-02-28');
+      expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', done: false, lastCompletedOn: expectedCompletionDate });
+      await expect.poll(async () => (await serverCompletions(monthly.id)).length).toBe(1);
+      expect((await serverCompletions(monthly.id))[0]).toMatchObject({
+        completedOn: expectedCompletionDate, cycleAttentionOn: '2026-01-31', nextAttentionOn: '2026-02-28', undoneAt: null,
       });
-    }
-    await main.getByRole('button', { name: en['items.undo'], exact: true }).click();
-    await expect(main.getByRole('status').filter({ hasText: en['itemDetail.completionUndone'] })).toBeVisible();
-    await expect(page.getByText(nextAttention('2031-02-28'), { exact: true })).toBeVisible();
-    await expect.poll(async () => (await serverCompletions(yearly.id)).filter((receipt) => receipt.undoneAt !== null).length).toBe(1);
-    expect(await serverItem(yearlyTitle)).toMatchObject({ attentionOn: '2031-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
-    const yearlyAfterUndo = await serverCompletions(yearly.id);
-    expect(yearlyAfterUndo).toHaveLength(4);
-    expect(yearlyAfterUndo[3]).toMatchObject({ cycleAttentionOn: '2031-02-28', nextAttentionOn: '2032-02-29', undoneAt: expect.any(String) });
 
-    // 6. The same 31 January anchor under a fluid monthly cadence counts from the completion day instead (15 February),
-    // which is what makes fluid different from the fixed clamp above.
-    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
-    await waitForSettledHome(page, householdName);
-    const fluidTitle = 'Refill the bird feeder';
-    await addItem({ title: fluidTitle, subject: 'Anička', attentionOn: '2026-01-31', repeat: { value: '1', unit: 'month', fluid: true } });
-    const fluid = await serverItem(fluidTitle);
-    expect(fluid).toMatchObject({ attentionOn: '2026-01-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'after_completion' } });
-    await row(fluidTitle).getByRole('button', { name: en['items.done.label'].replace('{title}', fluidTitle), exact: true }).click();
-    await homeNotice(fluidTitle, '2026-02-15');
-    await expect.poll(async () => (await serverItem(fluidTitle)).attentionOn).toBe('2026-02-15');
-    expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: '2026-02-15', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
-    await expect.poll(async () => (await serverCompletions(fluid.id)).length).toBe(1);
-    const fluidReceipt = (await serverCompletions(fluid.id))[0]!;
-    expect(fluidReceipt).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-01-31', nextAttentionOn: '2026-02-15', undoneAt: null });
-    expect(fluidReceipt.nextAttentionOn).not.toBe('2026-02-28');
+      // 2. The detail screen offers the same early Done and keeps the app-provided Undo control beside the history the
+      // next step reads, so the anchor-restoring second completion happens there.
+      await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', monthlyTitle) }).click();
+      await expect(page).toHaveURL(new RegExp(`/items/${monthly.id}$`));
+      await expect(page.getByRole('heading', { level: 1, name: monthlyTitle })).toBeVisible();
+      await expect(page.getByText(nextAttention('2026-02-28'), { exact: true })).toBeVisible();
+      const detailDone = main.getByRole('button', { name: en['items.done.label'].replace('{title}', monthlyTitle), exact: true });
+      await detailDone.click();
+      // The detail notice holds only its own sentence, so its whole text is the exact expected wording. That text pins
+      // the restored 31st: an early completion that re-anchored to the clamped day would show 28 March here.
+      const detailNotice = main.getByRole('status').filter({ hasText: monthlyTitle });
+      await expect(detailNotice).toHaveText(doneNotice(monthlyTitle, '2026-03-31'));
+      await expect(page.getByText(nextAttention('2026-03-31'), { exact: true })).toBeVisible();
+      await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-03-31');
+      const afterSecond = await serverItem(monthlyTitle);
+      expect(afterSecond).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      await expect.poll(async () => (await serverCompletions(monthly.id)).length).toBe(2);
+      const twoReceipts = await serverCompletions(monthly.id);
+      expect(twoReceipts[1]).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: null });
+
+      // 3. Both Done receipts are visible with their exact planned and next dates, newest first.
+      const history = main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
+      const historyRows = history.getByRole('listitem');
+      await expect(historyRows).toHaveCount(2);
+      await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+      await expect(historyRows.nth(1)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-01-31', '2026-02-28'));
+
+      // 4. Undo the latest completion through the app's detail control: the visible and persisted state returns to the
+      // February occurrence, and the receipt keeps its facts with undoneAt set.
+      await main.getByRole('button', { name: en['items.undo'], exact: true }).click();
+      await expect(main.getByRole('status').filter({ hasText: en['itemDetail.completionUndone'] })).toBeVisible();
+      await expect(page.getByText(nextAttention('2026-02-28'), { exact: true })).toBeVisible();
+      await expect.poll(async () => (await serverCompletions(monthly.id)).filter((receipt) => receipt.undoneAt !== null).length).toBe(1);
+      expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      const afterUndo = await serverCompletions(monthly.id);
+      expect(afterUndo).toHaveLength(2);
+      expect(afterUndo[1]).toMatchObject({ cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: expect.any(String) });
+      await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyUndone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+
+      // Done again after the undo: no drift, the same anchor-restored March date, and a fresh receipt (the undone one
+      // is never resurrected).
+      await detailDone.click();
+      await expect(detailNotice).toHaveText(doneNotice(monthlyTitle, '2026-03-31'));
+      await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-03-31');
+      expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming' });
+      await expect.poll(async () => (await serverCompletions(monthly.id)).length).toBe(3);
+      const afterRedo = await serverCompletions(monthly.id);
+      expect(afterRedo[2]).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: null });
+      expect(afterRedo[2]!.id).not.toBe(afterUndo[1]!.id);
+
+      // 5. A yearly item anchored on a leap day walks the clamped leap years and returns to 29 February.
+      await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
+      await waitForSettledHome(page, householdName);
+      const yearlyTitle = 'Inspect the chimney flue';
+      await addItem({ title: yearlyTitle, subject: 'Anička', attentionOn: '2028-02-29', repeat: { value: '1', unit: 'year', fluid: false } });
+      const yearly = await serverItem(yearlyTitle);
+      createdIds.push(yearly.id);
+      expect(yearly).toMatchObject({ attentionOn: '2028-02-29', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
+      await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', yearlyTitle) }).click();
+      await expect(page.getByRole('heading', { level: 1, name: yearlyTitle })).toBeVisible();
+      await expect(page.getByText(nextAttention('2028-02-29'), { exact: true })).toBeVisible();
+      const yearlyDone = main.getByRole('button', { name: en['items.done.label'].replace('{title}', yearlyTitle), exact: true });
+      const yearlyNotice = main.getByRole('status').filter({ hasText: yearlyTitle });
+      const yearlySteps = ['2029-02-28', '2030-02-28', '2031-02-28', '2032-02-29'];
+      for (const [index, expected] of yearlySteps.entries()) {
+        await yearlyDone.click();
+        await expect(yearlyNotice).toHaveText(doneNotice(yearlyTitle, expected));
+        await expect(page.getByText(nextAttention(expected), { exact: true })).toBeVisible();
+        await expect.poll(async () => (await serverItem(yearlyTitle)).attentionOn).toBe(expected);
+        await expect.poll(async () => (await serverCompletions(yearly.id)).length).toBe(index + 1);
+        expect((await serverCompletions(yearly.id))[index]).toMatchObject({
+          completedOn: expectedCompletionDate,
+          cycleAttentionOn: index === 0 ? '2028-02-29' : yearlySteps[index - 1],
+          nextAttentionOn: expected,
+          undoneAt: null,
+        });
+      }
+      await main.getByRole('button', { name: en['items.undo'], exact: true }).click();
+      await expect(main.getByRole('status').filter({ hasText: en['itemDetail.completionUndone'] })).toBeVisible();
+      await expect(page.getByText(nextAttention('2031-02-28'), { exact: true })).toBeVisible();
+      await expect.poll(async () => (await serverCompletions(yearly.id)).filter((receipt) => receipt.undoneAt !== null).length).toBe(1);
+      expect(await serverItem(yearlyTitle)).toMatchObject({ attentionOn: '2031-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      const yearlyAfterUndo = await serverCompletions(yearly.id);
+      expect(yearlyAfterUndo).toHaveLength(4);
+      expect(yearlyAfterUndo[3]).toMatchObject({ cycleAttentionOn: '2031-02-28', nextAttentionOn: '2032-02-29', undoneAt: expect.any(String) });
+
+      // 6. The same 31 January anchor under a fluid monthly cadence counts from the completion day instead (15 February),
+      // which is what makes fluid different from the fixed clamp above.
+      await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
+      await waitForSettledHome(page, householdName);
+      const fluidTitle = 'Refill the bird feeder';
+      await addItem({ title: fluidTitle, subject: 'Anička', attentionOn: '2026-01-31', repeat: { value: '1', unit: 'month', fluid: true } });
+      const fluid = await serverItem(fluidTitle);
+      createdIds.push(fluid.id);
+      expect(fluid).toMatchObject({ attentionOn: '2026-01-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'after_completion' } });
+      await row(fluidTitle).getByRole('button', { name: en['items.done.label'].replace('{title}', fluidTitle), exact: true }).click();
+      await homeNotice(fluidTitle, '2026-02-15');
+      await expect.poll(async () => (await serverItem(fluidTitle)).attentionOn).toBe('2026-02-15');
+      expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: '2026-02-15', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      await expect.poll(async () => (await serverCompletions(fluid.id)).length).toBe(1);
+      const fluidReceipt = (await serverCompletions(fluid.id))[0]!;
+      expect(fluidReceipt).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-01-31', nextAttentionOn: '2026-02-15', undoneAt: null });
+      expect(fluidReceipt.nextAttentionOn).not.toBe('2026-02-28');
+    } catch (error) { primaryFailure = error; }
+    finally {
+      for (const itemId of createdIds) {
+        try {
+          const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+          if (response.status() !== 200) { cleanupFailure ??= new Error(`Could not read item ${itemId}: ${response.status()}`); continue; }
+          const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemId}`, { headers: { Origin: baseURL, 'If-Match': response.headers()['etag']! }, data: { archived: true } });
+          if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive item ${itemId}: ${archived.status()}`);
+        } catch (error) { cleanupFailure ??= error; }
+      }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('n7. an owner invites a second person who joins as a member with member-only access', async ({ browser }) => {
