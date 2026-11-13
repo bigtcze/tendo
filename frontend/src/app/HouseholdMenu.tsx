@@ -39,7 +39,7 @@ export function HouseholdMenu({ name, canManage }: { name: string; canManage: bo
   const label = t('household.menu.label', { name });
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    <div ref={rootRef} className="relative min-w-0 max-sm:static">
       <button
         ref={buttonRef}
         type="button"
@@ -57,7 +57,9 @@ export function HouseholdMenu({ name, canManage }: { name: string; canManage: bo
         role="group"
         aria-label={label}
         hidden={!open}
-        className="absolute left-0 top-[calc(100%+0.375rem)] z-30 w-[min(19rem,calc(100vw-4rem))] rounded-xl border border-line bg-raised p-1.5 shadow-[0_20px_50px_-32px_rgb(20_18_14/0.5)]"
+        // Phones pin the panel to the header's own width (16 px insets); from sm it hangs under its trigger. Either
+        // way it can never reach past the viewport, even at 320 px with a long household name.
+        className="absolute left-0 top-[calc(100%+0.375rem)] z-30 w-[min(19rem,calc(100vw-4rem))] max-sm:inset-x-4 max-sm:w-auto rounded-xl border border-line bg-raised p-1.5 shadow-[0_20px_50px_-32px_rgb(20_18_14/0.5)]"
       >
         <p aria-current="true" className="flex items-start gap-2 rounded-lg px-2.5 py-2">
           <Check />
@@ -72,7 +74,7 @@ export function HouseholdMenu({ name, canManage }: { name: string; canManage: bo
             onNavigate={() => { setOpen(false); navigation.actions.admin(); }}
             className="mt-1 flex min-h-11 items-center rounded-lg border-t border-line px-2.5 text-small font-medium text-ink transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
           >
-            {t('household.menu.members')}
+            {t('nav.admin')}
           </NavLink>
         ) : (
           <p className="mt-1 border-t border-line px-2.5 pb-1.5 pt-2.5 text-meta text-muted">{t('household.menu.help')}</p>

@@ -149,20 +149,23 @@ async function assertTitleTargetGeometry(page: Page, width: number) {
   const row = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
   const link = row.getByRole('link', { name: 'Open item Replace the smoke alarm battery' });
   await expect(link).toBeVisible();
+  // The link's stretched pseudo-element covers the whole row, so the row — not a minimum height on the title line —
+  // is the 44 px target. Its own box is only the text block; the sampled points sit clear of the Done control.
   const geometry = await link.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
+    const row = element.closest('li')!;
+    const rect = row.getBoundingClientRect();
     const panel = element.closest('ul')!.getBoundingClientRect();
-    const midX = rect.left + rect.width / 2;
+    const midX = rect.left + rect.width * 0.75;
     const hits = (y: number) => {
       const hit = document.elementFromPoint(midX, y);
       return Boolean(hit && (hit === element || element.contains(hit)));
     };
     return { height: rect.height, top: rect.top, panelTop: panel.top, topHit: hits(rect.top + 2), bottomHit: hits(rect.bottom - 2) };
   });
-  expect(geometry.height, `title target height at ${width}`).toBeGreaterThanOrEqual(44);
-  expect(geometry.topHit, `title target top-edge hit at ${width}`).toBe(true);
-  expect(geometry.bottomHit, `title target bottom-edge hit at ${width}`).toBe(true);
-  expect(geometry.top, `title target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
+  expect(geometry.height, `row target height at ${width}`).toBeGreaterThanOrEqual(44);
+  expect(geometry.topHit, `row target top-edge hit at ${width}`).toBe(true);
+  expect(geometry.bottomHit, `row target bottom-edge hit at ${width}`).toBe(true);
+  expect(geometry.top, `row target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
 }
 
 // Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
@@ -258,8 +261,10 @@ test('approved reference fixture at approved widths, locales and themes', async 
       const rowHeight = await smokeRow.evaluate((row) => row.getBoundingClientRect().height);
       console.info(`visual-reference-row-height width=${width} height=${rowHeight}`);
       if (width === 1440) {
-        expect(rowHeight, 'one-line reference row height at 1440').toBeGreaterThanOrEqual(64);
-        expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(96);
+        // Restored to the original budget: with no minimum height on the title, an ordinary row is its title line
+        // plus one metadata line, about 64 px at 1440.
+        expect(rowHeight, 'one-line reference row height at 1440').toBeGreaterThanOrEqual(56);
+        expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(68);
       }
     }
     if (width === 390) {
@@ -268,7 +273,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
       const phoneRowHeight = await phoneRow.evaluate((row) => row.getBoundingClientRect().height);
       const phoneRows = await page.locator('main li[data-item-id]').evaluateAll((rows) => rows.map((row) => Math.round(row.getBoundingClientRect().height)));
       console.info(`visual-reference-phone-row-height height=${phoneRowHeight} rows=${phoneRows.join(',')}`);
-      expect(phoneRowHeight, 'phone row height for an ordinary title at 390').toBeLessThanOrEqual(140);
+      expect(phoneRowHeight, 'phone row height for an ordinary title at 390').toBeLessThanOrEqual(110);
     }
     await capture(page, `home-reference-en-light-${width}`, width, height, true);
   }

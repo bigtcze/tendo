@@ -51,7 +51,7 @@ const documentedPairs: Pair[] = [
   { label: 'Waiting / subtle', foreground: 'waiting', background: 'waitingBg', minimum: 4.5, light: 5.23, dark: 8.36 },
   { label: 'Coming up / subtle', foreground: 'upcoming', background: 'upcomingBg', minimum: 4.5, light: 5.34, dark: 7.97 },
   { label: 'Ink / coming up subtle', foreground: 'ink', background: 'upcomingBg', minimum: 4.5, light: 14.75, dark: 12.75 },
-  { label: 'Paused / subtle', foreground: 'paused', background: 'pausedBg', minimum: 4.5, light: 4.62, dark: 6.66 },
+  { label: 'Paused / subtle', foreground: 'paused', background: 'pausedBg', minimum: 5, light: 5.37, dark: 6.66 },
   { label: 'Done / subtle', foreground: 'done', background: 'doneBg', minimum: 4.5, light: 5.31, dark: 8.55 },
   { label: 'Error / subtle', foreground: 'danger', background: 'dangerBg', minimum: 4.5, light: 5.89, dark: 7.57 },
   { label: 'Success / subtle', foreground: 'success', background: 'successBg', minimum: 4.5, light: 5.31, dark: 8.55 },

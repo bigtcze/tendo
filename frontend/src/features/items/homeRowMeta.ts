@@ -30,17 +30,13 @@ export type RowFact = {
   icon: 'alert' | 'calendar' | null;
 };
 
-/** "Needs attention" is the heading, so its row only says since when; other groups say what the date is. */
+/** "Needs attention" is the heading, so its row only says since when; other groups name the date itself. */
 function attentionFact(group: ItemGroup, date: string, t: Translate): RowFact {
   if (group === 'needs') {
     return { kind: 'attention', text: t('items.needsSinceCompact', { date }), emphasis: date, tone: 'attention', icon: 'alert' };
   }
-  return {
-    kind: 'attention',
-    text: group === 'upcoming' ? date : t('items.rowDue', { date }),
-    tone: 'muted',
-    icon: 'calendar',
-  };
+  // The same wording All items uses: the product says "attention date", never "due".
+  return { kind: 'attention', text: t('items.rowAttentionDate', { date }), tone: 'muted', icon: 'calendar' };
 }
 
 function detailsFact(item: Item, locale: string, t: Translate): RowFact | null {

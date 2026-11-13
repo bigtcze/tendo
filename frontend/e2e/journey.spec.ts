@@ -371,6 +371,20 @@ test.describe('Tendo production journey', () => {
     return page.getByRole('listitem').filter({ hasText: name });
   }
 
+  /**
+   * Proves two page boxes never share a pixel: the floating notice must clear the bar it hovers over, and a
+   * focused row control must stay clear of the notice. Both boxes come from the live layout, not from classes.
+   */
+  async function expectNoOverlap(first: Locator, second: Locator, label: string) {
+    const one = await first.boundingBox();
+    const two = await second.boundingBox();
+    expect(one, `${label}: first box`).not.toBeNull();
+    expect(two, `${label}: second box`).not.toBeNull();
+    const across = Math.min(one!.x + one!.width, two!.x + two!.width) - Math.max(one!.x, two!.x);
+    const down = Math.min(one!.y + one!.height, two!.y + two!.height) - Math.max(one!.y, two!.y);
+    expect(across > 0 && down > 0, `${label}: boxes overlap by ${across} x ${down} px`).toBe(false);
+  }
+
   test('h. People and things opens from home at /people and lists the owner’s member profile only', async () => {
     await page.goto('/');
     await waitForSettledHome(page, householdName);
@@ -874,6 +888,18 @@ test.describe('Tendo production journey', () => {
     await row('Book dental check').getByRole('button', { name: en['items.done'] }).click();
     await expect(page.getByRole('status').filter({ hasText: en['items.notice.done'].replace('{title}', 'Book dental check') })).toBeVisible();
     await expect(row('Book dental check')).toHaveCount(0);
+    // B1: below lg the bottom bar is fixed, so the notice must sit above it instead of painting over tabs the user
+    // cannot see (and clicking through to them).
+    const noticeCard = page.locator('[data-items-notice]');
+    const householdNav = page.getByRole('navigation', { name: en['nav.label'] });
+    for (const [width, height] of [[768, 1024], [390, 740]] as const) {
+      await page.setViewportSize({ width, height });
+      await expect(noticeCard).toBeVisible();
+      await expectNoOverlap(noticeCard, householdNav, `completion notice and bottom bar at ${width}px`);
+      // It stays out of the page flow: only the positioning wrapper is fixed, the card is measured inside it.
+      expect(await noticeCard.evaluate((node) => getComputedStyle(node.parentElement!).position)).toBe('fixed');
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
     const done = await serverItem('Book dental check', true);
     expect(done.done).toBe(true);
     const history = await serverCompletions(done.id);
@@ -1607,7 +1633,10 @@ test.describe('Tendo production journey', () => {
     // V2 slice 6b: the home row names who looks after the item and keeps Done secondary to Add item.
     await expect(row(title)).toContainText(en['items.responsible.read'].replace('{name}', member!.login));
     const rowDone = row(title).getByRole('button', { name: en['items.done.label'].replace('{title}', title), exact: true });
-    await expect(rowDone).toHaveAttribute('data-variant', 'secondary');
+    // The row action is its own control: it is identified by data-action and does not borrow the shared Button's
+    // variant styling, so only the real primary actions carry data-variant.
+    await expect(rowDone).toHaveAttribute('data-action', 'done');
+    await expect(rowDone).not.toHaveAttribute('data-variant');
     await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toHaveAttribute('data-variant', 'primary');
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
@@ -2026,13 +2055,79 @@ test.describe('Tendo production journey', () => {
       // One heading per populated group, each carrying its complete server count; status is never repeated per row.
       const groupHeadings = page.getByRole('main').getByRole('heading', { level: 2 });
       await expect(groupHeadings).toHaveCount([counts.needsAttention, counts.inProgress, counts.waiting, counts.upcoming, counts.paused].filter(count => count > 0).length);
+      // N6: each count is part of its heading's accessible name, not a badge a screen reader has to guess at.
+      const countLabel = (count: number) => (count === 1 ? en['items.group.count.one'] : en['items.group.count.other']).replace('{count}', String(count));
+      for (const [name, count] of [
+        [en['items.group.needs'], counts.needsAttention],
+        [en['items.group.inProgress'], counts.inProgress],
+        [en['items.group.waiting'], counts.waiting],
+        [en['items.group.upcoming'], counts.upcoming],
+        [en['items.group.paused'], counts.paused],
+      ] as const) {
+        if (!count) continue;
+        await expect(page.getByRole('main').getByRole('heading', { level: 2, name: `${name} ${countLabel(count)}` })).toBeVisible();
+      }
       await expectNoAxeViolations(page, 'home-groups');
+      // S1: the row is as tall as its two reading lines, and the 44 px target comes from the row itself.
+      const sampleRow = upcoming.getByRole('listitem').first();
+      const desktopRowHeight = await sampleRow.evaluate((node) => node.getBoundingClientRect().height);
+      console.info(`journey-home-row-height width=1280 height=${desktopRowHeight}`);
+      expect(desktopRowHeight, 'Home row height at 1280').toBeGreaterThanOrEqual(44);
+      expect(desktopRowHeight, 'Home row height at 1280').toBeLessThanOrEqual(72);
       const initialItems = await upcoming.getByRole('listitem').count();
       expect(initialItems).toBe(Math.min(25, counts.upcoming));
       expect(homeRequests.length).toBeLessThanOrEqual(6);
+      const noticeCard = page.locator('[data-items-notice]');
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 740 });
+        const lastRow = upcoming.getByRole('listitem').last();
+        const lastTitle = (await lastRow.locator('[data-item-title]').textContent())!;
+        await lastRow.scrollIntoViewIfNeeded();
+        await lastRow.getByRole('button', { name: en['items.done'] }).focus();
+        const scrolled = await page.evaluate(() => window.scrollY);
+        expect(scrolled, `a row below the fold is focused at ${width}px`).toBeGreaterThan(0);
+        await page.keyboard.press('Enter');
+        await expect(noticeCard).toBeVisible();
+        await expect(noticeCard).toContainText(lastTitle);
+        // The card is a viewport surface, not part of the scrolled page: hundreds of rows below the top it still
+        // sits inside the viewport and clear of the fixed bar. A transformed ancestor would scroll it away.
+        const cardBox = (await noticeCard.boundingBox())!;
+        expect(cardBox.y, `notice stays inside the viewport at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(cardBox.y + cardBox.height, `notice stays above the fixed bar at ${width}px`).toBeLessThanOrEqual(740);
+        // S2: the notice takes focus to announce the outcome; focusing it must not jump the document to the top.
+        await expect(noticeCard).toBeFocused();
+        const afterDone = await page.evaluate(() => window.scrollY);
+        expect(afterDone, `scroll position is kept after Done at ${width}px`).toBeGreaterThan(0);
+        // B2: focusing the next last row's Done keeps it entirely above the notice, and the notice itself takes
+        // pointer events, so nothing under its text can be pressed by accident.
+        const nextLastDone = upcoming.getByRole('listitem').last().getByRole('button', { name: en['items.done'] });
+        await nextLastDone.focus();
+        await expectNoOverlap(noticeCard, nextLastDone, `focused Done and notice at ${width}px`);
+        expect(await noticeCard.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('auto');
+        // Undo returns the row and the server count, so the pagination assertions below stay exact.
+        await page.getByRole('button', { name: en['items.undo'] }).click();
+        await expect(upcoming.getByRole('listitem').filter({ hasText: lastTitle })).toBeVisible();
+        await expect.poll(async () => {
+          const response = await page.request.get(`/api/v1/households/${householdId}/items/summary`);
+          expect(response.status()).toBe(200);
+          return ((await response.json()) as { upcoming: number }).upcoming;
+        }, `undo restores the upcoming count at ${width}px`).toBe(counts.upcoming);
+      }
+      await page.setViewportSize({ width: 1280, height: 720 });
       for (const width of [320, 390]) {
         await page.setViewportSize({ width, height: 740 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `no horizontal overflow at ${width}px`).toBeLessThanOrEqual(0);
+        // N8: the household panel is clamped inside the viewport at the narrowest phone, never cut off by it.
+        const householdTrigger = page.getByRole('banner').getByRole('button', { name: householdSelector(householdName) });
+        await householdTrigger.click();
+        const panel = page.getByRole('banner').getByRole('group', { name: householdSelector(householdName) });
+        await expect(panel).toBeVisible();
+        const panelBox = (await panel.boundingBox())!;
+        console.info(`journey-household-panel width=${width} left=${panelBox.x} right=${panelBox.x + panelBox.width}`);
+        expect(panelBox.x, `household panel left edge at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(panelBox.x + panelBox.width, `household panel right edge at ${width}px`).toBeLessThanOrEqual(width + 0.5);
+        await page.keyboard.press('Escape');
+        await expect(panel).toBeHidden();
       }
       const more = upcoming.locator('[data-group-more="upcoming"]');
       await more.focus();
@@ -2527,13 +2622,28 @@ test.describe('Tendo production journey', () => {
     // Targets are compared with a 1/64 px tolerance: Chrome lays out in 1/64 px units, so a 24 px
     // min-height can measure 23.99998 px at some vertical offsets.
     const checkTargets = async (label: string) => {
-      const small = await page.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((elements) => elements.filter((element) => {
-        if (element.matches('.sr-only') && !element.matches(':focus')) return false; // revealed only while focused
-        const box = element.getBoundingClientRect();
-        const label = element.closest('label');
-        const hitBox = label ? label.getBoundingClientRect() : box;
-        return box.width > 0 && box.height > 0 && (hitBox.width < 24 - 1 / 64 || hitBox.height < 24 - 1 / 64);
-      }).map((element) => { const target = element.closest('label') ?? element; return { tag: element.tagName, name: element.getAttribute('aria-label') || element.textContent?.trim() || element.getAttribute('type'), width: Math.round(target.getBoundingClientRect().width), height: Math.round(target.getBoundingClientRect().height) }; }));
+      const small = await page.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((elements) => {
+        /**
+         * The box a reader actually presses. A stretched link puts an absolutely positioned `::after` over the row,
+         * so its presses land anywhere in the box that pseudo-element fills: the row, not the text line, is the
+         * target. Everything else is pressed in its own box (or its label's, for a wrapped native input).
+         */
+        const pressedArea = (element: Element) => {
+          const stretched = getComputedStyle(element, '::after');
+          const covering = stretched.position === 'absolute' && element instanceof HTMLElement ? element.offsetParent : null;
+          return element.closest('label') ?? (covering && covering !== document.body ? covering : element);
+        };
+        const measure = (element: Element) => {
+          const box = pressedArea(element).getBoundingClientRect();
+          return { width: box.width, height: box.height };
+        };
+        return elements.filter((element) => {
+          if (element.matches('.sr-only') && !element.matches(':focus')) return false; // revealed only while focused
+          const box = element.getBoundingClientRect();
+          const hitBox = measure(element);
+          return box.width > 0 && box.height > 0 && (hitBox.width < 24 - 1 / 64 || hitBox.height < 24 - 1 / 64);
+        }).map((element) => ({ tag: element.tagName, name: element.getAttribute('aria-label') || element.textContent?.trim() || element.getAttribute('type'), ...measure(element) })).map(({ width, height, ...rest }) => ({ ...rest, width: Math.round(width), height: Math.round(height) }));
+      });
       await test.info().attach(`targets-${label}.json`, { body: JSON.stringify(small, null, 2), contentType: 'application/json' });
       expect(small, `${label} interactive targets >=24 CSS px`).toEqual([]);
     };
@@ -3126,8 +3236,14 @@ test.describe('Tendo production journey', () => {
     await tabToRowButton(en['items.done.label'].replace('{title}', originalTitle));
     await page.keyboard.press('Enter');
     await expect(page.getByRole('status').filter({ hasText: originalTitle })).toContainText(en['items.notice.done'].replace('{title}', originalTitle));
-    // The notice container (tabindex -1 wrapper around the status) receives focus so Undo is the next Tab stop.
-    await expect.poll(() => page.evaluate(() => document.activeElement?.querySelector('[role="status"]')?.textContent ?? '')).toContain(en['items.notice.done'].replace('{title}', originalTitle));
+    // The notice itself is the focused element (the card carries tabindex -1 and role=status), so Undo is the next
+    // Tab stop and the outcome is announced from the control the reader is standing on.
+    await expect.poll(() => page.evaluate(() => {
+      const active = document.activeElement;
+      if (!active) return '';
+      const status = active.matches('[role="status"]') ? active : active.querySelector('[role="status"]');
+      return status?.textContent ?? '';
+    })).toContain(en['items.notice.done'].replace('{title}', originalTitle));
     await pressTabUntil((name) => name === en['items.undo'], 'Undo');
     await page.keyboard.press('Enter');
     await expect(itemRow).toBeVisible();
@@ -3843,12 +3959,22 @@ test.describe('Tendo production journey', () => {
     // rule cannot diverge between them. A control's hit area is its enclosing <label> when it has one (the
     // real click target), otherwise the element itself. Visually hidden (.sr-only) controls are excluded;
     // no other exemption applies.
-    const targetSizeShortfalls = (target: Page) => target.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
-      if (node.matches('.sr-only')) return false;
-      const rect = node.getBoundingClientRect();
-      const hit = node.closest('label')?.getBoundingClientRect() ?? rect;
-      return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
-    }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim() || node.getAttribute('type'), outerHTML: node.outerHTML, rect: (node.closest('label') ?? node).getBoundingClientRect().toJSON() })));
+    const targetSizeShortfalls = (target: Page) => target.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => {
+      /**
+       * The box a reader actually presses. A stretched link puts an absolutely positioned `::after` over its row, so
+       * presses land anywhere in the box that pseudo-element fills: the row, not the text line, is its target.
+       */
+      const pressedArea = (node: Element) => {
+        const covering = getComputedStyle(node, '::after').position === 'absolute' && node instanceof HTMLElement ? node.offsetParent : null;
+        return node.closest('label') ?? (covering && covering !== document.body ? covering : node);
+      };
+      return nodes.filter((node) => {
+        if (node.matches('.sr-only')) return false;
+        const rect = node.getBoundingClientRect();
+        const hit = pressedArea(node).getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
+      }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim() || node.getAttribute('type'), outerHTML: node.outerHTML, rect: pressedArea(node).getBoundingClientRect().toJSON() }));
+    });
     const measureContrast = async (target: Page, route: string, expectBoundary = false): Promise<ContrastAuditRow[]> => {
       const rows = await auditContrast(target, route);
       const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);

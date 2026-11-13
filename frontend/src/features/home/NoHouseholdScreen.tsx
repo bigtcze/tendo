@@ -2,7 +2,6 @@ import { useRef } from 'react';
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type MessageKey } from '../../i18n';
 import { useDiscardAccount, type DiscardFailure } from '../auth/useDiscardAccount';
@@ -25,8 +24,7 @@ export function NoHouseholdScreen({ onSignedOut, onDiscarded }: { onSignedOut: (
 
   return (
     <section className="settle mx-auto w-full max-w-3xl">
-      <Eyebrow>{t('home.noHousehold.eyebrow')}</Eyebrow>
-      <Heading className="mt-2 text-h1 leading-tight text-ink">{t('home.noHousehold.title')}</Heading>
+      <Heading className="text-h1 leading-tight text-ink">{t('home.noHousehold.title')}</Heading>
       <p className="mt-2 max-w-prose text-base text-muted">{t('home.noHousehold.body')}</p>
       <div className="mt-6 rounded-2xl border border-line bg-raised p-5 sm:p-6">
         <h2 className="text-lg font-bold text-ink">{t('home.noHousehold.how.title')}</h2>

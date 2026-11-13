@@ -770,7 +770,8 @@ describe('Home items', () => {
     await screen.findByText('Need now');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
-    expect(screen.getByText('Nov 1')).toBeVisible();
+    // One attention wording for every group: the row names the date as an attention date, in local-day form.
+    expect(screen.getByText('Attention date Nov 1')).toBeVisible();
     const rows = screen.getByRole('main').querySelectorAll('li[data-item-id]');
     expect([...rows].map((row) => row.querySelector('[data-item-title]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
@@ -812,15 +813,17 @@ describe('Home items', () => {
     expect(needsRow).toHaveTextContent('Looked after by you');
     const progressRow = screen.getByText('In progress date').closest('li')!;
     await waitFor(() => expect(progressRow).toHaveTextContent('Looked after by petr'));
-    expect(progressRow).toHaveTextContent('Due Mar 4');
-    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Due Mar 5');
-    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Due Mar 6');
-    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Feb 3');
+    // Home and All items share one wording: the product says "attention date", never "due".
+    expect(progressRow).toHaveTextContent('Attention date Mar 4');
+    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5');
+    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6');
+    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Attention date Feb 3');
     const noDateRow = screen.getByText('No attention date').closest('li')!;
     const needsGroup = screen.getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
     expect(needsGroup).toBeVisible();
     expect(needsRow).toHaveTextContent('Anna');
     expect(noDateRow).not.toHaveTextContent('Due');
+    expect(noDateRow).not.toHaveTextContent('Attention date');
     expect(noDateRow).not.toHaveTextContent('Since');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
   });
@@ -896,7 +899,7 @@ describe('Home items', () => {
     expect(filter).toHaveTextContent('Last done Jan 2, 2026');
     expect(filter).toHaveTextContent('3 months');
     const service = (await screen.findByText('Car service')).closest('li')!;
-    expect(service).toHaveTextContent('Due Mar 4');
+    expect(service).toHaveTextContent('Attention date Mar 4');
     const flea = (await screen.findByText('Flea treatment')).closest('li')!;
     expect(flea).toHaveTextContent('1 month · counted from when it’s done');
     expect(flea).not.toHaveTextContent('Looked after by');
@@ -920,7 +923,7 @@ describe('Home items', () => {
       expect(row).toHaveTextContent('Last done Dec 2, 2025');
       expect(row).toHaveTextContent('1 month · stays on the planned dates');
       expect(row).toHaveTextContent('Looked after by petr');
-      expect(row).toHaveTextContent(title === 'Facts needs' ? 'Since Jan 2' : title === 'Facts upcoming' ? 'Mar 2' : 'Due Jan 2');
+      expect(row).toHaveTextContent(title === 'Facts needs' ? 'Since Jan 2' : title === 'Facts upcoming' ? 'Attention date Mar 2' : 'Attention date Jan 2');
     }
   });
 
@@ -945,10 +948,11 @@ describe('Home items', () => {
     const progress = screen.getByText('Once progress').closest('li')!;
     await waitFor(() => expect(progress).toHaveTextContent('Looked after by petr'));
     const text = progress.textContent!.replaceAll('\u00a0', ' ');
-    expect(text.indexOf('Due Jan 2')).toBeLessThan(text.indexOf('Looked after by petr'));
+    expect(text.indexOf('Attention date Jan 2')).toBeLessThan(text.indexOf('Looked after by petr'));
     expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Last done Dec 2, 2025'));
-    // The row stays compact: a Done box, the link, one line of facts and the tile-free subject, never copies.
-    expect(needs.querySelectorAll('*').length).toBeLessThanOrEqual(23);
+    // The row stays compact: a Done box (check plus its from-lg word), the link, one line of facts and the
+    // tile-free subject, never copies.
+    expect(needs.querySelectorAll('*').length).toBeLessThanOrEqual(24);
   });
 
   it('keeps a real space between the subject and each fact in the row metadata', async () => {
@@ -1228,7 +1232,9 @@ describe('Home items', () => {
     const done = within(title.closest('li')!).getByRole('button', { name: /Done:/ });
     // The control is visually a check box, so the title is the only place its purpose is stated.
     expect(done).toHaveAttribute('aria-label', 'Done: Renew passport');
-    expect(done).toHaveAttribute('data-variant', 'secondary');
+    // The row action is identified by its own attribute, not by borrowing the shared Button's variant styling.
+    expect(done).toHaveAttribute('data-action', 'done');
+    expect(done).not.toHaveAttribute('data-variant');
     expect(done).toHaveClass('size-11');
   });
 
@@ -2510,11 +2516,47 @@ describe('Home items', () => {
     // The controls are their own 44 px boxes; neither relies on an invisible padded hit area.
     expect(done.className).toContain('size-11');
     expect(done.className).not.toContain('before:');
-    expect(title.className).toContain('min-h-11');
+    // The row itself is the target: the title has no minimum height of its own, and the link's stretched
+    // pseudo-element covers the whole row instead.
+    expect(title.className).not.toContain('min-h-11');
+    expect(title.className).toContain('after:absolute');
+    expect(title.className).toContain('after:inset-0');
+    expect(row.className).toContain('relative');
+    // The completion box sits above the stretched link so its own clicks never open the item.
+    expect(done.className).toContain('z-10');
     expect(within(screen.getByRole('main')).getByRole('button', { name: 'Add item' }).className).toContain('min-h-11');
     for (const link of within(screen.getByRole('navigation', { name: 'Household navigation' })).getAllByRole('link')) {
       expect(link.className, `${link.textContent} is a full 44 px tall target`).toContain('min-h-14');
     }
+  });
+
+  it('keeps the rows on screen while a completion refresh reloads them', async () => {
+    let releaseSummary!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { releaseSummary = resolve; });
+    let summaryCalls = 0;
+    const summary = () => json(200, { evaluatedOn: '2026-01-15', total: 1, needsAttention: 1, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 });
+    installFakeServer({
+      ...routes,
+      ...itemRoutes(base, [item({ id: 'i-1', title: 'Renew passport' })]),
+      // The refresh that follows Done waits on the summary; the list must stay readable meanwhile.
+      [`GET ${base}/items/summary`]: () => (++summaryCalls === 2 ? held : summary()),
+      [subjectList]: subjectPages,
+      [memberList]: memberPage(),
+      [`GET ${base}/items/i-1`]: json(200, item({ id: 'i-1', title: 'Renew passport' }), { ETag: '"7"' }),
+      [`POST ${donePath}`]: json(201, { id: 'c-held', itemId: 'i-1', completedOn: '2026-01-15', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-15T00:00:00Z', undoneAt: null, undoneByUserId: null }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(summaryCalls).toBe(2));
+    const main = screen.getByRole('main');
+    // The completion refresh is in flight — the notice arrives only after it settles — and no skeletons replace the
+    // rows, so a reader far down a long list keeps their place instead of being thrown back to the top.
+    expect(main.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(main.querySelectorAll('li[data-item-id]')).toHaveLength(1);
+    expect(within(main).getByText('Renew passport')).toBeVisible();
+    await act(async () => { releaseSummary(summary()); });
+    await screen.findByText('“Renew passport” is done.');
+    expect(main.querySelectorAll('li[data-item-id]')).toHaveLength(1);
   });
 
   it('floats the Done notice above the list and Dismiss leaves the rows in place', async () => {
@@ -2534,13 +2576,21 @@ describe('Home items', () => {
     expect(notice.closest('[data-home-layout="list"]')).toBeNull();
     expect(status.closest('.fixed')).not.toBeNull();
     expect(within(status).getByRole('button', { name: 'Dismiss' })).toBeVisible();
-    // The card lets clicks through to the rows it covers; only its own controls take pointer events.
-    expect(status.className).toContain('pointer-events-none');
-    expect(within(status).getByRole('button', { name: 'Dismiss' }).closest('.pointer-events-auto')).not.toBeNull();
+    // The card itself blocks clicks: its text can never press a row it covers. Only the positioning wrapper is
+    // transparent to pointers.
+    expect(status.className).toContain('pointer-events-auto');
+    expect(status.className).not.toContain('pointer-events-none');
+    expect(status.parentElement?.className).toContain('pointer-events-none');
+    expect(within(status).getByRole('button', { name: 'Dismiss' })).toBeEnabled();
+    // While it is shown, the page reserves the card's height (72 px floor + 12 px gap without layout) as
+    // clearance, so a focused control below it is never hidden.
+    expect(document.documentElement.style.getPropertyValue('--notice-clearance')).toBe('84px');
     expect(screen.getByRole('main').querySelectorAll('li[data-item-id]')).toHaveLength(2);
     await userEvent.click(within(status).getByRole('button', { name: 'Dismiss' }));
     expect(notice.querySelector('[role="status"]')).toBeNull();
     expect(screen.queryByText('“Renew passport” is done.')).not.toBeInTheDocument();
+    // The extra clearance goes away with the card, so a short page never keeps phantom space.
+    expect(document.documentElement.style.getPropertyValue('--notice-clearance')).toBe('');
     // Dismiss retires the notice and hands focus back to the row control that produced it.
     await waitFor(() => expect(within(screen.getByRole('main')).getByRole('button', { name: 'Done: Renew passport' })).toHaveFocus());
     expect(screen.getByRole('main').querySelectorAll('li[data-item-id]')).toHaveLength(2);

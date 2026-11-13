@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n';
-import { HOUSEHOLD_ID, household, installFakeServer, json, session } from '../test/fakeServer';
+import { HOUSEHOLD_ID, household, installFakeServer, json, memberHousehold, session } from '../test/fakeServer';
 import { itemRoutes } from '../test/fakeItems';
 import { App } from './App';
 
@@ -278,7 +278,7 @@ describe('signed in', () => {
     expect(within(panel).getByText('Active household')).toBeVisible();
     // The same name is announced by the trigger; the panel repeats it once as the current row.
     expect(within(panel).getAllByText('Veselí')).toHaveLength(1);
-    await userEvent.click(within(panel).getByRole('link', { name: 'Members and access' }));
+    await userEvent.click(within(panel).getByRole('link', { name: 'Admin center' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Admin center' })).toHaveFocus();
     expect(window.location.pathname).toBe('/admin');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Household: Veselí' })).toHaveAttribute('aria-expanded', 'false'));
@@ -311,6 +311,74 @@ describe('signed in', () => {
     await waitFor(() => expect(more()).toHaveAttribute('aria-expanded', 'false'));
     expect(sheet().querySelectorAll('a')).toHaveLength(0);
     expect(within(nav()).getByRole('link', { name: 'Archive' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('closes the household panel on Escape, on an outside press, and when focus leaves it', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const button = await screen.findByRole('button', { name: 'Household: Veselí' });
+    const panel = document.getElementById(button.getAttribute('aria-controls')!)!;
+    const adminLink = () => within(panel).getByRole('link', { name: 'Admin center' });
+
+    // Escape closes the panel and puts focus back on the trigger, never at the top of the document.
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    adminLink().focus();
+    await userEvent.keyboard('{Escape}');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveFocus();
+
+    // A press anywhere outside the panel closes it too.
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(screen.getByRole('main'));
+    await waitFor(() => expect(button).toHaveAttribute('aria-expanded', 'false'));
+
+    // Tabbing past the last control leaves the panel behind instead of keeping it open.
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    adminLink().focus();
+    await userEvent.tab();
+    await waitFor(() => expect(button).toHaveAttribute('aria-expanded', 'false'));
+    expect(panel).not.toBeVisible();
+  });
+
+  it('closes the phone More sheet on Escape, on an outside press, and when focus leaves it', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, memberHousehold),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const nav = () => screen.getByRole('navigation', { name: 'Household navigation' });
+    const more = () => within(nav()).getByRole('button', { name: 'More' });
+    const sheet = () => document.getElementById(more().getAttribute('aria-controls')!)!;
+    const members = () => within(sheet()).getByRole('link', { name: 'Household members' });
+
+    await screen.findByRole('navigation', { name: 'Household navigation' });
+    await userEvent.click(more());
+    expect(more()).toHaveAttribute('aria-expanded', 'true');
+    members().focus();
+    await userEvent.keyboard('{Escape}');
+    expect(more()).toHaveAttribute('aria-expanded', 'false');
+    expect(more()).toHaveFocus();
+
+    await userEvent.click(more());
+    expect(more()).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(screen.getByRole('main'));
+    await waitFor(() => expect(more()).toHaveAttribute('aria-expanded', 'false'));
+
+    // Tab past the sheet's last link leaves it behind instead of keeping it open.
+    await userEvent.click(more());
+    expect(more()).toHaveAttribute('aria-expanded', 'true');
+    members().focus();
+    await userEvent.tab();
+    await waitFor(() => expect(more()).toHaveAttribute('aria-expanded', 'false'));
+    expect(sheet().querySelectorAll('a')).toHaveLength(0);
   });
 
   it('shared navigation and popstate restore the prior route and focus', async () => {

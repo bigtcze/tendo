@@ -96,7 +96,7 @@
   --state-waiting-bg: #fbf0d9;
   --state-upcoming: #4b6472;
   --state-upcoming-bg: #e9eef2;
-  --state-paused: #6d6a61;
+  --state-paused: #636057;
   --state-paused-bg: #efede8;
   --state-done: #3f6b4e;
   --state-done-bg: #e8f1e9;
@@ -129,7 +129,7 @@
     --state-waiting-bg: light-dark(#fbf0d9, #33280f);
     --state-upcoming: light-dark(#4b6472, #a9c3d3);
     --state-upcoming-bg: light-dark(#e9eef2, #1e2a33);
-    --state-paused: light-dark(#6d6a61, #b3aea3);
+    --state-paused: light-dark(#636057, #b3aea3);
     --state-paused-bg: light-dark(#efede8, #2a2823);
     --state-done: light-dark(#3f6b4e, #93d8b0);
     --state-done-bg: light-dark(#e8f1e9, #163026);
@@ -158,9 +158,17 @@ dialog::backdrop { background: rgb(20 18 14 / 55%); }
 html { background: var(--surface-paper); }
 body { margin: 0; min-height: 100dvh; font-family: var(--font-sans); color: var(--text-ink); background: var(--surface-paper); -webkit-font-smoothing: antialiased; }
 
-@keyframes settle { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.settle { animation: settle 400ms ease-out both; }
+/*
+ * Entry animations never leave a transform on the element they settle. A finished animation with `both` fill keeps
+ * its final frame, and Chromium reports an animated `transform: none` as an identity matrix; any transform - even
+ * identity - makes the element a containing block for its positioned descendants, so the floating Home notice
+ * would be placed against the settled section instead of the viewport and scroll away with the page. `backwards`
+ * applies the start frame at once and hands the element back its own values when the animation ends, so the same
+ * rise and fade finishes with no transform at all.
+ */
+@keyframes settle { from { opacity: 0; transform: translateY(6px); } }
+.settle { animation: settle 400ms ease-out backwards; }
 /* A short, quiet arrival for the floating Home notice; the reduced-motion block below removes it entirely. */
-@keyframes notice-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-.notice-in { animation: notice-in 180ms ease-out both; }
+@keyframes notice-in { from { opacity: 0; transform: translateY(8px); } }
+.notice-in { animation: notice-in 180ms ease-out backwards; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }

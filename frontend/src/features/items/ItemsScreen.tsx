@@ -126,7 +126,9 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onRetryFocus={completion.markRetryFocused}
       onDismiss={dismissNotice}
     />
-    <HomeLoadState loading={loading} error={error} onRetry={() => void refresh()} />
+    {/* Skeletons belong to a first load. A refresh keeps the rows on screen, so completing an item far down a
+        long list never blanks the page and throws the reader back to the top. */}
+    <HomeLoadState loading={loading && !summary} error={error} onRetry={() => void refresh()} />
     {labels.loading && visibleSubjectIDs.some((id) => !names.has(id))
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
@@ -155,7 +157,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onOpenPeople={() => { add.cancelForPeople(); onOpenPeople(); }}
     />
     </Dialog>
-    {!loading && summary ? <HomeGroupList
+    {summary ? <HomeGroupList
       summary={summary}
       groupData={groupData}
       sectionHeadingRefs={sectionHeadingRefs}

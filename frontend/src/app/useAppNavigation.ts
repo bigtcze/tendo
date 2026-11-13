@@ -125,8 +125,9 @@ function usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, set
 
 export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, clearHomeNotice, state }: Options) {
   // Both are presentation state for the navigation only: which list an item was opened from, and whether that
-  // list is showing the archive. They are set by the actions above, never read from the address during render.
-  const [itemOrigin, setItemOrigin] = useState<ItemOrigin>(null);
+  // list is showing the archive. They are set by the actions above; a reload keeps them only because the history
+  // entry an item was pushed with still names where it was opened from.
+  const [itemOrigin, setItemOrigin] = useState<ItemOrigin>(() => (route.kind === 'item' ? historyOrigin() : null));
   const [archivedView, setArchivedView] = useState(false);
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
   const clearTransient = useCallback(() => {

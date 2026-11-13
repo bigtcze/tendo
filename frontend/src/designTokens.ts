@@ -20,7 +20,7 @@ export const designTokens = {
     waitingBg: '#fbf0d9',
     upcoming: '#4b6472',
     upcomingBg: '#e9eef2',
-    paused: '#6d6a61',
+    paused: '#636057',
     pausedBg: '#efede8',
     done: '#3f6b4e',
     doneBg: '#e8f1e9',
