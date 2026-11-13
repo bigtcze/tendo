@@ -46,7 +46,8 @@ async function completionSuccess(
     await refresh();
     setNotice({ text: t('items.notice.alreadyUndone') });
     focusedRowRef.current = focused;
-    requestAnimationFrame(() => { if (focusUnclaimed(focusedControl)) noticeRef.current?.focus(); });
+    // The notice floats in the viewport, so focusing it must not scroll the list the reader is working in.
+    requestAnimationFrame(() => { if (focusUnclaimed(focusedControl)) noticeRef.current?.focus({ preventScroll: true }); });
     return;
   }
   clearPendingCompletion(userId, householdId, itemId, attemptKey);

@@ -262,6 +262,29 @@ describe('signed in', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
   });
 
+  it('keeps the floating notice’s scroll clearance reserved on short viewports', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    // The clearance lives on the household shell, which arrives with the household itself.
+    await screen.findByRole('button', { name: 'Household: Veselí' });
+    const main = screen.getByRole('main');
+    // Short viewports (landscape phones, 200–400 % zoom) turn the bottom bar static, but the Home notice keeps
+    // floating over the content there. Zeroing the clearance along with the bar's offset would leave a keyboard
+    // focused row control under the card (WCAG 2.4.11), so the short rule reserves the card's own height instead.
+    expect(main.className).toContain('short:pb-[calc(var(--notice-clearance,0px)+1.5rem+env(safe-area-inset-bottom))]');
+    expect(main.className, 'a short viewport never drops the notice clearance').not.toContain('short:pb-6');
+    // The scroll margin is reserved on the shell frame for every descendant, so Tab never lands under the card. The
+    // notice keeps its bar-clearing lift on short viewports, so the base margin (card height + lift) applies there
+    // unchanged and no short rule may override it.
+    const frame = main.parentElement!.parentElement!;
+    expect(frame.className).toContain('[&_*]:scroll-mb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-area-inset-bottom))]');
+    expect(frame.className, 'a short viewport keeps the base scroll margin for focused controls').not.toMatch(/short:\[&_\*\]:scroll-mb-/);
+  });
+
   it('opens the household panel with the active household and the admin center for an administrator', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
@@ -345,6 +368,15 @@ describe('signed in', () => {
     await userEvent.tab();
     await waitFor(() => expect(button).toHaveAttribute('aria-expanded', 'false'));
     expect(panel).not.toBeVisible();
+
+    // A press on the panel's own non-focusable text is not a way out of it: focus drops to the document body, which
+    // must not be mistaken for focus leaving the popover, and the press itself was inside the panel.
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(within(panel).getByText('Active household'));
+    expect(document.activeElement, 'the press really moves focus off the trigger').toBe(document.body);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).toBeVisible();
   });
 
   it('closes the phone More sheet on Escape, on an outside press, and when focus leaves it', async () => {

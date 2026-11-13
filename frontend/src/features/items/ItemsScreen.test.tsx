@@ -2581,6 +2581,10 @@ describe('Home items', () => {
     expect(status.className).toContain('pointer-events-auto');
     expect(status.className).not.toContain('pointer-events-none');
     expect(status.parentElement?.className).toContain('pointer-events-none');
+    // On short viewports the bottom bar turns static but still ends the page, so the card keeps its 5.5rem lift there
+    // (no short override) and clears the bar at maximum scroll as well; the shell's base scroll margin matches it.
+    expect(status.parentElement?.className).toContain('bottom-[calc(5.5rem+env(safe-area-inset-bottom))]');
+    expect(status.parentElement?.className).not.toMatch(/short:bottom-/);
     expect(within(status).getByRole('button', { name: 'Dismiss' })).toBeEnabled();
     // While it is shown, the page reserves the card's height (72 px floor + 12 px gap without layout) as
     // clearance, so a focused control below it is never hidden.

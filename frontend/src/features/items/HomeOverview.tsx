@@ -63,10 +63,11 @@ type NoticeAreaProps = {
  * Done or Undo never pushes the list down.
  *
  * Until `lg` the bottom bar is fixed, so the card sits above it rather than in the viewport's corner (a corner
- * card would paint over tabs the user cannot see). The card itself takes pointer events — text must never leak
- * clicks onto the rows it covers — while its positioning wrapper does not, so the card's own controls stay the
- * only things it can activate. The wrapper is never in flow, and `useNoticeClearance` reserves the card's height
- * as scroll clearance, so a focused row control is never hidden behind it (WCAG 2.4.11).
+ * card would paint over tabs the user cannot see). Short viewports turn that bar static, but it still ends the page,
+ * so the card keeps the same 5.5rem lift there and clears the bar at maximum scroll too. The card itself takes pointer events —
+ * text must never leak clicks onto the rows it covers — while its positioning wrapper does not, so the card's own
+ * controls stay the only things it can activate. The wrapper is never in flow, and `useNoticeClearance` reserves the
+ * card's height as scroll clearance, so a focused row control is never hidden behind it (WCAG 2.4.11).
  */
 export function ItemsNoticeArea({ noticeRef, createNotice, notice, busy, onUndo, onRetry, onRetryFocus, onDismiss }: NoticeAreaProps) {
   const { t } = useI18n();

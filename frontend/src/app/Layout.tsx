@@ -15,12 +15,15 @@ type Shell = 'household' | 'householdLess' | 'centered';
 
 /**
  * Padding alone only clears the end of the page. When Tab scrolls a control into view, the browser also needs to
- * know the fixed bottom bar covers the viewport's last ~5.5rem, so every descendant reserves it as scroll margin.
- * Off where the bar is static (short viewports) or replaced by the sidebar (lg); at `lg` the floating Home notice
- * is the only thing over the content, so its measured height (`--notice-clearance`) is all that is reserved.
+ * know what covers the viewport's last stretch, so every descendant reserves it as scroll margin: the fixed bottom
+ * bar plus the notice it carries. Short viewports make the bar static (it must never cover content at 200–400 % zoom)
+ * but the notice keeps its 5.5rem lift there so it still clears the bar at maximum scroll, so they reserve the same
+ * band as the base rule. `lg` replaces the bar with the sidebar and keeps only the notice — its measured height
+ * (`--notice-clearance`) plus its own offset. The notice floats at every width, so this clearance is never dropped:
+ * a zero margin would put a focused control under the card (WCAG 2.4.11).
  */
 const KEEP_FOCUS_ABOVE_BAR = '[&_*]:scroll-mb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-area-inset-bottom))]'
-  + ' short:[&_*]:scroll-mb-0 lg:[&_*]:scroll-mb-[calc(var(--notice-clearance,0px)+1.5rem)]';
+  + ' lg:[&_*]:scroll-mb-[calc(var(--notice-clearance,0px)+1.5rem)]';
 
 const FRAME: Record<Shell, string> = {
   household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh flex-col`,
@@ -38,13 +41,15 @@ const BODY = 'flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[14.5rem_minmax(
 const MAIN = 'w-full min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pt-8 xl:px-10';
 /**
  * Bottom padding keeps the last content clear of the fixed phone bar and of the floating notice; the sidebar needs
- * only the notice's measured height, so `lg` reserves that plus the shared 3rem. MAIN's `sm:py-8` is declared after
- * the base utilities, so the clearance must be repeated at `sm` too — otherwise the final row of a long list can sit
- * behind the bar at max scroll.
+ * only the notice's measured height, so `lg` reserves that plus the shared 3rem. Short viewports drop the bar (it
+ * turns static) but not the notice, so they reserve the notice's height and its lower offset. MAIN's `sm:py-8` is
+ * declared after the base utilities, so the clearance must be repeated at `sm` too — otherwise the final row of a
+ * long list can sit behind the bar at max scroll.
  */
 const MAIN_HOUSEHOLD = 'pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-area-inset-bottom))]'
   + ' sm:pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-area-inset-bottom))]'
-  + ' short:pb-6 lg:col-start-2 lg:row-start-1 lg:pb-[calc(var(--notice-clearance,0px)+3rem)] lg:min-w-0';
+  + ' short:pb-[calc(var(--notice-clearance,0px)+1.5rem+env(safe-area-inset-bottom))]'
+  + ' lg:col-start-2 lg:row-start-1 lg:pb-[calc(var(--notice-clearance,0px)+3rem)] lg:min-w-0';
 const FOOTER = 'flex justify-end px-4 py-3 sm:px-6 lg:px-8 xl:px-10';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {

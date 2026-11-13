@@ -2094,15 +2094,35 @@ test.describe('Tendo production journey', () => {
         const cardBox = (await noticeCard.boundingBox())!;
         expect(cardBox.y, `notice stays inside the viewport at ${width}px`).toBeGreaterThanOrEqual(0);
         expect(cardBox.y + cardBox.height, `notice stays above the fixed bar at ${width}px`).toBeLessThanOrEqual(740);
-        // S2: the notice takes focus to announce the outcome; focusing it must not jump the document to the top.
+        // S2: the notice takes focus to announce the outcome, and it is fixed, so focusing it must not carry the page
+        // anywhere: the reader keeps the rows they were working in. One row height is the whole tolerance — the
+        // completed row has just left the list.
         await expect(noticeCard).toBeFocused();
         const afterDone = await page.evaluate(() => window.scrollY);
-        expect(afterDone, `scroll position is kept after Done at ${width}px`).toBeGreaterThan(0);
-        // B2: focusing the next last row's Done keeps it entirely above the notice, and the notice itself takes
-        // pointer events, so nothing under its text can be pressed by accident.
-        const nextLastDone = upcoming.getByRole('listitem').last().getByRole('button', { name: en['items.done'] });
-        await nextLastDone.focus();
-        await expectNoOverlap(noticeCard, nextLastDone, `focused Done and notice at ${width}px`);
+        expect(Math.abs(afterDone - scrolled), `scroll position is kept after Done at ${width}px`).toBeLessThanOrEqual(100);
+        // B2: focusing a Done keeps it entirely above the notice, and the notice itself takes pointer events, so
+        // nothing under its text can be pressed by accident. A row is parked in the viewport's last 40 px first (the
+        // group's last row cannot go there: its own footer follows it), so a focused control that no longer reserves
+        // the notice's clearance would visibly land under the card instead of the check passing from mid-screen.
+        const parkedDone = upcoming.getByRole('listitem').nth(4).getByRole('button', { name: en['items.done'] });
+        await parkedDone.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          window.scrollBy(0, box.bottom - (window.innerHeight - 40));
+        });
+        const parked = await parkedDone.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const notice = document.querySelector('[data-items-notice]')!.getBoundingClientRect();
+          return { bottom: box.bottom, viewport: window.innerHeight, noticeTop: notice.top };
+        });
+        expect(parked.bottom, `the Done to focus really sits in the viewport's last 100 px at ${width}px`).toBeGreaterThan(parked.viewport - 100);
+        expect(parked.bottom, `that Done starts inside the notice's band at ${width}px`).toBeGreaterThan(parked.noticeTop);
+        await parkedDone.focus();
+        await expectNoOverlap(noticeCard, parkedDone, `focused Done and notice at ${width}px`);
+        // The margin the focused control reserves is the clearance the notice publishes, not an arbitrary value.
+        const clearance = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--notice-clearance')) || 0);
+        const reservedMargin = await parkedDone.evaluate((node) => Number.parseFloat(getComputedStyle(node).scrollMarginBottom) || 0);
+        expect(clearance, `the shown notice publishes its clearance at ${width}px`).toBeGreaterThan(0);
+        expect(reservedMargin, `a focused Done reserves the notice's clearance at ${width}px`).toBeGreaterThanOrEqual(clearance);
         expect(await noticeCard.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('auto');
         // Undo returns the row and the server count, so the pagination assertions below stay exact.
         await page.getByRole('button', { name: en['items.undo'] }).click();
@@ -2626,13 +2646,18 @@ test.describe('Tendo production journey', () => {
         /**
          * The box a reader actually presses. A stretched link puts an absolutely positioned `::after` over the row,
          * so its presses land anywhere in the box that pseudo-element fills: the row, not the text line, is the
-         * target. Everything else is pressed in its own box (or its label's, for a wrapped native input).
+         * target. Only a pseudo-element pinned to all four edges fills a whole box; any other absolute one (a dot, a
+         * corner badge) covers part of it and never widens the pressed area. Everything else is pressed in its own
+         * box (or its label's, for a wrapped native input).
          */
-        const pressedArea = (element: Element) => {
-          const stretched = getComputedStyle(element, '::after');
-          const covering = stretched.position === 'absolute' && element instanceof HTMLElement ? element.offsetParent : null;
-          return element.closest('label') ?? (covering && covering !== document.body ? covering : element);
+        const stretchedArea = (element: Element) => {
+          const overlay = getComputedStyle(element, '::after');
+          if (overlay.position !== 'absolute' || !(element instanceof HTMLElement)) return null;
+          const fills = [overlay.top, overlay.right, overlay.bottom, overlay.left].every((side) => side === '0px');
+          const covering = fills ? element.offsetParent : null;
+          return covering && covering !== document.body ? covering : null;
         };
+        const pressedArea = (element: Element) => element.closest('label') ?? stretchedArea(element) ?? element;
         const measure = (element: Element) => {
           const box = pressedArea(element).getBoundingClientRect();
           return { width: box.width, height: box.height };
@@ -3957,17 +3982,22 @@ test.describe('Tendo production journey', () => {
     const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
     // WCAG 2.5.8 target-size predicate, shared by every route, dark, empty and signed-out check so the
     // rule cannot diverge between them. A control's hit area is its enclosing <label> when it has one (the
-    // real click target), otherwise the element itself. Visually hidden (.sr-only) controls are excluded;
-    // no other exemption applies.
+    // real click target), otherwise the row a full-bleed stretched ::after covers, otherwise the element
+    // itself. Visually hidden (.sr-only) controls are excluded; no other exemption applies.
     const targetSizeShortfalls = (target: Page) => target.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => {
       /**
        * The box a reader actually presses. A stretched link puts an absolutely positioned `::after` over its row, so
-       * presses land anywhere in the box that pseudo-element fills: the row, not the text line, is its target.
+       * presses land anywhere in the box that pseudo-element fills: the row, not the text line, is its target. Only a
+       * pseudo-element pinned to all four edges fills a whole box; a partial overlay (a dot, a corner badge) does not.
        */
-      const pressedArea = (node: Element) => {
-        const covering = getComputedStyle(node, '::after').position === 'absolute' && node instanceof HTMLElement ? node.offsetParent : null;
-        return node.closest('label') ?? (covering && covering !== document.body ? covering : node);
+      const stretchedArea = (node: Element) => {
+        const overlay = getComputedStyle(node, '::after');
+        if (overlay.position !== 'absolute' || !(node instanceof HTMLElement)) return null;
+        const pinned = [overlay.top, overlay.right, overlay.bottom, overlay.left].every((side) => side === '0px');
+        const covering = pinned ? node.offsetParent : null;
+        return covering && covering !== document.body ? covering : null;
       };
+      const pressedArea = (node: Element) => node.closest('label') ?? stretchedArea(node) ?? node;
       return nodes.filter((node) => {
         if (node.matches('.sr-only')) return false;
         const rect = node.getBoundingClientRect();
