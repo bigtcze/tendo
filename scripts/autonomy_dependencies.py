@@ -128,12 +128,14 @@ def classify_blocker(comment: dict) -> dict | None:
     body = comment.get("body") or ""
     if not BLOCKER_LINE_RE.search(body):
         return None
-    base = {"id": int(comment["id"]), "createdAt": comment["createdAt"], "author": _author(comment)}
+    base = {"id": int(comment["id"]), "createdAt": comment["createdAt"],
+            "updatedAt": comment.get("updatedAt"), "author": _author(comment)}
     first = _first_line(comment)
     if first.startswith("BLOCKED") and _fields(first).get("kind"):
         return {**base, **parse_blocked(first)}
     if EXTERNAL_RECORD_RE.search(body):
         return {**base, "status": "external", "raw": first}
+    # GitHub serialises timestamps as fixed-width UTC `...Z`, so string order is time order.
     if comment["createdAt"] < LEGACY_PROSE_UNTIL:
         heading, proposal = LEGACY_HEADING_RE.search(body), PROPOSAL_RE.search(body)
         decision_lines = " ".join(m.group(0) for m in DECISION_LINE_RE.finditer(body))
@@ -249,15 +251,21 @@ def fingerprint(evidence: dict) -> str:
 
 def recovery_groups(owned_open: dict, status: dict, lifecycle: dict, declared: dict,
                     closed, linked_prs: dict, notes: list[str] | None = None,
-                    pr_heads: dict | None = None) -> list[dict]:
-    """All eligible advisory recovery groups, deterministic order, never executable.
+                    pr_heads: dict | None = None) -> tuple[list[dict], set[int]]:
+    """Eligible advisory recovery groups and the Issues they protect.
 
     owned_open: {number: issue} (open owned Issues with replayed comments);
     status: {number: status label}; lifecycle: {number: replay(...)};
-    declared: {number: [Blocked by numbers]}; closed: callable(number) -> bool
-    for Issues outside owned_open; linked_prs: {number: [open non-dependency PR
-    numbers referencing it]}; pr_heads: {PR number: head sha} (evidence only).
-    Ranking against other work is the caller's job.
+    declared: {number: [Blocked by numbers]}; closed: callable(number) -> bool,
+    which must be False for every open Issue (owned or not); linked_prs:
+    {number: [open non-dependency PR numbers referencing it]}; pr_heads:
+    {PR number: head sha} (evidence only).
+
+    Returns (groups, protected). groups is deterministic and never executable.
+    protected holds every member of every group that carries a coupling record,
+    whether or not it is advised (deferred, ineligible or contested): such an
+    Issue is part of a recorded combined/reordered delivery and must never be
+    offered as an ordinary claim. Ranking against other work is the caller's job.
     """
     notes = notes if notes is not None else []
     pr_heads = pr_heads or {}
@@ -266,7 +274,6 @@ def recovery_groups(owned_open: dict, status: dict, lifecycle: dict, declared: d
         return lifecycle.get(number) or {}
 
     edges = {n: {d for d in declared.get(n, []) if d in owned_open} for n in owned_open}
-    outside = {n: {d for d in declared.get(n, []) if d not in owned_open} for n in owned_open}
     anchors: dict[int, tuple[str, list[int]]] = {}
     for number in sorted(owned_open):
         coupling = _coupling(life(number).get("blocked"))
@@ -285,26 +292,42 @@ def recovery_groups(owned_open: dict, status: dict, lifecycle: dict, declared: d
             if other in owned_open:
                 edges[number].add(other)
                 edges[other].add(number)  # coupled Issues must ship together
-            else:
-                outside[number].add(other)
 
     found: list[dict] = []
+    protected: set[int] = set()
     for scc in _sccs(owned_open, edges):
         only = next(iter(scc)) if len(scc) == 1 else None
         if only is not None and only not in edges.get(only, set()):
             continue
         group = sorted(scc)
+        if any(m in anchors for m in group):
+            protected.update(group)
+        # Every prerequisite of any member that lies outside this group, owned
+        # or not, declared or recorded, must already be closed.
+        outside = sorted({d for m in group
+                          for d in [*declared.get(m, []), *(anchors.get(m, ("", []))[1])]
+                          if d not in scc})
         advice = _eligible(group, anchors, status, life, outside, closed, linked_prs, notes,
                            {m: sorted(declared.get(m, [])) for m in group}, pr_heads)
         if advice is not None:
             found.append(advice)
-    return found
+        elif any(m in anchors for m in group):
+            notes.append(f"recovery group {group} is not advised; its members stay unclaimable "
+                         "until its blocker record, claims or prerequisites change")
+    return found, protected
+
+
+def _record_evidence(record: dict | None) -> dict | None:
+    """Everything a blocker record asserts, including its edit time."""
+    if not record:
+        return None
+    return {k: record.get(k) for k in ("id", "status", "kind", "needs", "numbers", "recovery",
+                                       "updatedAt", "raw")}
 
 
 def _eligible(group, anchors, status, life, outside, closed, linked_prs, notes,
-              edges, pr_heads) -> dict | None:
+              declared, pr_heads) -> dict | None:
     """Advice for one strongly connected group, or None when it is not safely reviewable."""
-    members = set(group)
     if any(status.get(m) not in ("status:idle", "status:blocked") for m in group):
         return None
     for member in group:
@@ -313,10 +336,9 @@ def _eligible(group, anchors, status, life, outside, closed, linked_prs, notes,
             continue
         if status.get(member) == "status:blocked" and member not in anchors:
             return None  # blocked by an external, unknown or unproven record
-        coupling = _coupling(record)
-        if coupling is None or not set(coupling[1]) - {member} <= members | outside[member]:
-            return None  # the recorded coupling is not exactly this internal group
-    if any(not closed(dep) for m in group for dep in outside.get(m, ())):
+        if _coupling(record) is None:
+            return None  # an idle member with a non-coupling blocker record is unknown evidence
+    if any(not closed(dep) for dep in outside):
         return None  # unresolved outside prerequisite: not an internal ordering problem
     group_anchors = [m for m in group if m in anchors]
     claims = {m: life(m)["claim"] for m in group if life(m).get("claim")}
@@ -335,22 +357,25 @@ def _eligible(group, anchors, status, life, outside, closed, linked_prs, notes,
     target = claimant if claimant is not None else (min(group_anchors) if group_anchors else min(group))
     anchor = target if target in anchors else (min(group_anchors) if group_anchors else None)
     record = life(anchor).get("blocked") if anchor is not None else None
+    linked = sorted({n for m in group for n in linked_prs.get(m, [])})
     basis = fingerprint({
         "group": group,
         "members": {str(m): {"status": status.get(m),
-                             "blocked": (life(m).get("blocked") or {}).get("id"),
+                             "blocked": _record_evidence(life(m).get("blocked")),
                              "claim": (life(m).get("claim") or {}).get("id"),
                              "conflicts": sorted(c["id"] for c in life(m).get("conflicts", [])),
-                             "declared": edges[m],
+                             "declared": declared[m],
                              "prs": [[n, pr_heads.get(n)] for n in sorted(linked_prs.get(m, []))]}
                      for m in group},
-        "outside": sorted(d for m in group for d in outside.get(m, ())),
+        "outside": outside,
     })
     # A deferral only suppresses advice whose evidence is byte-for-byte unchanged;
     # it never grants or removes authority, so any trusted reviewer may record it.
+    # Without every linked PR head the evidence is incomplete, so no deferral applies.
+    heads_known = all(pr_heads.get(n) for n in linked)
     for member in group:
         for deferral in life(member).get("deferrals", []):
-            if deferral["basis"] == basis:
+            if heads_known and deferral["basis"] == basis:
                 notes.append(f"recovery group {group} deferred by comment {deferral['id']} on "
                              f"#{member} with unchanged evidence {basis}; not re-reviewed")
                 return None

@@ -1613,6 +1613,91 @@ class RecoveryRanking(unittest.TestCase):
         items[0]["comments"].append(comment(70, 1, "RECOVERY agent=a decision=deferred basis=nothex"))
         self.assertEqual(self.pick(items)["kind"], "review-owned-dependencies")
 
+    # -- review findings: outside prerequisites, protected members, edits ----
+    def test_open_owned_prerequisite_outside_the_group_fails_closed(self):
+        items = self.pair(1, 2, priority=0)
+        items[1] = with_comments(issue(2, "W-2", "impl", deps=[1, 3], body_priority=0))
+        for extra in (self.ready(3, 2),
+                      with_comments(issue(3, "W-3", "x", status="status:in-progress", deps=[]))):
+            with self.subTest(prerequisite_status=extra["labels"]):
+                d = self.pick(items + [extra])
+                self.assertNotEqual(d["kind"], "review-owned-dependencies")
+                self.assertNotIn(d["target"].get("number"), (1, 2))
+        # Recorded (not declared) coupling to an open owned Issue outside the SCC.
+        rec = self.pair(1, 2, priority=0,
+                        record="BLOCKED agent=x time=t kind=owned-dependency needs=#2 recovery=combined")
+        rec[0]["comments"].append(comment(19, 0.5, "BLOCKED agent=x time=t kind=owned-dependency "
+                                                   "needs=#2,#3 recovery=combined"))
+        d = self.pick(rec + [with_comments(issue(3, "W-3", "x", status="status:in-progress", deps=[]))])
+        self.assertNotEqual(d["kind"], "review-owned-dependencies")
+        # Once the owned prerequisite is closed the group is advised again.
+        closed3 = issue(3, "W-3", "x", status=None, state="CLOSED", deps=[])
+        d = self.pick(items + [closed3])
+        self.assertEqual((d["kind"], d["target"]["group"]), ("review-owned-dependencies", [1, 2]))
+
+    def coupled_only(self, record, claim_b=None):
+        """#1 blocked with a coupling record; #2 linked only by that record."""
+        one = with_comments(issue(1, "W-1", "tests", status="status:blocked", deps=[], body_priority=0),
+                            comment(11, 5, record),
+                            comment(12, 4, "CLAIM agent=runner-a time=t", login="alice"))
+        two = with_comments(issue(2, "W-2", "impl", deps=[], body_priority=0),
+                            *([comment(21, 3, f"CLAIM agent={claim_b[1]} time=t", login=claim_b[0])]
+                              if claim_b else []))
+        return [one, two, self.ready(3, 2)]
+
+    def test_members_of_a_recorded_group_are_never_offered_as_claims(self):
+        combined = "BLOCKED agent=x time=t kind=owned-dependency needs=#2 recovery=combined"
+        advised = self.pick(self.coupled_only(combined))
+        self.assertEqual((advised["kind"], advised["target"]["group"]),
+                         ("review-owned-dependencies", [1, 2]))
+        deferred = self.coupled_only(combined)
+        deferred[0]["comments"].append(comment(
+            70, 1, f"RECOVERY agent=any time=t decision=deferred basis={advised['target']['fingerprint']}"))
+        cases = {
+            "deferred": (deferred, {}),
+            "open non-owned prerequisite": (self.coupled_only(
+                "BLOCKED agent=x time=t kind=owned-dependency needs=#2,#300 recovery=combined"),
+                {"300": "OPEN"}),
+            "contested by another claimant": (self.coupled_only(combined, claim_b=("bob", "runner-b")), {}),
+            "reorder record": (self.coupled_only(
+                "BLOCKED agent=x time=t kind=owned-dependency needs=#2,#300 recovery=reorder"),
+                {"300": "OPEN"}),
+        }
+        for name, (items, states) in cases.items():
+            with self.subTest(case=name):
+                d = self.pick(items, dependency_states=states)
+                self.assertNotEqual(d["kind"], "review-owned-dependencies")
+                self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 3))
+                self.assertTrue(any("stay unclaimable" in n or "deferred" in n or "HANDOFF" in n
+                                    for n in d["notes"]))
+
+    def test_edited_blocker_record_changes_the_fingerprint(self):
+        items = self.pair(1, 2, priority=0) + [self.ready(3, 2)]
+        basis = self.pick(items)["target"]["fingerprint"]
+        items[0]["comments"].append(comment(70, 1, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        self.assertEqual(self.pick(items)["kind"], "claim-issue")
+        edited = copy.deepcopy(items)
+        record = edited[0]["comments"][0]
+        record["body"] = record["body"].replace("recovery=combined", "recovery=reorder")
+        record["updatedAt"] = iso(0.1)  # same comment id, edited in place
+        d = self.pick(edited)
+        self.assertEqual((d["kind"], d["target"]["recovery"]), ("review-owned-dependencies", "reorder"))
+        self.assertNotEqual(d["target"]["fingerprint"], basis)
+        touched = copy.deepcopy(items)
+        touched[0]["comments"][0]["updatedAt"] = iso(0.1)  # any edit is new evidence
+        self.assertEqual(self.pick(touched)["kind"], "review-owned-dependencies")
+
+    def test_deferral_never_applies_when_a_linked_pr_head_is_unknown(self):
+        items = self.pair(1, 2, priority=0) + [self.ready(3, 2)]
+        pr = feature_pr(800, 1)  # no headRefOid in the snapshot
+        basis = self.pick(items, open_prs=[pr])["target"]["fingerprint"]
+        items[0]["comments"].append(comment(70, 1, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        self.assertEqual(self.pick(items, open_prs=[pr])["kind"], "review-owned-dependencies")
+        pr["headRefOid"] = "f00d"
+        basis = self.pick(items, open_prs=[pr])["target"]["fingerprint"]
+        items[0]["comments"].append(comment(71, 0.5, f"RECOVERY agent=any time=t decision=deferred basis={basis}"))
+        self.assertEqual(self.pick(items, open_prs=[pr])["kind"], "claim-issue")
+
 
 class CommentCollection(unittest.TestCase):
     def test_open_owned_issue_comments_are_paginated_and_fail_closed(self):

@@ -321,8 +321,8 @@ def dependency_states_for(issue: dict, owned: dict, dependency_states: dict) -> 
 
 def recovery_candidates(snapshot: dict, owned: dict, selectable: list[dict],
                         status_by_number: dict, notes: list[str],
-                        open_prs: list[dict] | None = None) -> list[dict]:
-    """Eligible advisory recovery groups (priority 6), fail closed.
+                        open_prs: list[dict] | None = None) -> tuple[list[dict], set[int]]:
+    """Eligible advisory recovery groups (priority 6) and protected members, fail closed.
 
     An Issue takes part only when its comment history is present in the
     snapshot (`comments`, paginated by the collector). A malformed trusted
@@ -630,8 +630,11 @@ def select(snapshot: dict, now: datetime) -> dict:
     # starved by lower-priority ready work and never outranks higher-priority
     # work. Advice only: the agent reconciles live state under FLOW first and
     # the selector grants no claim.
-    groups = recovery_candidates(snapshot, owned, selectable, status_by_number, notes, open_prs)
-    in_group = {n for group in groups for n in group["group"]}
+    groups, protected = recovery_candidates(snapshot, owned, selectable, status_by_number, notes,
+                                            open_prs)
+    # Members of any recorded recovery group (advised, deferred or ineligible)
+    # are never offered as ordinary claims.
+    in_group = protected | {n for group in groups for n in group["group"]}
     candidates = []
     for issue in selectable:
         if status_by_number[issue["number"]][0] != "status:idle" or issue["number"] in in_group:
