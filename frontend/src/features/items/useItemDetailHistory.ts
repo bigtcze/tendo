@@ -30,7 +30,8 @@ export function useItemDetailHistory({ headingRef, sectionRef, householdId, item
     const moveFocus = focusAfterPage.current; focusAfterPage.current = false;
     if (result.kind !== 'ok') { setState('error'); return; }
     setHistory(result.completions); setState('ready'); setNextCursor(result.nextCursor);
-    // The pressed paging control unmounts while loading; only reclaim focus if it was left there (on body or in History).
+    // The pressed control is disabled while its page loads, so focus falls to the body (or stays in History);
+    // reclaim it on the heading only then, never from elsewhere in the app.
     const active = document.activeElement;
     if (moveFocus && (!active || active === document.body || sectionRef.current?.contains(active))) headingRef.current?.focus();
   }, [householdId, itemId, current, onSignedOut, headingRef, sectionRef]);

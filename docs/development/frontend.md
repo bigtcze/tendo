@@ -52,7 +52,7 @@ The client in `src/lib/api.ts` is typed from `api/generated/api.d.ts`. Do not wr
 
 `public/favicon.svg` is the only drawn source: the accent rounded-square tile with the house glyph from `src/app/BrandMark.tsx`. It carries a `prefers-color-scheme: dark` rule so the tab icon follows the browser theme, and it uses the accent/on-accent values from `src/designTokens.ts` (a test fails if the drawn colours and the tokens drift apart). `index.html` links it together with the Apple touch icon and the web app manifest.
 
-The PNG icons are exported from that SVG with `rsvg-convert`; regenerate them from `frontend/` after changing the SVG or the tokens:
+The PNG icons are exported from that SVG with `rsvg-convert`; regenerate them from `frontend/` after changing the SVG or the tokens. `rsvg-convert` (librsvg) is a host tool, not pinned by `mise`, so it is only needed when the PNGs are regenerated:
 
 ```sh
 rsvg-convert -w 180 -h 180 -b '#1a6a55' -o public/apple-touch-icon.png public/favicon.svg

@@ -594,12 +594,42 @@ describe('item details', () => {
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
     expect(await main.findByText('History could not be loaded.')).toBeVisible();
     await userEvent.click(main.getByRole('button', { name: 'Try again' }));
-    expect(await main.findByRole('status')).toHaveTextContent('Loading history…');
+    // Loading is announced as its own status; the paging navigation keeps stating the page being loaded.
+    expect(main.getAllByRole('status').map((node) => node.textContent)).toEqual(['Loading history…', 'Page 2']);
     await act(async () => releaseRetry());
     expect(await main.findByText('Nothing completed yet.')).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'))).toEqual([null, 'older-cursor', 'older-cursor']);
+    expect(within(main.getByRole('navigation', { name: 'History pages' })).getByRole('status')).toHaveTextContent('Page 2');
     expect(main.getByRole('button', { name: 'Newer' })).toBeVisible();
     expect(main.getByRole('button', { name: 'Latest' })).toBeVisible();
+  });
+
+  it('keeps the history paging navigation mounted with the new page announced while a page loads', async () => {
+    let release!: (response: Response) => void;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.has('cursor')
+      ? new Promise<Response>((resolve) => { release = resolve; })
+      : json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
+    expect(pages().getByRole('status')).toHaveTextContent('Page 1');
+
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    // The cursor stack moves before the request, so the live region announces the new page right away; the
+    // navigation itself must still be there, otherwise that status node would be created with its text already in it.
+    expect(release).toBeDefined();
+    expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 2');
+    for (const name of ['Newer', 'Older', 'Latest']) expect(main.getByRole('button', { name })).toBeDisabled();
+
+    await act(async () => release(json(200, { items: [completion('older', '2024-03-01')], nextCursor: null })));
+    expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 2');
+    expect(main.getByRole('button', { name: 'Newer' })).toBeEnabled();
+    expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
   });
 
   it('renders Czech history navigation labels', async () => {

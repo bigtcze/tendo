@@ -61,7 +61,8 @@ describe('shell brand assets', () => {
     expect(manifest.start_url).toBe('/');
     expect(manifest.display).toBe('browser');
     expect(manifest.background_color).toBe(designTokens.light.paper);
-    expect(manifest.theme_color).toBe(designTokens.light.accent);
+    // The manifest tint matches the document's theme-color meta tags, which follow the paper token.
+    expect(manifest.theme_color).toBe(designTokens.light.paper);
     expect(manifest.icons.map((icon) => icon.sizes)).toEqual(['192x192', '512x512']);
     for (const icon of manifest.icons) {
       const bytes = readPublic(icon.src);
@@ -85,8 +86,8 @@ describe('shell brand assets', () => {
     const defaultPart = svg.replace(darkRule![0], '').toLowerCase();
     expect(defaultPart).toContain(designTokens.light.accent.toLowerCase());
     expect(defaultPart).toContain(designTokens.light.onAccent.toLowerCase());
-    expect(defaultPart).not.toContain(designTokens.dark.accent);
-    expect(darkRule![1].toLowerCase()).toContain(designTokens.dark.accent);
-    expect(darkRule![1].toLowerCase()).toContain(designTokens.dark.onAccent);
+    expect(defaultPart).not.toContain(designTokens.dark.accent.toLowerCase());
+    expect(darkRule![1].toLowerCase()).toContain(designTokens.dark.accent.toLowerCase());
+    expect(darkRule![1].toLowerCase()).toContain(designTokens.dark.onAccent.toLowerCase());
   });
 });
