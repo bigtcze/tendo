@@ -24,6 +24,31 @@ describe('shell brand assets', () => {
     expect(html).toMatch(/<title>Tendo<\/title>/);
   });
 
+  it('links a raster favicon.ico fallback after the SVG icon, for browsers without SVG favicons', () => {
+    const icons = links.filter((candidate) => attribute(candidate, 'rel') === 'icon').map((candidate) => attribute(candidate, 'href'));
+    // Browsers that understand SVG pick the SVG (it is listed first with its type); others fall back to the ICO.
+    expect(icons).toEqual(['/favicon.svg', '/favicon.ico']);
+    const ico = links.find((candidate) => attribute(candidate, 'href') === '/favicon.ico')!;
+    expect(attribute(ico, 'sizes')).toBe('32x32');
+    const bytes = readPublic('/favicon.ico');
+    // ICONDIR: reserved 0, type 1 (icon), then one or more entries; each entry declares its size (0 means 256).
+    expect([bytes.readUInt16LE(0), bytes.readUInt16LE(2)]).toEqual([0, 1]);
+    const count = bytes.readUInt16LE(4);
+    const sizes = Array.from({ length: count }, (_, index) => {
+      const entry = 6 + index * 16;
+      const [width, height] = [bytes[entry], bytes[entry + 1]].map((value) => value || 256);
+      const length = bytes.readUInt32LE(entry + 8);
+      const offset = bytes.readUInt32LE(entry + 12);
+      expect(offset + length, `entry ${index} lies inside the file`).toBeLessThanOrEqual(bytes.length);
+      // Each image is an embedded PNG whose IHDR matches the directory entry.
+      const png = bytes.subarray(offset, offset + length);
+      expect([...png.subarray(0, 8)], `entry ${index} PNG signature`).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], `entry ${index} IHDR`).toEqual([width, height]);
+      return `${width}x${height}`;
+    });
+    expect(sizes).toEqual(['16x16', '32x32', '48x48']);
+  });
+
   it('links an SVG icon, an iOS touch icon and the web app manifest to files that exist', () => {
     for (const expected of [
       { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
@@ -41,10 +66,11 @@ describe('shell brand assets', () => {
   it('declares light and dark theme colours from the paper token', () => {
     const themeColors = metas
       .filter((meta) => attribute(meta, 'name') === 'theme-color')
-      .map((meta) => [attribute(meta, 'media'), attribute(meta, 'content')]);
+      .map((meta) => [attribute(meta, 'data-scheme'), attribute(meta, 'media'), attribute(meta, 'content')]);
+    // data-scheme lets the theme code pin one tint for an explicit in-app choice (theme.ts, theme-boot.js).
     expect(themeColors).toEqual([
-      ['(prefers-color-scheme: light)', designTokens.light.paper],
-      ['(prefers-color-scheme: dark)', designTokens.dark.paper],
+      ['light', '(prefers-color-scheme: light)', designTokens.light.paper],
+      ['dark', '(prefers-color-scheme: dark)', designTokens.dark.paper],
     ]);
     const colorScheme = metas.find((meta) => attribute(meta, 'name') === 'color-scheme');
     expect(attribute(colorScheme!, 'content')).toBe('light dark');

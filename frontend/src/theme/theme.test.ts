@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyThemePreference, parseThemePreference, readThemePreference, setThemePreference, THEME_STORAGE_KEY } from './theme';
+import { installThemeColorMetas, themeColorMedia } from '../test/themeColor';
 
 describe('parseThemePreference', () => {
   it.each([
@@ -85,5 +86,34 @@ describe('applyThemePreference', () => {
     applyThemePreference('dark');
     applyThemePreference('system');
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+});
+
+describe('browser theme-color follows the in-app choice', () => {
+  beforeEach(() => installThemeColorMetas());
+  afterEach(() => {
+    document.head.innerHTML = '';
+    document.documentElement.removeAttribute('data-theme');
+  });
+
+  it('pins the dark tint for an explicit Dark choice, whatever the device prefers', () => {
+    applyThemePreference('dark');
+    expect(themeColorMedia()).toEqual({ light: 'not all', dark: 'all' });
+  });
+
+  it('pins the light tint for an explicit Light choice', () => {
+    applyThemePreference('light');
+    expect(themeColorMedia()).toEqual({ light: 'all', dark: 'not all' });
+  });
+
+  it('hands the tint back to the device for System', () => {
+    applyThemePreference('dark');
+    applyThemePreference('system');
+    expect(themeColorMedia()).toEqual({ light: '(prefers-color-scheme: light)', dark: '(prefers-color-scheme: dark)' });
+  });
+
+  it('updates the tint when the choice is saved, not only on the next load', () => {
+    setThemePreference('dark');
+    expect(themeColorMedia()).toEqual({ light: 'not all', dark: 'all' });
   });
 });

@@ -2,6 +2,7 @@ import { chromium, expect, request, test, type BrowserContext, type ConsoleMessa
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { designTokens } from '../src/designTokens';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
@@ -102,13 +103,15 @@ async function trackInFlightApiFetches(page: Page) {
   });
 }
 
-// fullChromium: pages of the full Chromium build (n23) also fetch /favicon.ico on their own; Tendo ships
-// no favicon, so exactly that browser-initiated 404 is expected there and nowhere else.
-function watch(page: Page, options: { fullChromium?: boolean } = {}) {
+/** The browser chrome tint: the first theme-color meta whose media query matches (a meta without media always does). */
+const effectiveThemeColor = (page: Page) => page.evaluate(() => [...document.querySelectorAll('meta[name="theme-color"]')]
+  .find((meta) => !meta.getAttribute('media') || window.matchMedia(meta.getAttribute('media')!).matches)
+  ?.getAttribute('content') ?? null);
+
+function watch(page: Page) {
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return;
     const path = new URL(message.location().url || 'about:blank').pathname;
-    if (options.fullChromium && path === '/favicon.ico' && message.text().includes('status of 404')) return;
     if (n17OfflineActive && message.text().includes('Failed to load resource') && message.text().includes('ERR_INTERNET_DISCONNECTED') && n17OfflineExpectedResources.some((expected) => expected.test(message.location().url))) return;
     const failureWindow = failureWindows.get(page);
     if (failureWindow && message.text().includes('Failed to load resource')) {
@@ -3058,9 +3061,13 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
       await expect(appearanceGroup.getByRole('button', { name: en['account.appearance.dark'], exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      // The browser chrome tint follows the saved choice, not only the device (the context emulates light).
+      await expect.poll(() => effectiveThemeColor(page), 'saved Dark tints the browser chrome dark').toBe(designTokens.dark.paper);
       await expectNoAxeViolations(page, 'account-dark');
       const darkAccountRows = await auditContrast(page, 'account-dark');
       expect(contrastShortfalls(darkAccountRows), 'account dark contrast failures').toEqual([]);
+      await appearanceGroup.getByRole('button', { name: en['account.appearance.light'], exact: true }).click();
+      await expect.poll(() => effectiveThemeColor(page), 'choosing Light retints the chrome without a reload').toBe(designTokens.light.paper);
       await appearanceGroup.getByRole('button', { name: en['account.appearance.system'], exact: true }).click();
       await expect(page.locator('html')).not.toHaveAttribute('data-theme');
       await page.getByRole('main').getByRole('button', { name: 'Čeština', exact: true }).click();
@@ -5116,7 +5123,8 @@ test.describe('Tendo production journey', () => {
       contexts.push(context);
       const zoomed = context.pages()[0] ?? await context.newPage();
       await trackInFlightApiFetches(zoomed);
-      watch(zoomed, { fullChromium: true });
+      // The full Chromium build also fetches /favicon.ico on its own; Tendo serves it, so no 404 is tolerated.
+      watch(zoomed);
       return { context, zoomed };
     };
     const measure = async (target: Page, percent: 200 | 400, state: string) => {
