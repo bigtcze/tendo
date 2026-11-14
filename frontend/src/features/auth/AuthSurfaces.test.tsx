@@ -55,10 +55,13 @@ function expectTitleScale(heading: HTMLElement) {
   expect(heading.className, 'no oversized display title').not.toContain('sm:text-display');
 }
 
-/** No tinted sunken band sits inside the one form surface on the sign-in and setup screens. */
+/**
+ * No tinted sunken band sits inside the one form surface on the sign-in and setup screens: no resting sand or sunken
+ * fill at any opacity (hover states are not bands).
+ */
 function expectNoSunkenBand() {
   const bands = [...screen.getByRole('main').querySelectorAll('*')]
-    .filter((element) => element.classList.contains('bg-sand/40'))
+    .filter((element) => [...element.classList].some((token) => /^bg-(sand|sunken)(\/|$)/.test(token)))
     .map((element) => element.textContent?.trim().slice(0, 40));
   expect(bands, 'tinted bands inside the form surface').toEqual([]);
 }
@@ -116,8 +119,7 @@ describe('account page is a stack of flat sections', () => {
     if (!section) throw new Error('identity section missing');
     expect(section).toHaveTextContent('You’re signed in as anna.');
     expect(section.querySelector('[aria-hidden="true"]'), 'no decorative avatar tile').toBeNull();
-    expect(section.querySelectorAll('span'), 'the login is plain text').toHaveLength(0);
-    expect(screen.getByRole('main').querySelector('[data-avatar]'), 'the header already shows the initial').toBeNull();
+    expect(section.querySelector('.rounded-full, .rounded-xl'), 'no initial tile beside the login').toBeNull();
   });
 });
 
@@ -156,7 +158,8 @@ describe('sign-in family keeps one plain form surface', () => {
     const surfaces = [...screen.getByRole('main').querySelectorAll('div')]
       .filter((element) => element.classList.contains('rounded-2xl') && element.classList.contains('border-line'));
     expect(surfaces, 'exactly one bordered form surface').toHaveLength(1);
-    expect(surfaces[0]).toContainElement(screen.getByRole('button', { name: 'Sign in with Pocket ID' }));
+    // The provider option appears once the provider status has loaded, after the page title.
+    expect(surfaces[0]).toContainElement(await screen.findByRole('button', { name: 'Sign in with Pocket ID' }));
     expectNoSunkenBand();
   });
 
@@ -185,5 +188,40 @@ describe('signed-out language switch follows the page', () => {
     const section = screen.getByRole('heading', { level: 1 }).closest('section');
     if (!section) throw new Error('setup screen section missing');
     expect(section.classList.contains('mx-auto'), 'the setup column is centered like the rest of the family').toBe(true);
+  });
+});
+
+describe('status screens place the footer next to the state', () => {
+  /** Signed out, main follows its content; a 55vh centered column would push the footer into the middle of the page. */
+  function expectTopAlignedState(title: string) {
+    const section = screen.getByRole('heading', { level: 1, name: title }).closest('section');
+    if (!section) throw new Error('status section missing');
+    expect(section.className, 'no viewport-height centering').not.toContain('min-h-[55vh]');
+    expect(section.classList.contains('justify-center'), 'not vertically centered').toBe(false);
+    expect(section.classList.contains('mx-auto'), 'still the centered column').toBe(true);
+    expectFooterFollowsContent();
+  }
+
+  it('a signed-out unknown address opens at the top with the footer right after it', async () => {
+    installFakeServer(signedOutBoot);
+    open('/somewhere-else');
+    await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' });
+    expectTopAlignedState('We couldn’t find that page.');
+  });
+
+  it('an unreachable Tendo opens at the top with the footer right after it', async () => {
+    installFakeServer({ 'GET /api/v1/session': json(503) });
+    open('/');
+    await screen.findByRole('heading', { level: 1, name: 'Tendo can’t be reached right now.' });
+    expectTopAlignedState('Tendo can’t be reached right now.');
+  });
+
+  it('a signed-in unknown address still sits in the middle of the growing main', async () => {
+    installFakeServer(signedInRoutes());
+    open('/somewhere-else');
+    const section = (await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).closest('section');
+    if (!section) throw new Error('status section missing');
+    expect(section.className).toContain('min-h-[55vh]');
+    expect(screen.getByRole('main').classList.contains('flex-1'), 'signed-in main still fills the shell').toBe(true);
   });
 });

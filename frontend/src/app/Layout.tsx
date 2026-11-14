@@ -39,12 +39,13 @@ const HEADER = 'relative flex min-h-14 flex-wrap items-center justify-between ga
 const HEADER_GROUP = 'flex min-w-0 flex-1 items-center gap-2 sm:gap-4';
 const BODY = 'flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start';
 /** Signed-in main fills the shell, so the phone bar and the rail keep to the viewport edges. */
-const MAIN = 'w-full min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pt-8 xl:px-10';
+const MAIN_BASE = 'w-full min-w-0 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pt-8 xl:px-10';
+const MAIN = `${MAIN_BASE} flex-1`;
 /**
  * Signed out, main must not grow: the language footer follows the page content and the centered column instead of
  * floating at the viewport's bottom-right corner, far from the form it belongs to.
  */
-const MAIN_CENTERED = 'w-full min-w-0 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pt-8 xl:px-10';
+const MAIN_CENTERED = MAIN_BASE;
 /**
  * Bottom padding keeps the last content clear of the fixed phone bar and of the floating notice; the sidebar needs
  * only the notice's measured height, so `lg` reserves that plus the shared 3rem. Short viewports drop the bar (it
