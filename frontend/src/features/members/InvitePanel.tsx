@@ -1,5 +1,4 @@
 import { Button } from '../../components/ui/button';
-import { EmptyState } from '../../components/ui/empty-state';
 import { NoticeRegion } from '../../components/ui/notice';
 import type { Translate } from '../../i18n';
 import { InvitationRows } from './InvitationRows';
@@ -7,6 +6,10 @@ import { CursorPager } from '../../components/ui/cursor-pager';
 import type { InvitationList } from './useInvitationList';
 import type { InviteActions } from './useInviteActions';
 
+/**
+ * The one-time link is a functional readonly field plus a copy action, so it keeps a quiet sunken panel to read as
+ * one object; nothing else on the page is boxed.
+ */
 function InviteLink({ actions, t }: { actions: InviteActions; t: Translate }) {
   const { link, linkRef, copied, copyLink, copyMessage } = actions;
   return <div className="mt-4 rounded-xl border border-line bg-sand p-4">
@@ -34,35 +37,42 @@ function InvitationsBody({ inv, actions, listReady, notice, formatDate, t }: {
   inv: InvitationList; actions: InviteActions; listReady: boolean; notice: string | null; formatDate: (date: string) => string; t: Translate;
 }) {
   if (!listReady) return <p role="status" className="mt-3 text-small text-muted">{t('members.loading')}</p>;
-  if (inv.invitationsError) return <InvitationsError className="mt-3 rounded-xl border border-line bg-paper p-4" notice={notice} onRetry={inv.refreshInvitations} t={t} />;
+  if (inv.invitationsError) return <InvitationsError className="mt-3" notice={notice} onRetry={inv.refreshInvitations} t={t} />;
   if (inv.invitations.length) return <InvitationRows invitations={inv.invitations} actions={actions} formatDate={formatDate} t={t} />;
-  return <div className="mt-3"><EmptyState title={t('members.invitations.empty')}>{t('members.invitations.emptyExpiredNote')}</EmptyState></div>;
+  return <div className="mt-3 space-y-1">
+    <p className="text-small text-ink">{t('members.invitations.empty')}</p>
+    <p className="max-w-prose text-small text-muted">{t('members.invitations.emptyExpiredNote')}</p>
+  </div>;
 }
 
+/**
+ * One plain section: invite, then the invitations it produced. No card, so the page is a stack of quiet sections
+ * rather than a box inside a box.
+ */
 export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: {
   inv: InvitationList; actions: InviteActions; listReady: boolean; notice: string | null; formatDate: (date: string) => string; t: Translate;
 }) {
   const { busy, recoveryInvitationId, canCheckAgain, link, invite, revoke } = actions;
   const { invitationHeadingRef, invitationStack, invitationCursor, invitationBusy, previousInvitations, nextInvitations } = inv;
-  return <section role="region" aria-labelledby="members-invitations-section">
-    <div className="rounded-2xl border border-line bg-raised p-5 sm:p-6">
-      <h2 id="members-invitations-section" className="text-h2 text-ink">{t('members.invite.title')}</h2>
-      <p className="mt-1 max-w-prose text-small text-muted">{t('members.invite.intro')}</p>
-      <Button className="mt-4 w-full whitespace-normal text-center sm:w-auto" disabled={busy || !listReady} onClick={() => void invite()}>
+  return <section role="region" aria-labelledby="members-invitations-section" className="min-w-0">
+    <h2 id="members-invitations-section" className="text-h2 text-ink">{t('members.invite.title')}</h2>
+    <p className="mt-1 max-w-prose text-small text-muted">{t('members.invite.intro')}</p>
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <Button className="w-full whitespace-normal text-center sm:w-auto" disabled={busy || !listReady} onClick={() => void invite()}>
         {busy ? t('members.invite.creating') : t('members.invite.action')}
       </Button>
       {recoveryInvitationId
-        ? <Button variant="quiet" className="mt-3" disabled={busy} onClick={() => void revoke(recoveryInvitationId)}>
+        ? <Button variant="quiet" disabled={busy} onClick={() => void revoke(recoveryInvitationId)}>
           {t('members.invite.revokeRecovered')}
         </Button>
         : null}
       {canCheckAgain
-        ? <Button variant="quiet" className="mt-3" disabled={busy || !listReady} onClick={() => void invite(true)}>{t('members.invite.checkAgain')}</Button>
+        ? <Button variant="quiet" disabled={busy || !listReady} onClick={() => void invite(true)}>{t('members.invite.checkAgain')}</Button>
         : null}
-      {link ? <InviteLink actions={actions} t={t} /> : null}
     </div>
-    <div className="mt-6 border-t border-line pt-5">
-      <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="text-lg font-bold text-ink outline-none">{t('members.invitations.title')}</h3>
+    {link ? <InviteLink actions={actions} t={t} /> : null}
+    <div className="mt-8">
+      <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="text-row-title font-semibold text-ink outline-none">{t('members.invitations.title')}</h3>
       <InvitationsBody inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
       {listReady && (invitationStack.length > 0 || invitationCursor)
         ? <CursorPager kind="invitation" stack={invitationStack} cursor={invitationCursor} busy={invitationBusy}

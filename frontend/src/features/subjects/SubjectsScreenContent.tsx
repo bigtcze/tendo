@@ -31,11 +31,12 @@ export function SubjectsScreenContent({
   switchView: () => void;
 }) {
   const canAdd = list.kind === 'ready' && !showArchived;
-  // One compact band: the screen name and its single primary action on the same line, as on Home. It comes first in
-  // the DOM, so the Add control is also the first thing a keyboard user reaches.
+  // One compact band: the screen name and its single primary action on the same line, as on Home. It never wraps, so
+  // the title wraps its own words at 320 px instead of pushing Add onto a second line. It comes first in the DOM, so
+  // the Add control is also the first thing a keyboard user reaches.
   return <section className="settle flex min-w-0 flex-col">
     <div className="min-w-0 max-w-5xl">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+      <div className="flex min-w-0 items-center justify-between gap-x-4">
         <Heading className="min-w-0 text-h1 font-semibold text-ink">{t('subjects.title')}</Heading>
         {canAdd ? <div className="shrink-0">
           <SubjectAddAction adding={adding} createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
@@ -48,10 +49,9 @@ export function SubjectsScreenContent({
       <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
     </div>
     <div className="mt-6 min-w-0 max-w-5xl">
-      {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
-        <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
-        <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>
-      </div> : null}
+      {showArchived && list.kind !== 'noHousehold' ? <h2 className="text-h2 font-bold leading-snug text-ink">
+        {t('subjects.archived.title')}
+      </h2> : null}
       {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
       <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
       <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
