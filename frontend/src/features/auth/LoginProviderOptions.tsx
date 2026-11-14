@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 
-const OPTIONS_SECTION = 'border-t border-line bg-sand/40 px-5 py-5 sm:px-7';
+const OPTIONS_SECTION = 'border-t border-line px-5 py-5 sm:px-7';
 
 export function LoginProviderOptions({
   provider,

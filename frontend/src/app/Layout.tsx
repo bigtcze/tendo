@@ -38,7 +38,14 @@ const FRAME: Record<Shell, string> = {
 const HEADER = 'relative flex min-h-14 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-line bg-raised px-4 py-1.5 sm:px-6 lg:min-h-16 lg:px-8 xl:px-10';
 const HEADER_GROUP = 'flex min-w-0 flex-1 items-center gap-2 sm:gap-4';
 const BODY = 'flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start';
-const MAIN = 'w-full min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pt-8 xl:px-10';
+/** Signed-in main fills the shell, so the phone bar and the rail keep to the viewport edges. */
+const MAIN_BASE = 'w-full min-w-0 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pt-8 xl:px-10';
+const MAIN = `${MAIN_BASE} flex-1`;
+/**
+ * Signed out, main must not grow: the language footer follows the page content and the centered column instead of
+ * floating at the viewport's bottom-right corner, far from the form it belongs to.
+ */
+const MAIN_CENTERED = MAIN_BASE;
 /**
  * Bottom padding keeps the last content clear of the fixed phone bar and of the floating notice; the sidebar needs
  * only the notice's measured height, so `lg` reserves that plus the shared 3rem. Short viewports drop the bar (it
@@ -50,7 +57,7 @@ const MAIN_HOUSEHOLD = 'pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-are
   + ' sm:pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-area-inset-bottom))]'
   + ' short:pb-[calc(var(--notice-clearance,0px)+1.5rem+env(safe-area-inset-bottom))]'
   + ' lg:col-start-2 lg:row-start-1 lg:pb-[calc(var(--notice-clearance,0px)+3rem)] lg:min-w-0';
-const FOOTER = 'flex justify-end px-4 py-3 sm:px-6 lg:px-8 xl:px-10';
+const FOOTER = 'flex justify-center px-4 py-3 sm:px-6 lg:px-8 xl:px-10';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
   const { t } = useI18n();
@@ -90,12 +97,13 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
         {actions}
       </header>
       <div className={household ? BODY : 'contents'}>
-        <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
+        <main id="main" ref={mainRef} tabIndex={-1} className={`${shell === 'centered' ? MAIN_CENTERED : MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
           {children}
         </main>
         {navigation ? <HouseholdNavigation rail={household} /> : null}
       </div>
-      {/* Signed-in navigation carries Account, where the language choice lives. The footer switch is for signed-out paths. */}
+      {/* Signed-in navigation carries Account, where the language choice lives. The footer switch is for signed-out paths
+          and follows the page content, aligned with the centered column. */}
       {navigation ? null : (
         <footer className={FOOTER}>
           <LanguageSwitch />

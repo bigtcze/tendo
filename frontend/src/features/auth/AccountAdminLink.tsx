@@ -15,8 +15,8 @@ export function AccountAdminLink() {
   const role = useViewerRole();
   const navigation = useContext(HouseholdNavigationContext);
   if (role !== 'admin' || !navigation) return null;
-  return <section aria-labelledby="account-admin-heading" className="rounded-2xl border border-line bg-raised p-5 sm:p-6">
-    <h2 id="account-admin-heading" className="text-lg font-bold text-ink">{t('admin.account.title')}</h2>
+  return <section aria-labelledby="account-admin-heading" className="border-t border-line pt-6">
+    <h2 id="account-admin-heading" className="text-h2 text-ink">{t('admin.account.title')}</h2>
     <p className="mt-1 max-w-prose text-small text-muted">{t('admin.account.body')}</p>
     <NavLink href="/admin" onNavigate={navigation.actions.admin} className={LINK}>{t('admin.account.link')}</NavLink>
   </section>;

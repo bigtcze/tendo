@@ -247,10 +247,12 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toContainText(en['account.signedInAs'].replace('{login}', 'audit_owner'));
     await expect(page.getByRole('main').locator('input[type="password"]')).toHaveCount(0);
     await expect(page.getByRole('main').getByRole('button', { name: /OIDC Smoke Provider/ })).toHaveCount(0);
-    await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toHaveClass(/rounded-2xl/);
-    await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toHaveClass(/bg-raised/);
-    await expect(page.getByRole('main').locator('section[aria-labelledby="account-language-heading"]')).toHaveClass(/rounded-2xl/);
-    await expect(page.getByRole('main').locator('section[aria-labelledby="account-language-heading"]')).toHaveClass(/bg-raised/);
+    for (const sectionId of ['account-identity-heading', 'account-appearance-heading', 'account-language-heading']) {
+      const section = page.getByRole('main').locator(`section[aria-labelledby="${sectionId}"]`);
+      await expect(section).toHaveClass(/border-t/);
+      await expect(section).not.toHaveClass(/rounded-2xl/);
+      await expect(section).not.toHaveClass(/bg-raised/);
+    }
     await expectNoAxeViolations(page, `auth-account-${width}`);
     await shot(page, dir, `auth-account-en-${width}.png`, capture, width);
     if (width === 390) {

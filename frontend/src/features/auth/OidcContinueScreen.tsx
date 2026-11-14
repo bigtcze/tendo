@@ -140,7 +140,7 @@ export function OidcContinueScreen({ onSignedIn, onCancelled, onExpired }: {
 
   return (
     <section className="settle mx-auto w-full max-w-md lg:mt-10">
-      <Heading className="text-center text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">{title}</Heading>
+      <Heading className="text-center text-h1 leading-8 font-semibold text-ink">{title}</Heading>
       {flow.load === 'loading' || flow.load === 'ready'
         ? <p className="mt-3 text-center text-base text-muted">{t('oidc.continue.intro')}</p>
         : null}

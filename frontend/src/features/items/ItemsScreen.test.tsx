@@ -1122,7 +1122,9 @@ describe('Home items', () => {
     } });
     app();
     const first = (await screen.findByText('Missing case 0')).closest('li')!;
-    await waitFor(() => expect(first).toHaveTextContent('Person or thing'));
+    // Wait for the conclusive outcome (the retry appears only after both lookups answered), not the pre-lookup text.
+    await within(screen.getByRole('main')).findByRole('button', { name: 'Load names again' });
+    expect(first).toHaveTextContent('Person or thing');
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2);
     await userEvent.click(within(screen.getByRole('main')).getByRole('button', { name: 'Show more (1 remaining)' }));
     await screen.findByText('Named s-25');
@@ -1136,11 +1138,14 @@ describe('Home items', () => {
     app();
     const row = await screen.findByText('Renew passport');
     const containingRow = row.closest('li')!;
-    await waitFor(() => expect(containingRow).toHaveTextContent('Person or thing'));
+    // The row reads "Person or thing" before the label lookup even starts, so that text alone does not prove the
+    // lookup concluded. The retry only appears once both lookups have answered and the ID is conclusively missing.
+    const retry = await screen.findByRole('button', { name: 'Load names again' });
+    expect(containingRow).toHaveTextContent('Person or thing');
     expect(containingRow).not.toHaveTextContent('does-not-exist');
     const initialCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`).length;
     expect(initialCalls).toBe(2);
-    await userEvent.click(screen.getByRole('button', { name: 'Load names again' }));
+    await userEvent.click(retry);
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);

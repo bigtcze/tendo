@@ -5,10 +5,10 @@ import { useI18n } from '../../i18n';
 import { AccountPreferences } from './AccountPreferences';
 import { AccountAdminLink } from './AccountAdminLink';
 
-function initialOf(login: string): string {
-  return login.trim().charAt(0).toLocaleUpperCase() || '?';
-}
-
+/**
+ * Account is a stack of flat settings sections separated by a top rule, matching Members and People. The header
+ * already shows the account's initial, so the identity section states the login alone.
+ */
 export function AccountScreen({ login, onSignedOut }: { login: string; onSignedOut: () => void }) {
   const { t } = useI18n();
 
@@ -18,17 +18,12 @@ export function AccountScreen({ login, onSignedOut }: { login: string; onSignedO
     >
       <section className="settle">
         <Heading className="text-h1 font-semibold text-ink">{t('account.title')}</Heading>
-        <div className="mt-6 max-w-3xl space-y-4">
-          <section aria-labelledby="account-identity-heading" className="rounded-2xl border border-line bg-raised p-5 sm:p-6">
-            <h2 id="account-identity-heading" className="text-lg font-bold text-ink">{t('account.identity.title')}</h2>
-            <div className="mt-4 flex items-center gap-3">
-              <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-full bg-nav-selected text-base font-semibold text-ink">
-                {initialOf(login)}
-              </span>
-              <p className="min-w-0 break-words text-base text-ink">
-                {t('account.signedInAs', { login })}
-              </p>
-            </div>
+        <div className="mt-6 max-w-3xl space-y-6 sm:mt-8">
+          <section aria-labelledby="account-identity-heading" className="border-t border-line pt-6">
+            <h2 id="account-identity-heading" className="text-h2 text-ink">{t('account.identity.title')}</h2>
+            <p className="mt-1 break-words text-body text-ink">
+              {t('account.signedInAs', { login })}
+            </p>
           </section>
           <AccountAdminLink />
           <AccountPreferences />
