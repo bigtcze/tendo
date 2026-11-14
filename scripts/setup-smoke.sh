@@ -133,6 +133,40 @@ raw_hex=base64.urlsafe_b64decode(token+'=').hex()
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{digest}','hex')")=='1','session digest not stored'
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{raw_hex}','hex') OR token_hash=convert_to('{token}','UTF8')")=='0','raw token stored'
 cookie_header={'Cookie':f'tendo_session={token}'}
+# Self-service password change. The response carries the only copy of the
+# replacement session, so the owner cookie is rotated here and the original
+# password is restored afterwards to keep the later sign-ins working.
+CHANGE='/api/v1/auth/password'
+def change_password(current,new,headers,sink=None):
+ return call('POST',CHANGE,template=CHANGE,body={'currentPassword':current,'newPassword':new},headers={**headers,'Origin':origin},sink=sink)[:3]
+def rotated_session(set_cookie):
+ parts=[p.strip() for p in set_cookie.split(';')]
+ name,_,value=parts[0].partition('=')
+ attrs=[p.lower() for p in parts[1:]]
+ assert name=='tendo_session' and len(value)==43,('rotated cookie name/token',name,len(value))
+ assert 'httponly' in attrs and 'samesite=lax' in attrs and 'path=/' in attrs and 'max-age=2592000' in attrs,attrs
+ assert 'secure' not in attrs and not any(a.startswith('domain=') for a in attrs),attrs
+ return value,{'Cookie':f'tendo_session={value}'}
+owner_hash=lambda: psql("SELECT c.password_hash FROM local_credentials c JOIN user_accounts u ON u.id=c.user_id WHERE u.login='owner_smoke'")
+initial_hash=owner_hash()
+status,_,wrong_current=change_password('wrong password value','smoke rotated passphrase',cookie_header,sink=fixtures)
+assert status==422 and wrong_current['code']=='incorrect' and wrong_current['field']=='currentPassword',('change password wrong current',status,wrong_current)
+assert owner_hash()==initial_hash,'rejected password change rewrote the credential'
+status,h,changed=change_password('correct horse battery','smoke rotated passphrase',cookie_header,sink=fixtures)
+assert status==200 and changed['login']=='owner_smoke' and changed['userId']==b['userId'] and changed['signInMethod']=='password' and changed['defaultHouseholdId']==household,('change password',status,changed)
+assert h['Cache-Control']=='no-store',dict(h)
+old_token=token
+token,cookie_header=rotated_session(h['Set-Cookie'])
+assert owner_hash()!=initial_hash,'accepted password change did not rewrite the credential'
+assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{hashlib.sha256(old_token.encode()).hexdigest()}','hex')")=='0','old session survived the password change'
+assert psql('SELECT count(*) FROM user_sessions')=='1','password change must leave exactly the replacement session'
+status,_,_,_=req('GET',headers={'Cookie':f'tendo_session={old_token}'},record=False);assert status==401,('old cookie after password change',status)
+status,_,current,_=req('GET',headers=cookie_header);assert status==200 and current['userId']==changed['userId'] and current['signInMethod']=='password',('session after password change',status,current)
+status,_,_,_=req('POST',{'login':'owner_smoke','password':'smoke rotated passphrase'},{'Origin':origin},record=False);assert status==201,('sign in with the changed password',status)
+status,h,restored=change_password('smoke rotated passphrase','correct horse battery',cookie_header)
+assert status==200 and restored['userId']==changed['userId'] and restored['signInMethod']=='password',('restore password',status,restored)
+token,cookie_header=rotated_session(h['Set-Cookie'])
+assert owner_hash()!=initial_hash,'restored credential reuses the pre-change hash'
 status,h,lh,_=call('GET','/api/v1/households',template='/api/v1/households',headers=cookie_header,sink=fixtures)
 assert status==200 and lh['items'][0]['id']==household and lh['items'][0]['viewerRole']=='admin' and lh['nextCursor'] is None and 'ETag' not in h,('list households',status,lh,dict(h))
 status,h,patched,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':origin},sink=fixtures)

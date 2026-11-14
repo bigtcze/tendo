@@ -124,7 +124,7 @@ func repeat(value string, count int) string {
 // paths that only the real repository normally reaches.
 type passwordResetTxStub struct {
 	record          PasswordResetRecord
-	updateRows      int64
+	replaceErr      error
 	sessionsDeleted bool
 	notPermitted    bool
 	completed       bool
@@ -149,7 +149,7 @@ func (s *passwordResetTxStub) PasswordResetPermitted(context.Context, string, st
 func (s *passwordResetTxStub) HasLocalCredential(context.Context, string) (bool, error) {
 	return true, nil
 }
-func (s *passwordResetTxStub) RevokeOutstandingPasswordResetsForTarget(context.Context, string, time.Time) error {
+func (s *passwordResetTxStub) RevokeOutstandingPasswordResets(context.Context, string, time.Time) error {
 	return nil
 }
 func (s *passwordResetTxStub) RevokeOutstandingPasswordResetsInHousehold(context.Context, string, string, time.Time) error {
@@ -165,15 +165,15 @@ func (s *passwordResetTxStub) CompletePasswordReset(context.Context, string, tim
 	s.completed = true
 	return 1, nil
 }
-func (s *passwordResetTxStub) LockLocalCredential(context.Context, string) (int64, error) {
-	return 1, nil
+func (s *passwordResetTxStub) LockLocalCredential(context.Context, string) (LocalCredential, error) {
+	return LocalCredential{PasswordHash: "old-hash", Version: 1}, nil
 }
-func (s *passwordResetTxStub) UpdateLocalCredential(context.Context, string, string) (int64, error) {
-	return s.updateRows, nil
-}
-func (s *passwordResetTxStub) DeleteUserSessions(context.Context, string) error {
+func (s *passwordResetTxStub) ReplaceLocalPassword(context.Context, string, string, time.Time) (Revocation, error) {
+	if s.replaceErr != nil {
+		return Revocation{}, s.replaceErr
+	}
 	s.sessionsDeleted = true
-	return nil
+	return NewRevocation([][]byte{[]byte("live-session")}), nil
 }
 
 type passwordResetTxRepoStub struct {
@@ -188,25 +188,26 @@ func (s *passwordResetTxRepoStub) FindPasswordReset(context.Context, []byte) (Pa
 	return s.record, nil
 }
 
-// A reset whose credential update affects no row must fail as an invalid link
-// and must not delete sessions, so the whole transaction rolls back unconsumed.
-func TestPasswordResetZeroRowCredentialUpdateRollsBack(t *testing.T) {
+// A reset whose credential row is gone must fail as an invalid link and must
+// not report a session revocation, so the whole transaction rolls back
+// unconsumed.
+func TestPasswordResetVanishedCredentialRollsBack(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	record := PasswordResetRecord{
 		ID: "reset-id", HouseholdID: "house-id", TargetUserID: "target-id", CreatedByUserID: "issuer-id",
 		CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour),
 	}
-	tx := &passwordResetTxStub{record: record}
+	tx := &passwordResetTxStub{record: record, replaceErr: ErrNotFound}
 	service, err := NewPasswordResetService(&passwordResetTxRepoStub{record: record, tx: tx}, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.SetPasswordHasher(func(string) (string, error) { return "hash:new", nil })
 	if _, err = service.RedeemPasswordReset(context.Background(), repeat("A", 43), "a long enough new password"); !errors.Is(err, ErrInvalidPasswordReset) {
-		t.Fatalf("zero-row credential update error=%v", err)
+		t.Fatalf("vanished credential error=%v", err)
 	}
 	if tx.sessionsDeleted {
-		t.Fatal("sessions were deleted without a credential row")
+		t.Fatal("sessions were reported as revoked without a credential row")
 	}
 }
 
@@ -218,7 +219,7 @@ func TestPasswordResetRedeemWithoutAccountAuthorityIsInvalid(t *testing.T) {
 		ID: "reset-id", HouseholdID: "house-id", TargetUserID: "target-id", CreatedByUserID: "issuer-id",
 		CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour),
 	}
-	tx := &passwordResetTxStub{record: record, updateRows: 1, notPermitted: true}
+	tx := &passwordResetTxStub{record: record, notPermitted: true}
 	service, err := NewPasswordResetService(&passwordResetTxRepoStub{record: record, tx: tx}, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)

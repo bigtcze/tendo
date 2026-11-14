@@ -79,6 +79,10 @@ func (r *Repository) PruneExpired(ctx context.Context, userID string, now time.T
 }
 
 func (r *Repository) CreateVerifiedSession(ctx context.Context, s identity.VerifiedSession) (string, error) {
+	method, err := signInMethodParam(s.Session.Method)
+	if err != nil {
+		return "", err
+	}
 	var user pgtype.UUID
 	if err := user.Scan(s.Session.UserID); err != nil {
 		return "", err
@@ -109,7 +113,7 @@ func (r *Repository) CreateVerifiedSession(ctx context.Context, s identity.Verif
 	if locked.PasswordHash != s.PasswordHash || locked.CredentialVersion != s.CredentialVersion {
 		return "", identity.ErrInvalidCredentials
 	}
-	id, err := queries.CreateSession(ctx, identitydb.CreateSessionParams{UserID: user, TokenHash: s.Session.TokenHash, CreatedAt: timestamptz(s.Session.CreatedAt), ExpiresAt: timestamptz(s.Session.ExpiresAt)})
+	id, err := queries.CreateSession(ctx, identitydb.CreateSessionParams{UserID: user, TokenHash: s.Session.TokenHash, CreatedAt: timestamptz(s.Session.CreatedAt), ExpiresAt: timestamptz(s.Session.ExpiresAt), SignInMethod: method})
 	if err != nil {
 		return "", err
 	}
@@ -130,7 +134,7 @@ func (r *Repository) FindActive(ctx context.Context, tokenHash []byte, now time.
 	if err != nil {
 		return identity.SessionInfo{}, err
 	}
-	return identity.SessionInfo{ID: row.ID, ExpiresAt: row.ExpiresAt.Time.UTC(), Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID, InstanceAdmin: row.InstanceAdmin}}, nil
+	return identity.SessionInfo{ID: row.ID, ExpiresAt: row.ExpiresAt.Time.UTC(), SignInMethod: identity.SignInMethod(row.SignInMethod), Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID, InstanceAdmin: row.InstanceAdmin}}, nil
 }
 
 func (r *Repository) DeleteByTokenHash(ctx context.Context, tokenHash []byte) error {

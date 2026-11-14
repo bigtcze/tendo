@@ -34,6 +34,7 @@ type fakeSessionService struct {
 	setErr         error
 	expires        time.Time
 	principal      identity.Principal
+	signInMethod   identity.SignInMethod
 	gotLogin       string
 	gotPassword    string
 	setUserID      string
@@ -46,7 +47,7 @@ func (f *fakeSessionService) Login(_ context.Context, login, password string) (i
 	if f.loginErr != nil {
 		return identity.Session{}, f.loginErr
 	}
-	return identity.Session{Token: fakeToken, ID: "sid-1", Principal: f.principal, ExpiresAt: f.expires}, nil
+	return identity.Session{Token: fakeToken, ID: "sid-1", Principal: f.principal, ExpiresAt: f.expires, SignInMethod: f.signInMethod}, nil
 }
 func (f *fakeSessionService) Lookup(_ context.Context, token string) (identity.SessionInfo, error) {
 	f.lookupCalls++
@@ -54,12 +55,12 @@ func (f *fakeSessionService) Lookup(_ context.Context, token string) (identity.S
 		return identity.SessionInfo{}, f.lookupErr
 	}
 	if token == "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" {
-		return identity.SessionInfo{ID: "old-session", Principal: identity.Principal{UserID: "user-1", Login: "owner"}, ExpiresAt: time.Now().Add(time.Hour)}, nil
+		return identity.SessionInfo{ID: "old-session", Principal: identity.Principal{UserID: "user-1", Login: "owner"}, ExpiresAt: time.Now().Add(time.Hour), SignInMethod: identity.SignInPassword}, nil
 	}
 	if token != fakeToken {
 		return identity.SessionInfo{}, identity.ErrUnauthenticated
 	}
-	return identity.SessionInfo{ID: "sid-1", Principal: f.principal, ExpiresAt: f.expires}, nil
+	return identity.SessionInfo{ID: "sid-1", Principal: f.principal, ExpiresAt: f.expires, SignInMethod: f.signInMethod}, nil
 }
 func (f *fakeSessionService) Logout(_ context.Context, token string) error {
 	f.logouts++
@@ -104,7 +105,7 @@ func (*loginServiceFake) Logout(context.Context, string) error                  
 func (*loginServiceFake) SetDefaultHousehold(context.Context, string, string) error { return nil }
 
 func sessionFixture(publicURL string) (*fakeSessionService, *SessionHandler, http.Handler) {
-	svc := &fakeSessionService{expires: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), principal: identity.Principal{UserID: "u-1", Login: "owner_1", DefaultHouseholdID: "h-1"}}
+	svc := &fakeSessionService{expires: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), principal: identity.Principal{UserID: "u-1", Login: "owner_1", DefaultHouseholdID: "h-1"}, signInMethod: identity.SignInPassword}
 	h := NewSession(svc, publicURL)
 	r := chi.NewRouter()
 	h.Register(r)
@@ -175,7 +176,7 @@ func TestLoginCookiePolicyFollowsPublicURL(t *testing.T) {
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			want := map[string]any{"userId": "u-1", "login": "owner_1", "defaultHouseholdId": "h-1", "expiresAt": "2026-02-01T00:00:00Z", "instanceAdmin": false}
+			want := map[string]any{"userId": "u-1", "login": "owner_1", "defaultHouseholdId": "h-1", "expiresAt": "2026-02-01T00:00:00Z", "instanceAdmin": false, "signInMethod": "password"}
 			if len(body) != len(want) {
 				t.Fatalf("body=%v", body)
 			}
@@ -403,7 +404,7 @@ func TestGetSession(t *testing.T) {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body)
 	}
 	var body map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body["login"] != "owner_1" || body["defaultHouseholdId"] != "h-1" || body["userId"] != "u-1" || body["expiresAt"] != "2026-02-01T00:00:00Z" || body["instanceAdmin"] != false {
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body["login"] != "owner_1" || body["defaultHouseholdId"] != "h-1" || body["userId"] != "u-1" || body["expiresAt"] != "2026-02-01T00:00:00Z" || body["instanceAdmin"] != false || body["signInMethod"] != "password" {
 		t.Fatalf("body=%s", w.Body)
 	}
 	if strings.Contains(w.Body.String(), fakeToken) {
@@ -575,7 +576,7 @@ func TestUpdateSessionSwitchesDefaultWithoutValidator(t *testing.T) {
 	if w.Header().Get("Set-Cookie") != "" {
 		t.Fatalf("switch rewrote the cookie: %s", w.Header().Get("Set-Cookie"))
 	}
-	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z","instanceAdmin":false}`
+	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z","instanceAdmin":false,"signInMethod":"password"}`
 	if !sameJSONObject(t, strings.TrimSpace(w.Body.String()), want) {
 		t.Fatalf("body=%s want=%s", w.Body, want)
 	}
@@ -601,7 +602,7 @@ func TestUpdateSessionEchoesCanonicalHouseholdID(t *testing.T) {
 	if svc.setHouseholdID != newHouseholdID {
 		t.Fatalf("service saw %q", svc.setHouseholdID)
 	}
-	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z","instanceAdmin":false}`
+	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z","instanceAdmin":false,"signInMethod":"password"}`
 	if !sameJSONObject(t, strings.TrimSpace(w.Body.String()), want) {
 		t.Fatalf("body=%s want=%s", w.Body, want)
 	}

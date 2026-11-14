@@ -46,6 +46,9 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "instance-admin" {
 		os.Exit(runInstanceAdmin(os.Args[2:], os.Getenv))
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "users" {
+		os.Exit(runUsers(os.Args[2:], os.Getenv, terminalPasswordPrompt))
+	}
 	if len(os.Args) == 2 {
 		switch os.Args[1] {
 		case "migrate":
@@ -149,6 +152,13 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	}
 	passwordResetService.SetPasswordHasher(passwordGate.HashPassword)
 	identityhttp.NewPasswordReset(passwordResetService, sessionHandler.RequireSession, principalID).Register(routes)
+	passwordChangeService, err := identityapp.NewPasswordChangeService(identitypostgres.NewPasswordChangeRepository(pool), time.Now)
+	if err != nil {
+		return err
+	}
+	passwordChangeService.SetPasswordHasher(passwordGate.HashPassword)
+	passwordChangeService.SetPasswordVerifier(passwordGate.VerifyPassword)
+	identityhttp.NewPasswordChange(passwordChangeService, sessionHandler).Register(routes)
 	// Subjects authorize through household membership, never through cross-module SQL.
 	subjectService := subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get), subjectMembers(membershipService.GetMembership))
 	subjecthttp.New(subjectService, sessionHandler.RequireSession, principalID).Register(routes)

@@ -78,15 +78,6 @@ func (q *Queries) CreatePasswordReset(ctx context.Context, arg CreatePasswordRes
 	return i, err
 }
 
-const deleteUserSessions = `-- name: DeleteUserSessions :exec
-DELETE FROM user_sessions WHERE user_id=$1
-`
-
-func (q *Queries) DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteUserSessions, userID)
-	return err
-}
-
 const findPasswordResetByToken = `-- name: FindPasswordResetByToken :one
 SELECT id::text, household_id::text, target_user_id::text, created_by_user_id::text, created_at, expires_at, used_at, revoked_at
 FROM password_reset_tokens WHERE token_hash=$1
@@ -174,14 +165,19 @@ func (q *Queries) HasLocalCredential(ctx context.Context, userID pgtype.UUID) (b
 }
 
 const lockLocalCredential = `-- name: LockLocalCredential :one
-SELECT credential_version FROM local_credentials WHERE user_id=$1 FOR UPDATE
+SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1 FOR UPDATE
 `
 
-func (q *Queries) LockLocalCredential(ctx context.Context, userID pgtype.UUID) (int64, error) {
+type LockLocalCredentialRow struct {
+	PasswordHash      string
+	CredentialVersion int64
+}
+
+func (q *Queries) LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error) {
 	row := q.db.QueryRow(ctx, lockLocalCredential, userID)
-	var credential_version int64
-	err := row.Scan(&credential_version)
-	return credential_version, err
+	var i LockLocalCredentialRow
+	err := row.Scan(&i.PasswordHash, &i.CredentialVersion)
+	return i, err
 }
 
 const lockPasswordResetTarget = `-- name: LockPasswordResetTarget :one
@@ -301,23 +297,6 @@ type RevokeOutstandingPasswordResetsInHouseholdParams struct {
 
 func (q *Queries) RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, arg RevokeOutstandingPasswordResetsInHouseholdParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeOutstandingPasswordResetsInHousehold, arg.HouseholdID, arg.TargetUserID, arg.RevokedAt)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const updateLocalCredential = `-- name: UpdateLocalCredential :execrows
-UPDATE local_credentials SET password_hash=$2, credential_version=credential_version+1 WHERE user_id=$1
-`
-
-type UpdateLocalCredentialParams struct {
-	UserID       pgtype.UUID
-	PasswordHash string
-}
-
-func (q *Queries) UpdateLocalCredential(ctx context.Context, arg UpdateLocalCredentialParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateLocalCredential, arg.UserID, arg.PasswordHash)
 	if err != nil {
 		return 0, err
 	}

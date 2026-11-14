@@ -1,6 +1,6 @@
 # ADR 0014: Administrator-issued local password reset links
 
-Status: accepted; amended by [ADR 0017](0017-password-reset-account-authority.md) (reset authority over the whole account)
+Status: accepted; amended by [ADR 0017](0017-password-reset-account-authority.md) (reset authority over the whole account) and [ADR 0018](0018-local-password-change-and-cli-reset.md) (redemption shares the single credential replacement write of the self-service change and the operator CLI reset, which also revoke outstanding links)
 
 ## Context
 

@@ -185,7 +185,7 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	if _, err := admin.Exec(ctx, `UPDATE user_accounts SET default_household_id=$3 WHERE id IN ($1,$2)`, user1, user2, householdID); err != nil {
 		t.Fatal(err)
 	}
-	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e1',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, user1).Scan(&sessionID); err != nil {
+	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('e1',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, user1).Scan(&sessionID); err != nil {
 		t.Fatal(err)
 	}
 	repo := New(app, nil)
@@ -199,7 +199,7 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	}
 	before := invariant()
 	now := time.Now().UTC().Truncate(time.Second)
-	if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,$3,$4)`, user1, bytes32(110), now, now.Add(time.Hour)); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,$3,$4,'password')`, user1, bytes32(110), now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if invariant() != before {
@@ -207,7 +207,7 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	}
 	verified := identity.OIDCVerifiedIdentity{Issuer: "https://issuer.test", Subject: "linked-subject"}
 	link := identity.OIDCFlow{UserID: user1, SessionID: sessionID}
-	token, err := repo.LinkAndCreateSession(ctx, link, verified, identity.NewSession{UserID: user1, TokenHash: bytes32(112), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(1))
+	token, err := repo.LinkAndCreateSession(ctx, link, verified, identity.NewSession{Method: identity.SignInOIDC, UserID: user1, TokenHash: bytes32(112), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(1))
 	if err != nil || token == "" {
 		t.Fatalf("link token=%q err=%v", token, err)
 	}
@@ -222,39 +222,39 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 		t.Fatalf("initiating session count=%d err=%v", count, err)
 	}
 	var nextSession string
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e2',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, user1).Scan(&nextSession); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('e2',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, user1).Scan(&nextSession); err != nil {
 		t.Fatal(err)
 	}
 	link.SessionID = nextSession
-	if _, err = repo.LinkAndCreateSession(ctx, link, verified, identity.NewSession{UserID: user1, TokenHash: bytes32(114), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(2)); err != nil {
+	if _, err = repo.LinkAndCreateSession(ctx, link, verified, identity.NewSession{Method: identity.SignInOIDC, UserID: user1, TokenHash: bytes32(114), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(2)); err != nil {
 		t.Fatalf("idempotent link: %v", err)
 	}
 	var otherSession string
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e3',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, user2).Scan(&otherSession); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('e3',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, user2).Scan(&otherSession); err != nil {
 		t.Fatal(err)
 	}
 	conflictFlow := identity.OIDCFlow{UserID: user2, SessionID: otherSession}
-	if _, err = repo.LinkAndCreateSession(ctx, conflictFlow, verified, identity.NewSession{UserID: user2, TokenHash: bytes32(116), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(3)); !errors.Is(err, identity.ErrOIDCConflict) {
+	if _, err = repo.LinkAndCreateSession(ctx, conflictFlow, verified, identity.NewSession{Method: identity.SignInOIDC, UserID: user2, TokenHash: bytes32(116), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(3)); !errors.Is(err, identity.ErrOIDCConflict) {
 		t.Fatalf("identity transfer err=%v", err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE id=$1::uuid`, otherSession).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("conflict initiating session count=%d err=%v", count, err)
 	}
 	var u1session string
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e4',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, user1).Scan(&u1session); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('e4',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, user1).Scan(&u1session); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user1, SessionID: u1session}, identity.OIDCVerifiedIdentity{Issuer: verified.Issuer, Subject: "another-subject"}, identity.NewSession{UserID: user1, TokenHash: bytes32(118), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(4)); !errors.Is(err, identity.ErrOIDCConflict) {
+	if _, err = repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user1, SessionID: u1session}, identity.OIDCVerifiedIdentity{Issuer: verified.Issuer, Subject: "another-subject"}, identity.NewSession{Method: identity.SignInOIDC, UserID: user1, TokenHash: bytes32(118), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(4)); !errors.Is(err, identity.ErrOIDCConflict) {
 		t.Fatalf("second subject err=%v", err)
 	}
 	var rollbackUser, rollbackSession string
 	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("oidc_rollback_%d", time.Now().UnixNano())).Scan(&rollbackUser); err != nil {
 		t.Fatal(err)
 	}
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e5',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, rollbackUser).Scan(&rollbackSession); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('e5',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, rollbackUser).Scan(&rollbackSession); err != nil {
 		t.Fatal(err)
 	}
-	_, rollbackErr := repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: rollbackUser, SessionID: rollbackSession}, identity.OIDCVerifiedIdentity{Issuer: "https://rollback-issuer.test", Subject: "rollback-subject"}, identity.NewSession{UserID: rollbackUser, TokenHash: bytes32(110), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(5))
+	_, rollbackErr := repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: rollbackUser, SessionID: rollbackSession}, identity.OIDCVerifiedIdentity{Issuer: "https://rollback-issuer.test", Subject: "rollback-subject"}, identity.NewSession{Method: identity.SignInOIDC, UserID: rollbackUser, TokenHash: bytes32(110), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(5))
 	var pgErr *pgconn.PgError
 	if !errors.As(rollbackErr, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "user_sessions_token_hash_key" {
 		t.Fatalf("rollback error=%v, expected duplicate user_sessions token hash", rollbackErr)
@@ -300,11 +300,11 @@ func TestOIDCPostgresConcurrentLinkAndDeleteCascade(t *testing.T) {
 		go func(i int, user string) {
 			defer wg.Done()
 			var session string
-			if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,now(),now()+interval '1 day') RETURNING id::text`, user, bytes32(byte(130+i))).Scan(&session); err != nil {
+			if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,now(),now()+interval '1 day','password') RETURNING id::text`, user, bytes32(byte(130+i))).Scan(&session); err != nil {
 				errs <- err
 				return
 			}
-			_, err := repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user, SessionID: session}, identityKey, identity.NewSession{UserID: user, TokenHash: bytes32(byte(140 + i)), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(byte(150+i)))
+			_, err := repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user, SessionID: session}, identityKey, identity.NewSession{Method: identity.SignInOIDC, UserID: user, TokenHash: bytes32(byte(140 + i)), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(byte(150+i)))
 			if err == nil {
 				wins.Add(1)
 			} else if !errors.Is(err, identity.ErrOIDCConflict) {
@@ -326,7 +326,7 @@ func TestOIDCPostgresConcurrentLinkAndDeleteCascade(t *testing.T) {
 		t.Fatal(err)
 	}
 	var flowSession string
-	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('f1',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, owner).Scan(&flowSession); err != nil {
+	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('f1',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, owner).Scan(&flowSession); err != nil {
 		t.Fatal(err)
 	}
 	f := oidcTestFlow(now, 160)
@@ -383,7 +383,7 @@ func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
 	if _, err := admin.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2 WHERE id=$1`, uid, hid); err != nil {
 		t.Fatal(err)
 	}
-	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('ab',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, uid).Scan(&sid); err != nil {
+	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,decode(repeat('ab',32),'hex'),now(),now()+interval '1 day','password') RETURNING id::text`, uid).Scan(&sid); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := admin.Exec(ctx, `INSERT INTO household_invitations(household_id,created_by_user_id,creation_key,token_hash,created_at,expires_at) VALUES($2,$1,'upgrade',decode(repeat('cd',32),'hex'),now(),now()+interval '1 day')`, uid, hid); err != nil {
@@ -404,7 +404,7 @@ func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 23 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	for _, table := range []string{"oidc_identities", "oidc_flows"} {

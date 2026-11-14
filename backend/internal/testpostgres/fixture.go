@@ -161,20 +161,33 @@ var RevertVersion18SQL = revertVersion18SQL()
 // forward again.
 var RevertVersion19SQL = revertVersion19SQL()
 
-// RevertVersion22SQL reverses migration 022 and removes its ledger row so an
-// upgrade fixture can present the exact version 21 schema before migrating
+// RevertVersion23SQL reverses migration 023 and removes its ledger row so an
+// upgrade fixture can present the exact version 22 schema before migrating
 // forward again.
-var RevertVersion22SQL = revertVersion22SQL()
+var RevertVersion23SQL = revertVersion23SQL()
 
-// RevertVersion21SQL reverses migrations 022 and 021, removing both ledger rows
-// so an upgrade fixture can present the exact version 20 schema before
+// RevertVersion22SQL reverses migrations 023 and 022, removing both ledger rows
+// so an upgrade fixture can present the exact version 21 schema before
 // migrating forward again.
-var RevertVersion21SQL = revertVersion22SQL() + " ; " + revertVersion21SQL()
+var RevertVersion22SQL = revertVersion23SQL() + " ; " + revertVersion22SQL()
 
-// RevertVersion20SQL reverses migrations 022, 021 and then 020, removing their
-// ledger rows so fixtures written before 021 keep presenting the exact version
-// 19 schema.
-var RevertVersion20SQL = revertVersion22SQL() + " ; " + revertVersion21SQL() + " ; " + revertVersion20SQL()
+// RevertVersion21SQL reverses migrations 023, 022 and 021, removing all three
+// ledger rows so an upgrade fixture can present the exact version 20 schema
+// before migrating forward again.
+var RevertVersion21SQL = revertVersion23SQL() + " ; " + revertVersion22SQL() + " ; " + revertVersion21SQL()
+
+// RevertVersion20SQL reverses migrations 023, 022, 021 and then 020, removing
+// their ledger rows so fixtures written before 021 keep presenting the exact
+// version 19 schema.
+var RevertVersion20SQL = revertVersion23SQL() + " ; " + revertVersion22SQL() + " ; " + revertVersion21SQL() + " ; " + revertVersion20SQL()
+
+func revertVersion23SQL() string {
+	down, err := database.MigrationDownSQL(23)
+	if err != nil {
+		panic("revert version 23 SQL unavailable: " + err.Error())
+	}
+	return down + " DELETE FROM tendo_schema_migrations WHERE version=23"
+}
 
 func revertVersion22SQL() string {
 	down, err := database.MigrationDownSQL(22)

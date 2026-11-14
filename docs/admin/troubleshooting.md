@@ -68,13 +68,32 @@ The app logs `database schema validation failed` when it cannot use the database
 
 | What you see | Fix |
 | --- | --- |
-| "That username or password isn’t right." | Check the username (lowercase). An administrator can send a member with a password a one-time reset link from the Admin center; see [household members](../user/household-members.md#reset-a-password-administrators). Administrators cannot reset their own password, so the only administrator of a household has no way to recover a forgotten password: keep a second administrator and keep passwords in a password manager. If the correct password is always refused, check `docker compose logs app` for an error-level `http request` line with `fault=password_hash_integrity_fault`: the stored password record is damaged. Restore your latest backup; see [back up and restore](backup-restore.md). |
+| "That username or password isn’t right." | Check the username (lowercase). An administrator can send a member with a password a one-time reset link from the Admin center; see [household members](../user/household-members.md#reset-a-password-administrators). An administrator cannot reset their own password, so when nobody can sign in an operator with host access sets a new password; see [restore a forgotten password from the host](#restore-a-forgotten-password-from-the-host). If the correct password is always refused, check `docker compose logs app` for an error-level `http request` line with `fault=password_hash_integrity_fault`: the stored password record is damaged. Restore your latest backup; see [back up and restore](backup-restore.md). |
 | "There have been too many sign-in attempts." | Sign-in allows 10 attempts per minute from one address. Wait one minute. |
 | You are signed out after some weeks | Sessions last 30 days and then end. Sign in again. |
 | Sign-in works on `http://localhost` but not through your domain | `TENDO_PUBLIC_URL` must be the HTTPS address of your domain. With an `https://` address the session cookie is marked `Secure` and is sent only over HTTPS. |
 | "Your account isn’t part of a household yet." | The account exists but has no household. Ask an administrator for an invite link; see [household members](../user/household-members.md). |
 
 For problems with **Sign in with …**, see the [OIDC troubleshooting table](oidc.md#troubleshooting).
+
+## Restore a forgotten password from the host
+
+When nobody can sign in, an operator with access to the server can set a new local password for one account. Run it inside the running app container from the directory that holds `compose.yaml`:
+
+```sh
+docker compose exec app /tendo users set-password --login <login>
+```
+
+Use the account's sign-in name. The command asks for the new password twice on your terminal and shows nothing while you type; it refuses to read a password from a pipe, an argument or an environment variable, so the password never appears in `ps`, shell history or logs. The password must be 15–128 characters. On success it prints the login and how many signed-in sessions it revoked.
+
+- The new password is set immediately and **every session of that account is signed out**, including other browsers and devices. The person signs in again with the new password.
+- Any reset link an administrator issued for that account stops working, and any outstanding link is revoked.
+- Only accounts that already have a local password can be reset this way. An account that signs in only through the identity provider is refused; its access is managed by that provider. Creating a first local password for such an account is not supported here.
+- An unknown login reports that no account has that login. Nothing about other accounts is revealed.
+- The command uses only the restricted runtime database role, so it needs no database administrator password. Being able to run it is the same level of trust as running `docker compose exec` or having SSH access to the host.
+- The command needs an interactive terminal. It cannot be scripted with a password, which is deliberate: automation would have to put the secret somewhere it can be recorded.
+
+Each successful run writes one log line with the account's user ID and the number of revoked sessions, never the password. Read it with `docker compose logs --tail 20 app` if you need to confirm what happened.
 
 ## No instance administrator
 

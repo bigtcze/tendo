@@ -98,7 +98,7 @@ func (h *SessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	h.setCookie(w, session.Token, int(identity.SessionLifetime/time.Second))
 	w.Header().Set("Location", "/api/v1/session")
-	writeJSON(w, 201, sessionResponse(session.Principal, session.ExpiresAt))
+	writeJSON(w, 201, sessionResponse(session.Principal, session.ExpiresAt, session.SignInMethod))
 }
 
 func (h *SessionHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +107,7 @@ func (h *SessionHandler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", `"session-`+info.ID+`"`)
-	writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt))
+	writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt, info.SignInMethod))
 }
 
 // update selects the account-wide default household. The value is a navigation
@@ -136,7 +136,7 @@ func (h *SessionHandler) update(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "unavailable")
 	default:
 		info.Principal.DefaultHouseholdID = householdID
-		writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt))
+		writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt, info.SignInMethod))
 	}
 }
 
@@ -175,6 +175,7 @@ func (h *SessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 type principalKey struct{}
+type sessionInfoKey struct{}
 
 // RequireSession authenticates the request and exposes the principal through
 // PrincipalFromContext. It is the seam later household-scoped routes use.
@@ -184,13 +185,21 @@ func (h *SessionHandler) RequireSession(next http.Handler) http.Handler {
 		if !ok {
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, info.Principal)))
+		ctx := context.WithValue(r.Context(), principalKey{}, info.Principal)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, sessionInfoKey{}, info)))
 	})
 }
 
 func PrincipalFromContext(ctx context.Context) (identity.Principal, bool) {
 	p, ok := ctx.Value(principalKey{}).(identity.Principal)
 	return p, ok
+}
+
+// SessionFromContext exposes the full authenticated session, including the
+// recorded sign-in kind, to handlers that must branch on it.
+func SessionFromContext(ctx context.Context) (identity.SessionInfo, bool) {
+	info, ok := ctx.Value(sessionInfoKey{}).(identity.SessionInfo)
+	return info, ok
 }
 
 type sessionJSON struct {
@@ -201,10 +210,13 @@ type sessionJSON struct {
 	// InstanceAdmin is always emitted, including false, so clients never infer
 	// the capability from a missing field.
 	InstanceAdmin bool `json:"instanceAdmin"`
+	// SignInMethod is always emitted so a client can tell a local session from
+	// an OIDC one and offer the local password change only where it applies.
+	SignInMethod string `json:"signInMethod"`
 }
 
-func sessionResponse(p identity.Principal, expires time.Time) sessionJSON {
-	return sessionJSON{UserID: p.UserID, Login: p.Login, DefaultHouseholdID: p.DefaultHouseholdID, ExpiresAt: expires.UTC().Format(time.RFC3339), InstanceAdmin: p.InstanceAdmin}
+func sessionResponse(p identity.Principal, expires time.Time, method identity.SignInMethod) sessionJSON {
+	return sessionJSON{UserID: p.UserID, Login: p.Login, DefaultHouseholdID: p.DefaultHouseholdID, ExpiresAt: expires.UTC().Format(time.RFC3339), InstanceAdmin: p.InstanceAdmin, SignInMethod: string(method)}
 }
 
 // recordCredentialFault marks a corrupt stored password hash on the request's

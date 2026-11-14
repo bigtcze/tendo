@@ -311,7 +311,7 @@ func (s *OIDCService) newSession(now time.Time) (string, NewSession, error) {
 	if err != nil {
 		return "", NewSession{}, err
 	}
-	return token, NewSession{TokenHash: digest([]byte(token)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}, nil
+	return token, NewSession{Method: SignInOIDC, TokenHash: digest([]byte(token)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}, nil
 }
 
 func (s *OIDCService) randomToken() (string, []byte, error) {

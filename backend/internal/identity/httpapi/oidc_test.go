@@ -796,8 +796,8 @@ func TestOIDCCallbackRequestLogOmitsSecrets(t *testing.T) {
 // OIDCValidationProblemStatus enum; the wire value must remain the integer 422.
 func TestOIDCValidationProblemMatchesGeneratedModel(t *testing.T) {
 	for body, field := range map[string]apimodel.OIDCValidationProblemField{
-		`{"purpose":"invalid"}`: apimodel.Purpose,
-		`{"purpose":"link"}`:    apimodel.CurrentPassword,
+		`{"purpose":"invalid"}`: apimodel.OIDCValidationProblemFieldPurpose,
+		`{"purpose":"link"}`:    apimodel.OIDCValidationProblemFieldCurrentPassword,
 	} {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")

@@ -183,10 +183,10 @@ func TestSessionsPostgresLifecycle(t *testing.T) {
 				t.Fatalf("%q error=%v, want 42501", statement, err)
 			}
 		}
-		if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id, token_hash, created_at, expires_at) VALUES ($1::uuid, $2, now(), now() - interval '1 hour')`, userID, bytes.Repeat([]byte{1}, 32)); err == nil {
+		if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id, token_hash, created_at, expires_at, sign_in_method) VALUES ($1::uuid, $2, now(), now() - interval '1 hour', 'password')`, userID, bytes.Repeat([]byte{1}, 32)); err == nil {
 			t.Fatal("expires_at <= created_at accepted")
 		}
-		if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id, token_hash, created_at, expires_at) VALUES ($1::uuid, $2, now(), now() + interval '1 hour')`, userID, []byte{1, 2, 3}); err == nil {
+		if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id, token_hash, created_at, expires_at, sign_in_method) VALUES ($1::uuid, $2, now(), now() + interval '1 hour', 'password')`, userID, []byte{1, 2, 3}); err == nil {
 			t.Fatal("short token_hash accepted")
 		}
 		var publicPrivileges int
@@ -276,7 +276,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 23 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string

@@ -12,14 +12,15 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,$3,$4) RETURNING id::text AS id
+INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,$3,$4,$5) RETURNING id::text AS id
 `
 
 type CreateSessionParams struct {
-	UserID    pgtype.UUID
-	TokenHash []byte
-	CreatedAt pgtype.Timestamptz
-	ExpiresAt pgtype.Timestamptz
+	UserID       pgtype.UUID
+	TokenHash    []byte
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+	SignInMethod string
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (string, error) {
@@ -28,6 +29,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (s
 		arg.TokenHash,
 		arg.CreatedAt,
 		arg.ExpiresAt,
+		arg.SignInMethod,
 	)
 	var id string
 	err := row.Scan(&id)
@@ -60,7 +62,7 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 const findActiveSession = `-- name: FindActiveSession :one
 SELECT s.id::text AS id, u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
   EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
-  s.expires_at
+  s.expires_at, s.sign_in_method
 FROM user_sessions s JOIN user_accounts u ON u.id=s.user_id
 WHERE s.token_hash=$1 AND s.expires_at>$2
 `
@@ -77,6 +79,7 @@ type FindActiveSessionRow struct {
 	DefaultHouseholdID string
 	InstanceAdmin      bool
 	ExpiresAt          pgtype.Timestamptz
+	SignInMethod       string
 }
 
 func (q *Queries) FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error) {
@@ -89,6 +92,7 @@ func (q *Queries) FindActiveSession(ctx context.Context, arg FindActiveSessionPa
 		&i.DefaultHouseholdID,
 		&i.InstanceAdmin,
 		&i.ExpiresAt,
+		&i.SignInMethod,
 	)
 	return i, err
 }

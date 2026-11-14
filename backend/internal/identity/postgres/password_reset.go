@@ -62,7 +62,7 @@ func (r *PasswordResetRepository) WithPasswordResetTransaction(ctx context.Conte
 	if r.factory == nil {
 		return errors.New("password reset transaction unavailable")
 	}
-	if err = work(&passwordResetTx{q: identitydb.New(tx), h: r.factory(tx)}); err != nil {
+	if err = work(&passwordResetTx{credentialTx: &credentialTx{q: identitydb.New(tx)}, h: r.factory(tx)}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -102,7 +102,7 @@ func (r *PasswordResetRepository) PasswordResetsByUserIDs(ctx context.Context, h
 }
 
 type passwordResetTx struct {
-	q *identitydb.Queries
+	*credentialTx
 	h PasswordResetHouseholdService
 }
 
@@ -160,14 +160,6 @@ func (t *passwordResetTx) HasLocalCredential(ctx context.Context, userValue stri
 	return t.q.HasLocalCredential(ctx, user)
 }
 
-func (t *passwordResetTx) RevokeOutstandingPasswordResetsForTarget(ctx context.Context, userValue string, now time.Time) error {
-	var user pgtype.UUID
-	if err := user.Scan(userValue); err != nil {
-		return identity.ErrNotFound
-	}
-	return ignoreRows(t.q.RevokeOutstandingPasswordResetsForTarget(ctx, identitydb.RevokeOutstandingPasswordResetsForTargetParams{TargetUserID: user, RevokedAt: ts(now)}))
-}
-
 func (t *passwordResetTx) RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, householdValue, userValue string, now time.Time) error {
 	var user, house pgtype.UUID
 	if err := user.Scan(userValue); err != nil {
@@ -214,34 +206,6 @@ func (t *passwordResetTx) CompletePasswordReset(ctx context.Context, id string, 
 		return 0, identity.ErrNotFound
 	}
 	return t.q.CompletePasswordReset(ctx, identitydb.CompletePasswordResetParams{ID: resetID, UsedAt: ts(now)})
-}
-
-func (t *passwordResetTx) LockLocalCredential(ctx context.Context, userValue string) (int64, error) {
-	var user pgtype.UUID
-	if err := user.Scan(userValue); err != nil {
-		return 0, identity.ErrNotFound
-	}
-	version, err := t.q.LockLocalCredential(ctx, user)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, identity.ErrNotFound
-	}
-	return version, err
-}
-
-func (t *passwordResetTx) UpdateLocalCredential(ctx context.Context, userValue, passwordHash string) (int64, error) {
-	var user pgtype.UUID
-	if err := user.Scan(userValue); err != nil {
-		return 0, identity.ErrNotFound
-	}
-	return t.q.UpdateLocalCredential(ctx, identitydb.UpdateLocalCredentialParams{UserID: user, PasswordHash: passwordHash})
-}
-
-func (t *passwordResetTx) DeleteUserSessions(ctx context.Context, userValue string) error {
-	var user pgtype.UUID
-	if err := user.Scan(userValue); err != nil {
-		return identity.ErrNotFound
-	}
-	return t.q.DeleteUserSessions(ctx, user)
 }
 
 func findPasswordReset(ctx context.Context, queries *identitydb.Queries, digest []byte, lock bool) (identity.PasswordResetRecord, error) {

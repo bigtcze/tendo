@@ -93,7 +93,7 @@ function assertPendingCookie(path, status, setCookie, clearing = false) {
   }
 }
 
-function assertSessionCookie(path, status, setCookie) {
+function assertSessionCookie(path, status, setCookie, clearing = Number(status) !== 201) {
   if (Array.isArray(setCookie)) {
     assert.equal(setCookie.length, 1, `${path} HTTP ${status} expected one session cookie`)
     setCookie = setCookie[0]
@@ -108,7 +108,7 @@ function assertSessionCookie(path, status, setCookie) {
   assert.ok(lower.includes('path=/'), `${path} HTTP ${status} cookie must have Path=/`)
   assert.ok(!lower.some(attribute => attribute.startsWith('domain=')), `${path} HTTP ${status} cookie must not set Domain`)
   if (name.startsWith('__Host-')) assert.ok(lower.includes('secure'), `${path} HTTP ${status} __Host- cookie must be Secure`)
-  if (Number(status) !== 201) {
+  if (clearing) {
     assert.equal(value, '', `${path} HTTP ${status} clearing cookie must be empty`)
     assert.ok(lower.includes('max-age=0'), `${path} HTTP ${status} clearing cookie must have Max-Age=0`)
   } else {
@@ -160,7 +160,10 @@ function assertResponse(path, status, body, method, headers = {}) {
   } else if (cookieRef) {
     const cookieSpec = contract.components.headers[cookieRef.split('/').pop()]
     if (cookieSpec.required === true || headers['set-cookie'] !== undefined) {
-      assertSessionCookie(path, status, headers['set-cookie'])
+      // A session-setting response carries the secret. Logout (204) and a stale
+      // cookie clear send an empty value with Max-Age=0 instead.
+      const clearing = cookieRef.split('/').pop() !== 'SetSessionCookie' || Number(status) === 204
+      assertSessionCookie(path, status, headers['set-cookie'], clearing)
     }
   } else if (path === '/api/v1/auth/oidc/start' && status === 200) {
     assert.ok(cookieHeader, `${path} HTTP ${status} missing Set-Cookie contract declaration`)

@@ -9,7 +9,7 @@ import urllib.request
 
 COVERAGE_SCOPE = ','.join((
     'getInitialSetup', 'createInitialOwner', 'createSession', 'getSession',
-    'deleteSession', 'createInvitation', 'listInvitations', 'revokeInvitation',
+    'deleteSession', 'changePassword', 'createInvitation', 'listInvitations', 'revokeInvitation',
     'acceptInvitationWithNewAccount', 'acceptInvitation', 'listMembers',
     'getHousehold', 'createSubject', 'listSubjects', 'getSubject', 'getMemberPerson',
     'listHouseholds', 'updateSession',

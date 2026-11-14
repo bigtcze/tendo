@@ -2,6 +2,16 @@
 
 Choose **Account** in the household navigation to open **Your account** and see which login you are signed in with. On phones and tablets, household destinations are in a bar at the bottom of the screen; on computers they are in a sidebar on the left. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
 
+## Changing your password
+
+In **Your account** you can replace the password you sign in with. Tendo asks for the password you use now and for the new one. The new password must be 15 to 128 characters.
+
+After the change, every other browser and device signed in to your account is signed out and has to sign in again with the new password. The browser where you made the change stays signed in. The same happens when an administrator resets your password through a reset link, or when whoever runs your Tendo installation sets a new password for you from the host.
+
+You can only change your password from a session you started with that password. If you signed in with **Sign in with …**, sign out and sign in with your password first; a session opened that way cannot replace the Tendo password, even when your account also has one. An account that signs in only through the identity provider has no Tendo password to change.
+
+If you no longer remember your current password, changing it here is not possible: ask an administrator for a reset link (see [Household members and invitations](household-members.md#reset-a-password-administrators)), or ask whoever runs your Tendo installation to set a new password from the host.
+
 ## Appearance and language
 
 In **Your account**, choose **Appearance** to match this device, or select **Light** or **Dark**. The explicit choice is saved in this browser only. Under **Language**, choose English or Čeština; you can also change the language in the footer.

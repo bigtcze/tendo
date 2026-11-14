@@ -225,10 +225,10 @@ func TestPasswordResetPostgresRedeemSuccessAndFailures(t *testing.T) {
 	sessions.SetPasswordVerifier(func(hash, password string) (bool, error) { return hash == "hash:"+password, nil })
 
 	other := createLocalMember(t, ctx, admin, house, "reset_other")
-	if _, err = admin.Exec(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES
-		($1::uuid,decode(repeat('a1',32),'hex'),now(),now()+interval '1 day'),
-		($1::uuid,decode(repeat('a2',32),'hex'),now(),now()+interval '1 day'),
-		($2::uuid,decode(repeat('a3',32),'hex'),now(),now()+interval '1 day')`, target, other); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES
+		($1::uuid,decode(repeat('a1',32),'hex'),now(),now()+interval '1 day','password'),
+		($1::uuid,decode(repeat('a2',32),'hex'),now(),now()+interval '1 day','password'),
+		($2::uuid,decode(repeat('a3',32),'hex'),now(),now()+interval '1 day','password')`, target, other); err != nil {
 		t.Fatal(err)
 	}
 	issued, err := service.IssuePasswordReset(ctx, owner, house, target)
