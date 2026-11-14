@@ -82,7 +82,7 @@ function HomeLink({ t }: { t: Translate }) {
 
 function IncompleteInvite({ t }: { t: Translate }) {
   return <div className="rounded-2xl border border-line bg-raised p-5 sm:p-7">
-    <Heading className="text-[2.125rem] font-bold leading-[2.25rem] text-ink">{t('invite.incomplete')}</Heading>
+    <Heading className="text-h1 font-semibold text-ink">{t('invite.incomplete')}</Heading>
     <p className="mt-3 text-base text-muted">{t('invite.incomplete.body')}</p>
     <HomeLink t={t} />
   </div>;
@@ -106,7 +106,7 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
 
   return <Layout><section className="settle mx-auto w-full max-w-xl">
     {flow.valid ? <>
-      <Heading className={`text-[2.125rem] font-bold leading-[2.25rem] text-ink ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
+      <Heading className={`text-h1 font-semibold text-ink ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
       {/* Signed in, the title names only the account: this sentence is what says the screen is an invitation. */}
       {flow.currentSession ? <p className="mt-3 max-w-prose text-base text-muted">{t('invite.signedIn.intro')}</p> : null}
       <InviteNotice error={flow.error} accepted={flow.accepted} noticeRef={flow.noticeRef} t={t} />

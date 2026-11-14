@@ -118,7 +118,7 @@ function StepHeading({ step, children }: { step: string; children: React.ReactNo
 function OnboardingIntroduction() {
   const { t } = useI18n();
   return (
-    <Heading className="text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">
+    <Heading className="text-h1 font-semibold text-ink">
       {t('onboarding.title')}
     </Heading>
   );
@@ -227,13 +227,13 @@ export function OnboardingScreen({
   const target = form.error ? errorTarget(form.error) : null;
 
   return (
-    <section className="settle w-full max-w-4xl">
+    <section className="settle mx-auto w-full max-w-4xl">
       <OnboardingIntroduction />
       <form onSubmit={form.submit} className="mt-8" noValidate>
         <div className="overflow-hidden rounded-2xl border border-line bg-raised">
           <SetupSection form={form} target={target} />
           <OwnerSection form={form} target={target} locale={locale} />
-          <div className="flex flex-col gap-4 border-t border-line bg-sand/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+          <div className="flex flex-col gap-4 border-t border-line p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
             <OnboardingError error={form.error} />
             <OnboardingSubmit pending={form.pending} />
           </div>

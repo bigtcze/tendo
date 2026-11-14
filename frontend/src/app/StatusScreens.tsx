@@ -19,7 +19,7 @@ export function NotFoundScreen({ signedOut = false }: { signedOut?: boolean }) {
   return (
     <section className="settle mx-auto flex min-h-[55vh] w-full max-w-2xl flex-col justify-center">
       <StatePanel>
-        <Heading className="text-h1 leading-tight text-ink">{t('app.notFound.title')}</Heading>
+        <Heading className="text-h1 font-semibold text-ink">{t('app.notFound.title')}</Heading>
         <p className="mt-3 max-w-prose text-body text-muted">{t('app.notFound.body')}</p>
         <div className="mt-6">
           <a href={signedOut ? '/login' : '/'} onClick={signedOut ? (event) => { event.preventDefault(); window.history.replaceState(null, '', '/login'); window.dispatchEvent(new PopStateEvent('popstate')); } : undefined} className="inline-flex min-h-11 items-center rounded-xl bg-accent px-5 text-control font-semibold text-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
@@ -47,7 +47,7 @@ export function ErrorScreen({ onRetry }: { onRetry: () => void }) {
   return (
     <section className="settle mx-auto flex min-h-[55vh] w-full max-w-2xl flex-col justify-center">
       <StatePanel>
-        <Heading className="text-h1 leading-tight text-ink">{t('app.error.title')}</Heading>
+        <Heading className="text-h1 font-semibold text-ink">{t('app.error.title')}</Heading>
         <p className="mt-3 text-body text-muted">{t('app.error.body')}</p>
         <Button type="button" className="mt-6" onClick={onRetry}>
           {t('app.error.retry')}

@@ -21,7 +21,7 @@ function ReturnLink({ href, label }: { href: string; label: string }) {
 function InvalidLink({ signedIn }: { signedIn: boolean }) {
   const { t } = useI18n();
   return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
-    <Heading className="text-center text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">{t('reset.invalid.title')}</Heading>
+    <Heading className="text-center text-h1 font-semibold text-ink">{t('reset.invalid.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.invalid.body')}</p>
     <div className="mt-8 flex w-full justify-center rounded-2xl border border-line bg-raised p-5 sm:p-7">
       <ReturnLink
@@ -48,7 +48,7 @@ export function ResetPasswordScreen({ token, signedIn, onRedeemed }: {
   const mismatch = failure === 'mismatch';
   const message = failure ? t(resetFailureKey(failure)) : null;
   return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
-    <Heading className="text-center text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">{t('reset.title')}</Heading>
+    <Heading className="text-center text-h1 font-semibold text-ink">{t('reset.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.intro')}</p>
     <div className="mt-8 rounded-2xl border border-line bg-raised p-5 sm:p-7">
       <form aria-label={t('reset.form.label')} onSubmit={(event) => void submit(event)} className="grid gap-5" noValidate>
