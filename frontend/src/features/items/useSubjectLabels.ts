@@ -101,15 +101,23 @@ export function useSubjectLabels(userId: string, householdId: string, visibleIDs
   const subjects = new Map<string, Subject>();
   let loading = false;
   let hasFailures = false;
-  for (const id of visibleKey ? visibleKey.split('\u0000') : []) {
+  const visible = new Set(visibleKey ? visibleKey.split('\u0000') : []);
+  // A visible ID is queued from its first render: the queueing effect runs after that render commits, and an ID
+  // without a state would otherwise read as unknown for one frame.
+  const visibleState = (id: string): LabelState['kind'] | undefined => {
+    if (!visible.has(id) || controller.scope !== scope) return undefined;
+    return controller.states.get(id)?.kind ?? 'queued';
+  };
+  for (const id of visible) {
     const state = controller.scope === scope ? controller.states.get(id) : undefined;
     if (state?.kind === 'found') {
       names.set(id, state.subject.name);
       subjects.set(id, state.subject);
     }
-    if (state?.kind === 'queued' || state?.kind === 'loading') loading = true;
-    if (state?.kind === 'failed' || state?.kind === 'missing') hasFailures = true;
+    const kind = visibleState(id);
+    if (kind === 'queued' || kind === 'loading') loading = true;
+    if (kind === 'failed' || kind === 'missing') hasFailures = true;
   }
-  const stateFor = (id: string) => controller.scope === scope ? controller.states.get(id)?.kind : undefined;
+  const stateFor = visibleState;
   return { names, subjects, loading, hasFailures, retry, stateFor };
 }
