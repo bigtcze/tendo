@@ -118,7 +118,7 @@ function StepHeading({ step, children }: { step: string; children: React.ReactNo
 function OnboardingIntroduction() {
   const { t } = useI18n();
   return (
-    <Heading className="text-h1 font-semibold text-ink">
+    <Heading className="text-h1 leading-8 font-semibold text-ink">
       {t('onboarding.title')}
     </Heading>
   );

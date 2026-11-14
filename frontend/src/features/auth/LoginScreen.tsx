@@ -116,7 +116,7 @@ export function LoginScreen({ onSignedIn, notice, initialLogin }: {
 
   return (
     <section className="settle mx-auto w-full max-w-md lg:mt-10">
-      <Heading className="text-center text-h1 font-semibold text-ink">{t('login.welcome')}</Heading>
+      <Heading className="text-center text-h1 leading-8 font-semibold text-ink">{t('login.welcome')}</Heading>
       <div className="mt-8 w-full overflow-hidden rounded-2xl border border-line bg-raised">
         <LoginForm
           notice={notice}

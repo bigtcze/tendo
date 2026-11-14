@@ -51,6 +51,9 @@ function open(path: string) {
 function expectTitleScale(heading: HTMLElement) {
   expect(heading.classList.contains('text-h1'), 'page title uses text-h1').toBe(true);
   expect(heading.classList.contains('font-semibold'), 'page title uses font-semibold').toBe(true);
+  // 1.625rem × 1.2 is 31.2px: a fractional line box pushes everything under the title off the pixel grid, and at 200 %
+  // zoom the primary action then ends a sub-pixel outside the viewport. Signed-out titles use a whole-pixel 2rem line.
+  expect(heading.classList.contains('leading-8'), 'page title has a whole-pixel line height').toBe(true);
   expect(heading.className, 'no oversized display title').not.toContain('text-[2.125rem]');
   expect(heading.className, 'no oversized display title').not.toContain('sm:text-display');
 }

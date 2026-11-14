@@ -5126,9 +5126,7 @@ test.describe('Tendo production journey', () => {
       expect(metrics.overflow, `${state} horizontal overflow at ${percent}%`).toBeLessThanOrEqual(0);
     };
     const inView = async (control: Locator, label: string) => {
-      // Centre the control: edge alignment snaps the scroll offset to device pixels and can leave a sub-pixel sliver
-      // of a fractionally placed control outside the viewport even though the page has room to show all of it.
-      await control.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+      await control.scrollIntoViewIfNeeded();
       // ratio 1: the whole control must lie inside the viewport, not merely touch it.
       await expect(control, label).toBeInViewport({ ratio: 1 });
       const box = await control.boundingBox();
