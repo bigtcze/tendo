@@ -19,10 +19,11 @@ export async function assertInterReady(page: Page, label = 'capture') {
  */
 export async function assertFieldsAtLeast16px(page: Page, label: string) {
   const small = await page.evaluate(() => [...document.querySelectorAll('input, select, textarea')]
-    .filter((field) => !(field instanceof HTMLInputElement && ['checkbox', 'radio', 'hidden'].includes(field.type)))
+    .filter((field) => !(field instanceof HTMLInputElement && ['checkbox', 'radio'].includes(field.type)))
     .filter((field) => field.getClientRects().length > 0)
     .map((field) => ({
-      field: `${field.tagName.toLowerCase()}[${field.getAttribute('aria-label') ?? (field.id || field.getAttribute('name')) ?? ''}]`,
+      field: `${field.tagName.toLowerCase()}[${field.getAttribute('aria-label')
+        ?? (field as HTMLInputElement).labels?.[0]?.firstChild?.textContent?.trim() ?? (field.id || field.getAttribute('name')) ?? ''}]`,
       px: parseFloat(getComputedStyle(field).fontSize),
     }))
     .filter(({ px }) => px < 16));
