@@ -35,7 +35,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 - `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
 - `src/fonts.css`: self-hosted Inter Variable faces (`@fontsource-variable/inter` 5.3.0, SIL OFL 1.1; latin + latin-ext, no CDN)
 - `public/fonts/INTER-OFL-LICENSE.txt`: canonical OFL text, copied into the production build at `/fonts/INTER-OFL-LICENSE.txt`
-- `public/favicon.svg`, `public/apple-touch-icon.png`, `public/icon-192.png`, `public/icon-512.png`, `public/manifest.webmanifest`: the brand tile and app icons linked from `index.html`
+- `public/favicon.svg`, `public/favicon.ico`, `public/apple-touch-icon.png`, `public/icon-192.png`, `public/icon-512.png`, `public/manifest.webmanifest`: the brand tile and app icons linked from `index.html`
 - `src/i18n`: translations (`en.ts`, `cs.ts`) and the language provider
 - `src/lib`: the API client and small helpers
 - `src/test`: test setup and the fake server used by tests
@@ -59,6 +59,24 @@ rsvg-convert -w 180 -h 180 -b '#1a6a55' -o public/apple-touch-icon.png public/fa
 rsvg-convert -w 192 -h 192 -b '#1a6a55' -o public/icon-192.png public/favicon.svg
 rsvg-convert -w 512 -h 512 -b '#1a6a55' -o public/icon-512.png public/favicon.svg
 ```
+
+`public/favicon.ico` is the raster fallback for browsers without SVG favicon support and for the browser's own `/favicon.ico` request. It holds 16, 32 and 48 px PNG exports of the same SVG (transparent corners, light variant). `index.html` links it first with `sizes="32x32"` and the typed SVG last, so browsers that support SVG favicons choose the SVG. Regenerate it with the PNGs:
+
+```sh
+for n in 16 32 48; do rsvg-convert -w $n -h $n -o /tmp/favicon-$n.png public/favicon.svg; done
+python3 - <<'PY'
+import struct
+sizes = [16, 32, 48]
+images = [open(f'/tmp/favicon-{n}.png', 'rb').read() for n in sizes]
+out, offset = struct.pack('<HHH', 0, 1, len(images)), 6 + 16 * len(images)
+for n, data in zip(sizes, images):
+    out += struct.pack('<BBBBHHII', n, n, 0, 0, 1, 32, len(data), offset)
+    offset += len(data)
+open('public/favicon.ico', 'wb').write(out + b''.join(images))
+PY
+```
+
+The browser chrome tint (`theme-color`) comes from two tagged metas in `index.html` (`data-scheme="light"`/`"dark"`, paper token colours). With System they follow the device through `prefers-color-scheme`; an explicit Light or Dark choice keeps only its own meta (`media="all"`, the other `"not all"`). `public/theme-boot.js` applies this before first paint and `src/theme/theme.ts` on every Appearance change.
 
 `-b` paints the light tile colour behind the rounded corners, because Apple touch icons and the manifest icons must be opaque (`rsvg-convert` ignores the dark media rule and always exports the light variant). The manifest declares `display: browser`: Tendo is an ordinary web app, not an installable standalone app, and it registers no service worker.
 

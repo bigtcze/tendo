@@ -239,8 +239,11 @@ test.describe('appearance preference on signed-out routes', () => {
 test.describe('brand icons in the production build', () => {
   test('the browser gets the SVG icon and a real ICO at /favicon.ico, never a 404 or the app page', async ({ request }) => {
     const html = await (await request.get('/')).text();
-    expect(html).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml" />');
-    expect(html).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32" />');
+    const icoLink = html.indexOf('<link rel="icon" href="/favicon.ico" sizes="32x32" />');
+    const svgLink = html.indexOf('<link rel="icon" href="/favicon.svg" type="image/svg+xml" />');
+    expect(icoLink, 'ICO fallback is linked').toBeGreaterThan(-1);
+    // The typed SVG comes last so browsers with SVG favicon support choose it over the ICO.
+    expect(svgLink, 'SVG icon is linked after the ICO').toBeGreaterThan(icoLink);
     // Browsers without SVG favicon support, and every browser's own /favicon.ico probe, ask for this path.
     const ico = await request.get('/favicon.ico');
     expect(ico.status()).toBe(200);

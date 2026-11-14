@@ -24,10 +24,11 @@ describe('shell brand assets', () => {
     expect(html).toMatch(/<title>Tendo<\/title>/);
   });
 
-  it('links a raster favicon.ico fallback after the SVG icon, for browsers without SVG favicons', () => {
+  it('links a raster favicon.ico fallback before the SVG icon, for browsers without SVG favicons', () => {
     const icons = links.filter((candidate) => attribute(candidate, 'rel') === 'icon').map((candidate) => attribute(candidate, 'href'));
-    // Browsers that understand SVG pick the SVG (it is listed first with its type); others fall back to the ICO.
-    expect(icons).toEqual(['/favicon.svg', '/favicon.ico']);
+    // The ICO declares an exact 32x32 size and comes first; the typed SVG comes last, so browsers that support SVG
+    // favicons choose it and the others fall back to the ICO.
+    expect(icons).toEqual(['/favicon.ico', '/favicon.svg']);
     const ico = links.find((candidate) => attribute(candidate, 'href') === '/favicon.ico')!;
     expect(attribute(ico, 'sizes')).toBe('32x32');
     const bytes = readPublic('/favicon.ico');
@@ -55,7 +56,9 @@ describe('shell brand assets', () => {
       { rel: 'apple-touch-icon', href: '/apple-touch-icon.png', type: undefined },
       { rel: 'manifest', href: '/manifest.webmanifest', type: undefined },
     ]) {
-      const link = links.find((candidate) => attribute(candidate, 'rel') === expected.rel);
+      // Two rel="icon" links exist (ICO fallback, then SVG); the typed one is identified by its type.
+      const link = links.find((candidate) => attribute(candidate, 'rel') === expected.rel
+        && (!expected.type || attribute(candidate, 'type') === expected.type));
       expect(link, `rel="${expected.rel}"`).toBeDefined();
       expect(attribute(link!, 'href'), `rel="${expected.rel}" href`).toBe(expected.href);
       if (expected.type) expect(attribute(link!, 'type'), `rel="${expected.rel}" type`).toBe(expected.type);
