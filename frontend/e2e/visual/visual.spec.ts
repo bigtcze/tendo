@@ -6,6 +6,7 @@ import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
 import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinInvitationDates, seed, type Fixture } from './fixtures';
+import { assertArchiveSettled, assertHistoryPage, openMoreSheet, seedPagedHistory } from './archiveHistory';
 import { captureLargeDataset } from './largeData';
 import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
 
@@ -900,4 +901,74 @@ test('Reset-password screen', async ({ browser }) => {
   await expect(invalidPage.getByRole('heading', { level: 1, name: en['reset.invalid.title'] })).toBeVisible();
   await capture(invalidPage, 'reset-password-invalid-390', 390, 900, true);
   await invalid.close();
+});
+
+// Appended last so every earlier baseline keeps its data: the archived set is the ten reference items plus the
+// archived detail item, and the paged-history item is created only here.
+test('Archive and paged item history', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { context, page } = await authenticated(browser);
+  const summary = await api(page, 'get', `${requiredFixture().apiRoot}/items/summary`);
+  expect(summary.status()).toBe(200);
+  const archivedTotal = (await summary.json() as { archived: number }).archived;
+  expect(archivedTotal, 'reference items plus the archived detail item').toBe(REFERENCE_TITLES.length + 1);
+
+  // Desktop: Archive is its own rail entry and is the current page; All items is not.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const nav = page.getByRole('navigation', { name: en['nav.label'] });
+  await nav.getByRole('link', { name: en['nav.archive'], exact: true }).click();
+  await expect(page).toHaveURL(/\/items\?status=archived$/);
+  await assertArchiveSettled(page, 'en', archivedTotal);
+  await expect(nav.getByRole('link', { name: en['nav.archive'], exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('link', { name: en['home.allItems'], exact: true })).not.toHaveAttribute('aria-current', 'page');
+  for (const theme of ['light', 'dark'] as const) {
+    await page.evaluate((value) => localStorage.setItem('tendo.theme', value), theme);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.reload();
+      if (theme === 'dark') await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      await assertArchiveSettled(page, 'en', archivedTotal);
+      await capture(page, `archive-${theme}-${width}`, width, 900, false);
+    }
+  }
+  await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
+  // Phone: Archive lives in the More sheet and is marked as the current page there.
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.reload();
+  await assertArchiveSettled(page, 'en', archivedTotal);
+  await openMoreSheet(page, 'en');
+  await capture(page, 'archive-more-390', 390, 900, false);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await assertArchiveSettled(page, 'cs', archivedTotal);
+  await capture(page, 'archive-cs-390', 390, 900, false);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+
+  // History: 25 receipts make a full first page of 20 and a second page of 5, stated in the History pages navigation.
+  const item = await seedPagedHistory(page, requiredFixture());
+  await page.goto(`/items/${item.id}`);
+  await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible();
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.reload();
+    const firstPage = await assertHistoryPage(page, 'en', 1);
+    await capture(page, `history-page-1-${width}`, width, 900, true);
+    await firstPage.older.click();
+    await assertHistoryPage(page, 'en', 2);
+    await capture(page, `history-page-2-${width}`, width, 900, true);
+  }
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await (await assertHistoryPage(page, 'cs', 1)).older.click();
+  await assertHistoryPage(page, 'cs', 2);
+  await capture(page, 'history-cs-page-2-390', 390, 900, true);
+  await page.evaluate(() => { localStorage.setItem('tendo.locale', 'en'); localStorage.setItem('tendo.theme', 'dark'); });
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await assertHistoryPage(page, 'en', 1);
+  await capture(page, 'history-dark-page-1-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
+  await context.close();
 });
