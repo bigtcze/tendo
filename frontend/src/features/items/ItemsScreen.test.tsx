@@ -1158,8 +1158,8 @@ describe('Home items', () => {
     app();
     const row = await screen.findByText('Renew passport');
     const containingRow = row.closest('li')!;
-    // The row reads "Person or thing" before the label lookup even starts, so that text alone does not prove the
-    // lookup concluded. The retry only appears once both lookups have answered and the ID is conclusively missing.
+    // "Person or thing" appears only once the lookup concluded the ID is missing; the retry appears at the same
+    // point, after both lookups have answered.
     const retry = await screen.findByRole('button', { name: 'Load names again' });
     expect(containingRow).toHaveTextContent('Person or thing');
     expect(containingRow).not.toHaveTextContent('does-not-exist');
