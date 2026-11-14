@@ -19,6 +19,7 @@ func testFS() fstest.MapFS {
 		"assets/inter-latin-wght-normal-abc123.woff":  {Data: []byte("wOFF\x00\x01")},
 		"robots.txt":                  {Data: []byte("User-agent: *")},
 		"theme-boot.js":               {Data: []byte("(function(){})();")},
+		"favicon.ico":                 {Data: []byte("\x00\x00\x01\x00\x01\x00")},
 		"favicon.svg":                 {Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32"/></svg>`)},
 		"apple-touch-icon.png":        {Data: []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")},
 		"icon-192.png":                {Data: []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")},
@@ -186,6 +187,7 @@ func TestBrandAssetsServedWithTheirOwnContentType(t *testing.T) {
 	h := New(testFS())
 	for file, want := range map[string]string{
 		"/favicon.svg":          "image/svg+xml",
+		"/favicon.ico":          "image/x-icon",
 		"/apple-touch-icon.png": "image/png",
 		"/icon-192.png":         "image/png",
 		"/icon-512.png":         "image/png",
@@ -210,18 +212,35 @@ func TestBrandAssetsServedWithTheirOwnContentType(t *testing.T) {
 	}
 }
 
+// The pinned types must not depend on the host MIME table: Debian's /etc/mime.types maps .ico to
+// image/vnd.microsoft.icon while a distroless image has no table at all, and the shipped type must be the same.
+func TestContentTypeForPinsShellAssetsIndependentOfHost(t *testing.T) {
+	for name, want := range map[string]string{
+		"favicon.ico":          "image/x-icon",
+		"FAVICON.ICO":          "image/x-icon",
+		"manifest.webmanifest": "application/manifest+json",
+		"a.woff2":              "font/woff2",
+		"a.woff":               "font/woff",
+	} {
+		// Data that sniffs as something else proves the extension pin wins over both the host table and sniffing.
+		if got := contentTypeFor(name, []byte("<html>app</html>")); got != want {
+			t.Fatalf("contentTypeFor(%q)=%q want %q", name, got, want)
+		}
+	}
+}
+
 // A missing brand asset is a 404, never the app document: serving HTML under an icon or manifest URL makes
 // the browser drop the icon and reject the manifest.
 func TestMissingBrandAssetsAre404NotIndex(t *testing.T) {
 	h := New(fstest.MapFS{"index.html": {Data: []byte("<html>app</html>")}})
-	for _, p := range []string{"/favicon.svg", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"} {
+	for _, p := range []string{"/favicon.svg", "/favicon.ico", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"} {
 		assertProblem(t, do(h, http.MethodGet, p), http.StatusNotFound)
 	}
 }
 
 func TestMissingFilesAre404Problem(t *testing.T) {
 	h := New(testFS())
-	for _, p := range []string{"/assets/missing.js", "/assets/nested/missing", "/favicon.ico", "/x/y.map", "/.gitkeep", "/assets/.gitkeep"} {
+	for _, p := range []string{"/assets/missing.js", "/assets/nested/missing", "/favicon.png", "/x/y.map", "/.gitkeep", "/assets/.gitkeep"} {
 		assertProblem(t, do(h, http.MethodGet, p), http.StatusNotFound)
 	}
 }

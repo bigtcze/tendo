@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { THEME_PREFERENCES, THEME_STORAGE_KEY } from './theme';
+import { applyThemePreference, THEME_PREFERENCES, THEME_STORAGE_KEY } from './theme';
+import { installThemeColorMetas, themeColorMedia } from '../test/themeColor';
 
 // The boot script is classic, dependency-free JavaScript; run its source exactly as the browser would.
 const bootSource = readFileSync('public/theme-boot.js', 'utf8');
@@ -15,6 +16,8 @@ describe('public/theme-boot.js', () => {
     vi.restoreAllMocks();
     localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
+    // Also runs when an assertion fails mid-test, so no metas leak into the next case.
+    document.head.innerHTML = '';
   });
 
   it.each(['light', 'dark'])('applies a saved %s choice before the app loads', (value) => {
@@ -35,6 +38,23 @@ describe('public/theme-boot.js', () => {
     });
     expect(() => runBoot()).not.toThrow();
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+
+  it.each(['light', 'dark'] as const)('pins the browser theme-color for a saved %s choice exactly as the app does', (value) => {
+    installThemeColorMetas();
+    applyThemePreference(value);
+    const fromApp = themeColorMedia();
+    installThemeColorMetas();
+    localStorage.setItem(THEME_STORAGE_KEY, value);
+    runBoot();
+    expect(themeColorMedia()).toEqual(fromApp);
+    expect(fromApp[value]).toBe('all');
+  });
+
+  it('leaves the device-driven theme-color untouched without a saved choice', () => {
+    installThemeColorMetas();
+    runBoot();
+    expect(themeColorMedia()).toEqual({ light: '(prefers-color-scheme: light)', dark: '(prefers-color-scheme: dark)' });
   });
 
   it('uses the same storage key and accepted values as the theme module', () => {

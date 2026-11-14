@@ -1,7 +1,9 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { en } from '../src/i18n/en';
+import { designTokens } from '../src/designTokens';
 import { THEME_STORAGE_KEY } from '../src/theme/theme';
 import { auditContrast, collectContrastCandidates, contrastShortfalls } from './contrastAudit';
+import { effectiveThemeColor } from './themeColor';
 
 // Self-contained appearance proof for signed-out routes. It creates its own contexts and never touches journey.spec.ts
 // state. The Appearance control lives on the signed-in Account screen (journey.spec.ts drives it there), so here a
@@ -32,6 +34,10 @@ async function recordParserCompletionTheme(page: Page) {
         background: getComputedStyle(document.documentElement).backgroundColor,
         scheme: getComputedStyle(document.documentElement).colorScheme,
         dataTheme: document.documentElement.getAttribute('data-theme'),
+        // Inline copy of effectiveThemeColor (./themeColor): init scripts cannot import helpers.
+        themeColor: [...document.querySelectorAll('meta[name="theme-color"]')]
+          .find((meta) => !meta.getAttribute('media') || window.matchMedia(meta.getAttribute('media')!).matches)
+          ?.getAttribute('content') ?? null,
       };
       document.removeEventListener('readystatechange', capture);
     };
@@ -91,12 +97,18 @@ async function initSavedPreference(page: Page, preference: Preference) {
   }, { key: THEME_STORAGE_KEY, value: preference });
 }
 
-type Paint = { background: string; scheme: string; dataTheme: string | null };
-const readPaint = (page: Page) => page.evaluate((): Paint => ({
-  background: getComputedStyle(document.documentElement).backgroundColor,
-  scheme: getComputedStyle(document.documentElement).colorScheme,
-  dataTheme: document.documentElement.getAttribute('data-theme'),
-}));
+type Paint = { background: string; scheme: string; dataTheme: string | null; themeColor: string | null };
+const readPaint = async (page: Page): Promise<Paint> => ({
+  ...await page.evaluate(() => ({
+    background: getComputedStyle(document.documentElement).backgroundColor,
+    scheme: getComputedStyle(document.documentElement).colorScheme,
+    dataTheme: document.documentElement.getAttribute('data-theme'),
+  })),
+  themeColor: await effectiveThemeColor(page),
+});
+// The theme-color metas carry the paper tokens.
+const LIGHT_TINT = designTokens.light.paper;
+const DARK_TINT = designTokens.dark.paper;
 
 /** Writes the choice as the Appearance control does: explicit values are stored, System removes the key. */
 async function savePreference(page: Page, preference: Preference) {
@@ -124,8 +136,12 @@ test.describe('appearance preference on signed-out routes', () => {
         expect(first, `${label}: parser-completion theme recorded before deferred app mount`).toBeDefined();
         expect(first!.background, `${label}: parser-completion background`).toBe(expectedBackground);
         expect(first!.dataTheme, `${label}: parser-completion data-theme`).toBe(preference === 'system' ? null : preference);
+        // The browser chrome tint (theme-color) follows the same effective theme before the app mounts.
+        const expectedTint = effective === 'dark' ? DARK_TINT : LIGHT_TINT;
+        expect(first!.themeColor, `${label}: parser-completion theme-color`).toBe(expectedTint);
         const after = await readPaint(page);
         expect(after.background, `${label}: background after load`).toBe(expectedBackground);
+        expect(after.themeColor, `${label}: theme-color after load`).toBe(expectedTint);
         // Only an explicit choice pins color-scheme; System lets the device pick through light-dark().
         const expectedColorScheme = preference === 'light' ? 'light' : effective === 'dark' ? 'dark' : 'light dark';
         expect(after.scheme, `${label}: color-scheme`).toBe(expectedColorScheme);
@@ -213,11 +229,39 @@ test.describe('appearance preference on signed-out routes', () => {
     expect((await readPaint(page)).background).toBe(LIGHT_PAPER);
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect.poll(async () => (await readPaint(page)).background, { message: 'System follows the device to dark' }).toBe(DARK_PAPER);
+    expect((await readPaint(page)).themeColor, 'System tint follows the device to dark').toBe(DARK_TINT);
     await savePreference(page, 'light');
     await page.reload();
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect.poll(async () => (await readPaint(page)).background, { message: 'explicit Light keeps light on a dark device' }).toBe(LIGHT_PAPER);
+    expect((await readPaint(page)).themeColor, 'explicit Light keeps the light tint on a dark device').toBe(LIGHT_TINT);
     await context.close();
+  });
+});
+
+test.describe('brand icons in the production build', () => {
+  test('the browser gets the SVG icon and a real ICO at /favicon.ico, never a 404 or the app page', async ({ request }) => {
+    const html = await (await request.get('/')).text();
+    // Parse every icon link (attribute order and formatting may change) and keep them in document order.
+    const icons = [...html.matchAll(/<link\b[^>]*>/gi)]
+      .map(([tag]) => Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name.toLowerCase(), value])))
+      .filter((attrs) => attrs.rel?.split(/\s+/).includes('icon'));
+    const icoLink = icons.findIndex((attrs) => attrs.href === '/favicon.ico');
+    const svgLink = icons.findIndex((attrs) => attrs.href === '/favicon.svg');
+    expect(icoLink, 'ICO fallback is linked').toBeGreaterThan(-1);
+    expect(icons[icoLink].sizes, 'ICO declares its raster size').toBe('32x32');
+    expect(icons[svgLink]?.type, 'SVG icon is typed').toBe('image/svg+xml');
+    // The typed SVG comes last so browsers with SVG favicon support choose it over the ICO.
+    expect(svgLink, 'SVG icon is linked after the ICO').toBeGreaterThan(icoLink);
+    // Browsers without SVG favicon support, and every browser's own /favicon.ico probe, ask for this path.
+    const ico = await request.get('/favicon.ico');
+    expect(ico.status()).toBe(200);
+    expect(ico.headers()['content-type']).toBe('image/x-icon');
+    const bytes = await ico.body();
+    expect([bytes.readUInt16LE(0), bytes.readUInt16LE(2)], 'ICO header: reserved 0, type icon').toEqual([0, 1]);
+    const svg = await request.get('/favicon.svg');
+    expect(svg.status()).toBe(200);
+    expect(svg.headers()['content-type']).toBe('image/svg+xml');
   });
 });
 
