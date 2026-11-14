@@ -1,6 +1,5 @@
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select } from '../../components/ui/select';
@@ -119,13 +118,9 @@ function StepHeading({ step, children }: { step: string; children: React.ReactNo
 function OnboardingIntroduction() {
   const { t } = useI18n();
   return (
-    <>
-      <Eyebrow>{t('onboarding.eyebrow')}</Eyebrow>
-      <Heading documentTitle={t('onboarding.title')} className="mt-2 text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">
-        {t('onboarding.title')}<span aria-hidden="true" className="text-accent">.</span>
-      </Heading>
-      <p className="mt-3 max-w-prose text-base text-muted">{t('onboarding.subtitle')}</p>
-    </>
+    <Heading className="text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">
+      {t('onboarding.title')}
+    </Heading>
   );
 }
 

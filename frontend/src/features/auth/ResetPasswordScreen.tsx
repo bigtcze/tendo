@@ -2,7 +2,6 @@ import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { LOGIN_PATH } from '../../app/routes';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n } from '../../i18n';
@@ -18,12 +17,11 @@ function ReturnLink({ href, label }: { href: string; label: string }) {
   </a>;
 }
 
-/** The expired/invalid link state keeps the same auth shell rhythm as the form: eyebrow, title, sentence, panel. */
+/** The expired/invalid link state keeps the same auth shell rhythm as the form: title, sentence, panel. */
 function InvalidLink({ signedIn }: { signedIn: boolean }) {
   const { t } = useI18n();
   return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
-    <Eyebrow className="text-center">{t('reset.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('reset.invalid.title')}</Heading>
+    <Heading className="text-center text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">{t('reset.invalid.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.invalid.body')}</p>
     <div className="mt-8 flex w-full justify-center rounded-2xl border border-line bg-raised p-5 sm:p-7">
       <ReturnLink
@@ -50,8 +48,7 @@ export function ResetPasswordScreen({ token, signedIn, onRedeemed }: {
   const mismatch = failure === 'mismatch';
   const message = failure ? t(resetFailureKey(failure)) : null;
   return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
-    <Eyebrow className="text-center">{t('reset.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('reset.title')}</Heading>
+    <Heading className="text-center text-[2.125rem] font-bold leading-[2.25rem] text-ink sm:text-display">{t('reset.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.intro')}</p>
     <div className="mt-8 rounded-2xl border border-line bg-raised p-5 sm:p-7">
       <form aria-label={t('reset.form.label')} onSubmit={(event) => void submit(event)} className="grid gap-5" noValidate>

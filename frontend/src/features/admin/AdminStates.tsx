@@ -1,7 +1,6 @@
 import type { Translate } from '../../i18n';
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { Skeleton } from '../../components/ui/skeleton';
 import type { NoticeSpec } from './useRoleChange';
@@ -9,10 +8,8 @@ import type { NoticeSpec } from './useRoleChange';
 /** Page opening shared by every list state, with the one live host that speaks action outcomes. */
 export function AdminIntro({ notice, t }: { notice: NoticeSpec | null; t: Translate }) {
   return <>
-    <Eyebrow>{t('admin.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('admin.title')}</Heading>
-    <p className="mt-2 max-w-prose text-base text-muted">{t('admin.subtitle')}</p>
-    <div role="status" aria-atomic="true" className="mt-5 empty:mt-0">
+    <Heading className="text-h1 font-semibold text-ink">{t('admin.title')}</Heading>
+    <div role="status" aria-atomic="true" className="mt-6 empty:mt-0">
       {notice ? <Notice tone={notice.tone === 'success' ? 'success' : 'neutral'} role={null}>{t(notice.key, notice.params)}</Notice> : null}
     </div>
   </>;

@@ -19,7 +19,8 @@ describe('invitation acceptance', () => {
     window.history.replaceState(null, '', `/invite#${token}`);
     const fake = installFakeServer(signedOutRoutes({ 'POST /api/v1/auth/invitations/accept': json(201, {}), 'POST /api/v1/session': json(201, session()), [`GET ${base}`]: json(200, household) }));
     renderApp(true); expect(await screen.findByRole('heading', { level: 1, name: 'You’ve been invited to Tendo' })).toBeVisible();
-    expect(screen.getByText('Create an account to join the household. You’ll be able to use the household with the person who invited you.')).toBeVisible();
+    // V5-07: the page opening is its title alone; page openings are covered by src/app/PageOpenings.test.tsx.
+    expect(screen.queryByText('Create an account to join the household. You’ll be able to use the household with the person who invited you.')).toBeNull();
     expect(screen.queryByRole('navigation', { name: 'Household navigation' })).toBeNull();
     await waitFor(() => { expect(location.pathname).toBe('/invite'); expect(location.hash).toBe(''); });
     await userEvent.type(screen.getByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'a sufficiently long password'); await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));

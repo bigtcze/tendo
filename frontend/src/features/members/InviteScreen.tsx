@@ -2,7 +2,6 @@ import type { FormEvent, RefObject } from 'react';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n, type Translate } from '../../i18n';
@@ -32,10 +31,6 @@ type FormProps = {
   loginRef: RefObject<HTMLInputElement | null>;
   passwordRef: RefObject<HTMLInputElement | null>;
 };
-
-function InviteEyebrow({ t }: { t: Translate }) {
-  return <Eyebrow>{t('invite.eyebrow')}</Eyebrow>;
-}
 
 function InviteNotice({ error, accepted, noticeRef, t }: {
   error: ErrorState | null; accepted: boolean; noticeRef: RefObject<HTMLDivElement | null>; t: Translate;
@@ -87,7 +82,7 @@ function HomeLink({ t }: { t: Translate }) {
 
 function IncompleteInvite({ t }: { t: Translate }) {
   return <div className="rounded-2xl border border-line bg-raised p-5 sm:p-7">
-    <Heading className="text-[2.125rem] font-bold leading-[1.08] text-ink">{t('invite.incomplete')}</Heading>
+    <Heading className="text-[2.125rem] font-bold leading-[2.25rem] text-ink">{t('invite.incomplete')}</Heading>
     <p className="mt-3 text-base text-muted">{t('invite.incomplete.body')}</p>
     <HomeLink t={t} />
   </div>;
@@ -111,9 +106,9 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
 
   return <Layout><section className="settle mx-auto w-full max-w-xl">
     {flow.valid ? <>
-      <InviteEyebrow t={t} />
-      <Heading className={`mt-2 text-[2.125rem] font-bold leading-[1.08] text-ink ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
-      <p className="mt-3 max-w-prose text-base text-muted">{t(flow.currentSession ? 'invite.signedIn.intro' : 'invite.intro')}</p>
+      <Heading className={`text-[2.125rem] font-bold leading-[2.25rem] text-ink ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
+      {/* Signed in, the title names only the account: this sentence is what says the screen is an invitation. */}
+      {flow.currentSession ? <p className="mt-3 max-w-prose text-base text-muted">{t('invite.signedIn.intro')}</p> : null}
       <InviteNotice error={flow.error} accepted={flow.accepted} noticeRef={flow.noticeRef} t={t} />
       {flow.error === 'alreadyMember' || flow.error === 'invalid' ? <div><HomeLink t={t} /></div> : null}
       {flow.accepted || !flow.invalidLink ? (
@@ -134,9 +129,6 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
               </>}
         </div>
       ) : null}
-    </> : <>
-      <InviteEyebrow t={t} />
-      <div className="mt-2"><IncompleteInvite t={t} /></div>
-    </>}
+    </> : <IncompleteInvite t={t} />}
   </section></Layout>;
 }

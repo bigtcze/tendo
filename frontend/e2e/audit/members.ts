@@ -91,7 +91,7 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     if (width === 320) {
       const inviteAction = page.getByRole('button', { name: en['members.invite.action'], exact: true });
       const nav = page.getByRole('navigation', { name: en['nav.label'] });
-      // V4-05 adds the eyebrow/subtitle; at 320 the action sits below the first viewport, so scroll it into view.
+      // At 320 the invitation history pushes the invite action below the first viewport, so scroll it into view.
       await inviteAction.scrollIntoViewIfNeeded();
       await expect(inviteAction).toBeInViewport();
       const [actionBox, navBox] = await Promise.all([inviteAction.boundingBox(), nav.boundingBox()]);

@@ -1,6 +1,5 @@
 import type { Ref } from 'react';
 import { Heading } from '../../app/Heading';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import type { Translate } from '../../i18n';
 import type { Item } from './itemsApi';
 import { ItemDetailActions } from './ItemDetailActions';
@@ -63,9 +62,10 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
 
   return <>
     <header className="mt-2 min-w-0">
-      <Eyebrow className="[overflow-wrap:anywhere]">
+      {/* The item's subject is a fact, so it stays — as a quiet contextual line, not an uppercase label. */}
+      <p className="text-small text-muted [overflow-wrap:anywhere]">
         {subjectOverride ?? (subjectName || t('items.subject.unknown'))}
-      </Eyebrow>
+      </p>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <Heading className="min-w-0 [overflow-wrap:anywhere] text-pretty text-[1.75rem] leading-[1.15] sm:text-4xl sm:leading-tight">{item.title}</Heading>
         <StatePill item={item} t={t} />
