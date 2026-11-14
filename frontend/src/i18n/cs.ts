@@ -345,7 +345,7 @@ export const cs: Record<MessageKey, string> = {
   'subjects.transfer.confirm': 'Tohle není sloučení. „{name}“ se stane osobou člena {login}. Současná osoba tohoto člena „{current}“ zůstane jako běžná osoba i se svými položkami. Nic se nemaže.',
   'subjects.transfer.confirmAction': 'Propojit',
   'subjects.transfer.pending': 'Propojuji…',
-  'subjects.transfer.dismiss': 'Nepropojovat',
+  'subjects.transfer.dismiss': 'Ponechat samostatně',
   'subjects.transfer.previewMissing': 'Tenhle člen teď nemá osobu. Seznam může být zastaralý.',
   'subjects.transfer.previewFailed': 'Člena se nepodařilo zkontrolovat. Zkontrolujte připojení a zkuste to znovu.',
   'subjects.transfer.retry': 'Zkontrolovat znovu',

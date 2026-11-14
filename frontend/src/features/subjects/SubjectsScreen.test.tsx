@@ -1280,7 +1280,10 @@ describe('member person reassociation', () => {
     const element = await startTransfer();
     const dialog = within(element);
     expect(dialog.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
-    const dismiss = dialog.getByRole('button', { name: 'Don’t connect' });
+    const dismiss = dialog.getByRole('button', { name: 'Keep separate' });
+    // The confirm action stays the only control whose name contains "Connect", so a substring role query (as
+    // Playwright's default) cannot mistake the dismiss for it.
+    expect(dialog.getAllByRole('button', { name: /connect/i })).toHaveLength(1);
     expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
     await userEvent.click(dismiss);
     expect(dialog.queryByRole('combobox', { name: 'Household member' })).not.toBeInTheDocument();

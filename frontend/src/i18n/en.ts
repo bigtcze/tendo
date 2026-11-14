@@ -342,7 +342,7 @@ export const en = {
   'subjects.transfer.confirm': 'This is not a merge. “{name}” becomes {login}’s person. Their current person record “{current}” stays as an ordinary person with its items. Nothing is deleted.',
   'subjects.transfer.confirmAction': 'Connect',
   'subjects.transfer.pending': 'Connecting…',
-  'subjects.transfer.dismiss': 'Don’t connect',
+  'subjects.transfer.dismiss': 'Keep separate',
   'subjects.transfer.previewMissing': 'This member doesn’t have a person record right now. The list may be out of date.',
   'subjects.transfer.previewFailed': 'Couldn’t check this member. Check your connection and try again.',
   'subjects.transfer.retry': 'Check again',
