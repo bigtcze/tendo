@@ -1,5 +1,9 @@
 -- name: LockPasswordResetTarget :one
-SELECT id::text AS id, login FROM user_accounts WHERE id=$1 FOR UPDATE;
+-- FOR NO KEY UPDATE serializes concurrent issuances for one target without
+-- conflicting with the foreign-key KEY SHARE that inserting a session takes on
+-- the same row. A plain FOR UPDATE would let reset issuance and a password
+-- change deadlock (ADR 0018).
+SELECT id::text AS id, login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE;
 
 -- name: FindUserLogin :one
 SELECT login FROM user_accounts WHERE id=$1;

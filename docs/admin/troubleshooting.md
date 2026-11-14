@@ -87,7 +87,7 @@ docker compose exec app /tendo users set-password --login <login>
 Use the account's sign-in name. The command asks for the new password twice on your terminal and shows nothing while you type; it refuses to read a password from a pipe, an argument or an environment variable, so the password never appears in `ps`, shell history or logs. The password must be 15–128 characters. On success it prints the login and how many signed-in sessions it revoked.
 
 - The new password is set immediately and **every session of that account is signed out**, including other browsers and devices. The person signs in again with the new password.
-- Any reset link an administrator issued for that account stops working, and any outstanding link is revoked.
+- Any outstanding reset link for that account is revoked.
 - Only accounts that already have a local password can be reset this way. An account that signs in only through the identity provider is refused; its access is managed by that provider. Creating a first local password for such an account is not supported here.
 - An unknown login reports that no account has that login. Nothing about other accounts is revealed.
 - The command uses only the restricted runtime database role, so it needs no database administrator password. Being able to run it is the same level of trust as running `docker compose exec` or having SSH access to the host.

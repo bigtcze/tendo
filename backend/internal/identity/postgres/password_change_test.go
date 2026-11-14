@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -193,7 +194,7 @@ func TestPasswordChangePostgresRejectsWithoutWriting(t *testing.T) {
 	}
 	malformed := input
 	malformed.SessionToken = "not-a-session-cookie"
-	if _, err = change.ChangePassword(ctx, malformed); !errors.Is(err, identity.ErrLocalSessionRequired) {
+	if _, err = change.ChangePassword(ctx, malformed); !errors.Is(err, identity.ErrUnauthenticated) {
 		t.Fatalf("malformed token change: %v", err)
 	}
 
@@ -330,6 +331,147 @@ func TestPasswordChangePostgresSessionKindIsAuthoritative(t *testing.T) {
 	var unclassified int
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE token_hash=$1`, sha256Sum("unclassified")).Scan(&unclassified); err != nil || unclassified != 0 {
 		t.Fatalf("unclassified session rows=%d err=%v", unclassified, err)
+	}
+}
+
+// isDeadlockError reports a PostgreSQL deadlock (40P01). The change, the reset
+// issuance and the reset redemption share rows, so a wrong lock mode must show
+// up as this code rather than as a generic persistence failure.
+func isDeadlockError(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && postgresError.Code == "40P01"
+}
+
+// waitForSessionInsertLockWait blocks until the change's session insert is
+// queued on a lock, or until the watched work finished. PostgreSQL reports a
+// foreign-key key-share wait as a wait on the holding transaction, so pg_locks
+// alone would miss it; the statement text in pg_stat_activity identifies it.
+func waitForSessionInsertLockWait(t *testing.T, ctx context.Context, observer *pgxpool.Pool, finished <-chan struct{}) bool {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		select {
+		case <-finished:
+			return false
+		default:
+		}
+		var waiting int
+		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname=current_database() AND wait_event_type='Lock'
+				AND query ILIKE '%INSERT INTO user_sessions%'`).Scan(&waiting); err != nil {
+			t.Fatalf("lock probe: %v", err)
+		}
+		if waiting > 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestPasswordChangePostgresDoesNotDeadlockWithResetIssuance pins the lock order
+// every credential path shares (ADR 0018): user_accounts FOR NO KEY UPDATE ->
+// password_reset_tokens -> local_credentials -> user_sessions.
+//
+// A change revokes the account's outstanding reset links, locks the credential,
+// deletes the old sessions and then inserts the replacement session, and that
+// insert takes the foreign-key KEY SHARE on the account row. Issuing a link
+// locks the account row first and then revokes the same link rows. Taking the
+// account row FOR UPDATE closes a cycle between the two: the issuance holds the
+// account row and waits for the link row the change already locked, while the
+// change waits for the key share. PostgreSQL then aborts one side with 40P01,
+// which the HTTP layer can only report as 503. FOR NO KEY UPDATE still
+// serializes two issuances for one target but never conflicts with the key
+// share, so the change proceeds and the issuance waits for it.
+func TestPasswordChangePostgresDoesNotDeadlockWithResetIssuance(t *testing.T) {
+	ctx, admin, app, observer := invitationPools(t)
+	owner, target, house := passwordResetFixture(t, ctx, admin)
+	clock := &passwordResetTestClock{at: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)}
+	sessions := newSessionService(t, app, clock)
+	change := newPasswordChangeService(t, app, clock)
+	resets := newPasswordResetService(t, app, clock)
+
+	caller, err := sessions.Login(ctx, "reset_target", "old-password-value")
+	if err != nil {
+		t.Fatalf("sign-in: %v", err)
+	}
+	issued, err := resets.IssuePasswordReset(ctx, owner, house, target)
+	if err != nil {
+		t.Fatalf("issue reset link: %v", err)
+	}
+	if outstanding := outstandingResetRows(t, ctx, admin, target); outstanding != 1 {
+		t.Fatalf("fixture must start with one outstanding link, got %d", outstanding)
+	}
+
+	// The issuance side replays the two statements of IssuePasswordReset through
+	// the same repository protocol: authorizePasswordResetIssue locks the target
+	// account row, IssuePasswordReset revokes the previous link. It pauses
+	// between them so the change is guaranteed to run against a held account
+	// lock instead of racing it.
+	repository := NewPasswordResetRepository(app, passwordResetFactory, clock.now)
+	accountLocked := make(chan struct{})
+	revokeNow := make(chan struct{})
+	issuanceDone := make(chan struct{})
+	var issuanceErr error
+	go func() {
+		defer close(issuanceDone)
+		issuanceErr = repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
+			if _, e := tx.LockPasswordResetTarget(ctx, target); e != nil {
+				return e
+			}
+			close(accountLocked)
+			<-revokeNow
+			return tx.RevokeOutstandingPasswordResets(ctx, target, clock.at)
+		})
+	}()
+	<-accountLocked
+
+	var changed identity.Session
+	var changeErr error
+	changeFinished := make(chan struct{})
+	go func() {
+		defer close(changeFinished)
+		changed, changeErr = change.ChangePassword(ctx, identity.ChangePasswordInput{
+			Principal:       caller.Principal,
+			SignInMethod:    caller.SignInMethod,
+			SessionToken:    caller.Token,
+			CurrentPassword: "old-password-value",
+			NewPassword:     "a brand new long password",
+		})
+	}()
+
+	observedWait := waitForSessionInsertLockWait(t, ctx, observer, changeFinished)
+	t.Logf("change waited on the account row lock behind reset issuance: %v", observedWait)
+
+	close(revokeNow)
+	<-issuanceDone
+	<-changeFinished
+
+	if isDeadlockError(issuanceErr) || isDeadlockError(changeErr) {
+		t.Fatalf("change and reset issuance deadlocked: issuance=%v change=%v", issuanceErr, changeErr)
+	}
+	if issuanceErr != nil {
+		t.Fatalf("reset issuance failed: %v", issuanceErr)
+	}
+	if changeErr != nil {
+		t.Fatalf("change failed: %v", changeErr)
+	}
+	if changed.Token == "" || changed.Token == caller.Token || changed.Principal.UserID != target {
+		t.Fatalf("changed session=%+v", changed)
+	}
+	if hash, version := localCredentialState(t, ctx, admin, target); hash != "hash:a brand new long password" || version != 2 {
+		t.Fatalf("stored credential hash=%q version=%d", hash, version)
+	}
+	if rows := countSessionsFor(t, ctx, app, target); rows != 1 {
+		t.Fatalf("sessions after the change=%d, want the rotated one only", rows)
+	}
+	if outstanding := outstandingResetRows(t, ctx, admin, target); outstanding != 0 {
+		t.Fatalf("outstanding reset links after the change=%d", outstanding)
+	}
+	if _, err = resets.RedeemPasswordReset(ctx, issued.Token, "a later long password"); !errors.Is(err, identity.ErrInvalidPasswordReset) {
+		t.Fatalf("link issued before the change still redeems: %v", err)
 	}
 }
 

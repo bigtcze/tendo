@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -23,8 +23,9 @@ const usersUsage = "usage: tendo users set-password --login <login>"
 
 // parseUsersArgs accepts exactly `set-password --login <login>`. Like the
 // instance-admin parser it is deliberate instead of the flag package, so no
-// argument other than the login can influence the command and a password can
-// never be read from argv.
+// argument other than the login can influence the command, a password can never
+// be read from argv, and the only accepted spelling is the documented one (a
+// `--login=<login>` form is rejected like any other unknown argument).
 func parseUsersArgs(args []string) (string, bool) {
 	if len(args) == 0 || args[0] != "set-password" {
 		return "", false
@@ -32,20 +33,10 @@ func parseUsersArgs(args []string) (string, bool) {
 	rest := args[1:]
 	login := ""
 	for len(rest) > 0 {
-		switch {
-		case rest[0] == "--login":
-			if login != "" || len(rest) < 2 {
-				return "", false
-			}
-			login, rest = rest[1], rest[2:]
-		case strings.HasPrefix(rest[0], "--login="):
-			if login != "" {
-				return "", false
-			}
-			login, rest = strings.TrimPrefix(rest[0], "--login="), rest[1:]
-		default:
+		if rest[0] != "--login" || login != "" || len(rest) < 2 {
 			return "", false
 		}
+		login, rest = rest[1], rest[2:]
 	}
 	return login, login != ""
 }
@@ -113,21 +104,30 @@ func restoreTerminalOnSignal(fd int, state *term.State) func() {
 	}
 }
 
+// operatorLine writes one operator-facing line to the injected stream. The
+// command exits immediately afterwards, so a failed write to a closed terminal
+// needs no recovery.
+func operatorLine(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format+"\n", args...)
+}
+
 // runUsers is the `users` subcommand entry point. It returns the process exit
 // code so argument parsing and prompt failures are testable without a database.
-func runUsers(args []string, getenv func(string) string, prompt passwordPrompt) int {
+// Reports go to the injected writers so a test can prove the prompted password
+// never reaches them.
+func runUsers(args []string, getenv func(string) string, prompt passwordPrompt, stdout, stderr io.Writer) int {
 	login, ok := parseUsersArgs(args)
 	if !ok {
-		fmt.Fprintln(os.Stderr, usersUsage)
+		operatorLine(stderr, "%s", usersUsage)
 		return 2
 	}
 	password, err := prompt()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "password reset failed: %v\n", err)
+		operatorLine(stderr, "password reset failed: %v", err)
 		return 1
 	}
 	if err = identityapp.ValidateLocalPassword(password); err != nil {
-		fmt.Fprintln(os.Stderr, "password reset failed: the password must be 15-128 characters")
+		operatorLine(stderr, "password reset failed: the password must be 15-128 characters")
 		return 1
 	}
 	url := getenv("DATABASE_URL")
@@ -135,8 +135,8 @@ func runUsers(args []string, getenv func(string) string, prompt passwordPrompt) 
 		slog.Error("password reset failed", "error", "DATABASE_URL is required")
 		return 1
 	}
-	if err = setUserPassword(url, login, password); err != nil {
-		reportPasswordResetError(err)
+	if err = setUserPassword(url, login, password, stdout); err != nil {
+		reportPasswordResetError(err, stderr)
 		return 1
 	}
 	return 0
@@ -144,7 +144,7 @@ func runUsers(args []string, getenv func(string) string, prompt passwordPrompt) 
 
 // setUserPassword uses the runtime role only: the recovery command runs inside
 // the application container and must never need administrator credentials.
-func setUserPassword(url, login, password string) error {
+func setUserPassword(url, login, password string, stdout io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, url)
@@ -168,23 +168,23 @@ func setUserPassword(url, login, password string) error {
 		return err
 	}
 	slog.Info("local password reset", "user_id", reset.UserID, "sessions_revoked", reset.Sessions)
-	fmt.Printf("updated password for %s and signed out %d session(s)\n", login, reset.Sessions)
+	operatorLine(stdout, "updated password for %s and signed out %d session(s)", login, reset.Sessions)
 	return nil
 }
 
 // reportPasswordResetError prints the operator-actionable cause. It never
 // includes the password or a hash.
-func reportPasswordResetError(err error) {
+func reportPasswordResetError(err error, stderr io.Writer) {
 	var validation *identityapp.ValidationError
 	switch {
 	case errors.Is(err, identityapp.ErrNotFound):
-		fmt.Fprintln(os.Stderr, "password reset failed: no account with that login")
+		operatorLine(stderr, "password reset failed: no account with that login")
 	case errors.Is(err, identityapp.ErrNoLocalPassword):
-		fmt.Fprintln(os.Stderr, "password reset failed: the account signs in with OIDC only and has no local password")
+		operatorLine(stderr, "password reset failed: the account signs in with OIDC only and has no local password")
 	case errors.As(err, &validation):
-		fmt.Fprintln(os.Stderr, "password reset failed: the password must be 15-128 characters")
+		operatorLine(stderr, "password reset failed: the password must be 15-128 characters")
 	case errors.Is(err, security.ErrPasswordWorkLimit):
-		fmt.Fprintln(os.Stderr, "password reset failed: password hashing is busy, try again")
+		operatorLine(stderr, "password reset failed: password hashing is busy, try again")
 	default:
 		slog.Error("password reset failed", "error", err)
 	}

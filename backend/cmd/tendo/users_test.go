@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"strings"
 	"testing"
+
+	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 )
 
 func TestParseUsersArgs(t *testing.T) {
@@ -13,16 +18,16 @@ func TestParseUsersArgs(t *testing.T) {
 		ok    bool
 	}{
 		{name: "space separated", args: []string{"set-password", "--login", "owner_1"}, login: "owner_1", ok: true},
-		{name: "equals form", args: []string{"set-password", "--login=owner_1"}, login: "owner_1", ok: true},
 		{name: "empty", ok: false},
 		{name: "missing verb", args: []string{"owner_1"}, ok: false},
 		{name: "unknown verb", args: []string{"reset", "--login", "owner_1"}, ok: false},
 		{name: "missing login", args: []string{"set-password", "--login"}, ok: false},
-		{name: "empty login", args: []string{"set-password", "--login="}, ok: false},
+		{name: "empty login", args: []string{"set-password", "--login", ""}, ok: false},
 		{name: "positional login", args: []string{"set-password", "owner_1"}, ok: false},
 		{name: "unknown flag", args: []string{"set-password", "--login", "owner_1", "--password", "secret"}, ok: false},
 		{name: "extra argument", args: []string{"set-password", "--login", "owner_1", "other"}, ok: false},
-		{name: "duplicate login", args: []string{"set-password", "--login", "owner_1", "--login=other"}, ok: false},
+		{name: "duplicate login", args: []string{"set-password", "--login", "owner_1", "--login", "other"}, ok: false},
+		{name: "equals form is not accepted", args: []string{"set-password", "--login=owner_1"}, ok: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			login, ok := parseUsersArgs(tc.args)
@@ -33,20 +38,33 @@ func TestParseUsersArgs(t *testing.T) {
 	}
 }
 
+// runUsersForTest captures both streams so a test can assert what an operator
+// would see.
+func runUsersForTest(t *testing.T, args []string, getenv func(string) string, prompt passwordPrompt) (int, string, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := runUsers(args, getenv, prompt, &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}
+
 func TestRunUsersRefusesBadArgumentsBeforePrompting(t *testing.T) {
 	for _, args := range [][]string{
 		nil,
 		{"set-password"},
 		{"reset", "--login", "owner_1"},
 		{"set-password", "--login", "owner_1", "extra"},
+		{"set-password", "--login=owner_1"},
 	} {
 		prompted := false
-		code := runUsers(args, func(string) string { return "postgres://unused" }, func() (string, error) {
+		code, _, stderr := runUsersForTest(t, args, func(string) string { return "postgres://unused" }, func() (string, error) {
 			prompted = true
 			return "a brand new long password", nil
 		})
 		if code != 2 || prompted {
 			t.Fatalf("args=%v exit=%d prompted=%v, want 2/false", args, code, prompted)
+		}
+		if !strings.Contains(stderr, usersUsage) {
+			t.Fatalf("args=%v stderr=%q, want the usage line", args, stderr)
 		}
 	}
 }
@@ -57,12 +75,12 @@ func TestRunUsersStopsBeforePersistenceOnPromptOrPolicyFailure(t *testing.T) {
 		getenvCalls++
 		return "postgres://unused"
 	}
-	if code := runUsers([]string{"set-password", "--login", "owner_1"}, getenv, func() (string, error) {
+	if code, _, _ := runUsersForTest(t, []string{"set-password", "--login", "owner_1"}, getenv, func() (string, error) {
 		return "", errors.New("passwords do not match")
 	}); code != 1 {
 		t.Fatalf("prompt failure exit=%d, want 1", code)
 	}
-	if code := runUsers([]string{"set-password", "--login", "owner_1"}, getenv, func() (string, error) {
+	if code, _, _ := runUsersForTest(t, []string{"set-password", "--login", "owner_1"}, getenv, func() (string, error) {
 		return "short", nil
 	}); code != 1 {
 		t.Fatalf("weak password exit=%d, want 1", code)
@@ -72,9 +90,70 @@ func TestRunUsersStopsBeforePersistenceOnPromptOrPolicyFailure(t *testing.T) {
 	}
 }
 
+// The prompted password must never be echoed, including on the failure paths an
+// operator is most likely to hit. The value is distinctive so a substring check
+// is meaningful.
+func TestRunUsersNeverPrintsThePromptedPassword(t *testing.T) {
+	const secret = "distinctive-prompted-secret-value"
+	getenvCalled := false
+	getenv := func(string) string {
+		getenvCalled = true
+		return ""
+	}
+	for _, tc := range []struct {
+		name     string
+		password string
+		prompt   error
+	}{
+		{name: "prompt mismatch", password: "", prompt: errors.New("passwords do not match")},
+		{name: "policy failure", password: "leaky-1"},
+		{name: "valid password but no database", password: secret},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			getenvCalled = false
+			code, stdout, stderr := runUsersForTest(t, []string{"set-password", "--login", "owner_1"}, getenv, func() (string, error) {
+				return tc.password, tc.prompt
+			})
+			if code != 1 {
+				t.Fatalf("exit=%d, want 1", code)
+			}
+			if tc.password == "" && getenvCalled {
+				t.Fatal("a failed prompt still reached the database step")
+			}
+			for _, stream := range []string{stdout, stderr} {
+				if tc.password != "" && strings.Contains(stream, tc.password) {
+					t.Fatalf("output leaked the prompted password: %q", stream)
+				}
+			}
+			if strings.Contains(stdout, secret) || strings.Contains(stderr, secret) {
+				t.Fatalf("output leaked the prompted password: stdout=%q stderr=%q", stdout, stderr)
+			}
+		})
+	}
+}
+
+// reportPasswordResetError is the only place that turns a persistence failure
+// into operator text, so the no-secret guarantee is pinned there as well.
+func TestReportPasswordResetErrorNeverPrintsThePassword(t *testing.T) {
+	const secret = "distinctive-reset-secret-value"
+	for _, err := range []error{
+		identityapp.ErrNotFound,
+		identityapp.ErrNoLocalPassword,
+		&identityapp.ValidationError{Field: "password", Code: "invalid_length"},
+		security.ErrPasswordWorkLimit,
+		errors.New("connect " + secret),
+	} {
+		var stderr bytes.Buffer
+		reportPasswordResetError(err, &stderr)
+		if strings.Contains(stderr.String(), secret) {
+			t.Fatalf("error %v printed the password: %q", err, stderr.String())
+		}
+	}
+}
+
 func TestRunUsersRequiresDatabaseForAValidPassword(t *testing.T) {
 	calls := 0
-	code := runUsers([]string{"set-password", "--login", "owner_1"}, func(string) string {
+	code, _, _ := runUsersForTest(t, []string{"set-password", "--login", "owner_1"}, func(string) string {
 		calls++
 		return ""
 	}, func() (string, error) { return "a brand new long password", nil })

@@ -48,16 +48,21 @@ drift and one path would eventually keep a session or a reset link alive.
   it is decided before the body is parsed so a malformed body cannot be turned
   into a decoding answer. The same refusal covers an account that has lost its
   local credential.
-- **Refusal order inside the change.** Session kind and a well-formed token
-  first, then the new-password policy, then the current password, then the
-  transaction. The new-password policy is checked before the current password so
-  a stronger password is never rejected with a misleading "current password is
-  wrong". A wrong current password is `422 currentPassword: incorrect`, not
-  `401`: the caller stays signed in and only the form shows the error. Both the
-  wrong password and a corrupt stored hash are the same answer to the client,
-  but the corrupt hash stays recognizable internally so the existing
-  `password_hash_integrity_fault` operational record still fires. The new
-  password follows the same 15–128 character policy as setup, invitation
+- **Refusal order inside the change.** A wrong sign-in kind or a non-canonical
+  user ID is `403 local_session_required`, because the browser is not signed in
+  with a usable local session. A malformed session token is
+  `401 unauthenticated` exactly like any other unusable cookie, so the cookie is
+  cleared and the browser is told to sign in again; it never becomes a silent
+  "forbidden" that leaves a dead cookie in place. Both checks run before the
+  new-password policy, which runs before the current password, which runs before
+  the transaction. The new-password policy is checked before the current
+  password so a stronger password is never rejected with a misleading "current
+  password is wrong". A wrong current password is `422 currentPassword:
+  incorrect`, not `401`: the caller stays signed in and only the form shows the
+  error. Both the wrong password and a corrupt stored hash are the same answer
+  to the client, but the corrupt hash stays recognizable internally so the
+  existing `password_hash_integrity_fault` operational record still fires. The
+  new password follows the same 15–128 character policy as setup, invitation
   acceptance and reset redemption.
 - **One write path for every replacement.** The identity domain defines one
   persistence protocol, `CredentialReplacementTransaction`
@@ -75,12 +80,25 @@ drift and one path would eventually keep a session or a reset link alive.
   password afterwards. Redemption deliberately does not revoke links: it locks
   the token row it is consuming, then the credential row, then completes the
   token and replaces the password.
-- **Lock order is `password_reset_tokens` before `local_credentials`, always.**
-  Redemption takes the token row `FOR UPDATE` before the credential row, so the
-  self-service change revokes reset links before locking the credential. The
-  opposite order would let a change and a redemption deadlock against each
-  other. This is stated in the protocol's own documentation because it is not
-  visible from either call site alone.
+- **Lock order is `user_accounts` (`FOR NO KEY UPDATE`) →
+  `password_reset_tokens` → `local_credentials` → `user_sessions`, always.**
+  Issuing a reset link locks the target account row first, then revokes the
+  target's previous link rows. The change and the operator reset revoke the
+  account's links, then take the credential row `FOR UPDATE`, then delete and
+  re-insert sessions; inserting a session also takes the foreign-key `KEY SHARE`
+  on the account row. Redemption takes the token row `FOR UPDATE` before the
+  credential row. The account lock is deliberately `FOR NO KEY UPDATE` and not
+  `FOR UPDATE`: it still serializes two issuances for the same target (and an
+  account deletion still conflicts with it), but it does not conflict with the
+  key share a session insert takes on the same row. A plain `FOR UPDATE` there
+  was a real cycle — issuance holds the account row and waits for the link row
+  the change already locked, while the change waits for the key share to insert
+  its replacement session — and PostgreSQL aborted one side with `40P01`, which
+  the HTTP layer can only report as `503`. The order is stated in the
+  protocol's own documentation because it is not visible from either call site
+  alone. Invitation acceptance locks the same account row in the same
+  `FOR NO KEY UPDATE` mode but takes no link or credential rows, so it only
+  serializes account-row writes and cannot join the cycle.
 - **The caller keeps exactly one fresh session.** The replacement deletes the
   caller's own session like every other one, so the transaction proves the
   caller's session was among the deleted ones (`ErrUnauthenticated` otherwise),

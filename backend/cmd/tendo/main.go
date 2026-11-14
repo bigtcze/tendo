@@ -47,7 +47,7 @@ func main() {
 		os.Exit(runInstanceAdmin(os.Args[2:], os.Getenv))
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "users" {
-		os.Exit(runUsers(os.Args[2:], os.Getenv, terminalPasswordPrompt))
+		os.Exit(runUsers(os.Args[2:], os.Getenv, terminalPasswordPrompt, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) == 2 {
 		switch os.Args[1] {

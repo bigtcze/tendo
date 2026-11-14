@@ -181,7 +181,7 @@ func (q *Queries) LockLocalCredential(ctx context.Context, userID pgtype.UUID) (
 }
 
 const lockPasswordResetTarget = `-- name: LockPasswordResetTarget :one
-SELECT id::text AS id, login FROM user_accounts WHERE id=$1 FOR UPDATE
+SELECT id::text AS id, login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE
 `
 
 type LockPasswordResetTargetRow struct {
@@ -189,6 +189,10 @@ type LockPasswordResetTargetRow struct {
 	Login string
 }
 
+// FOR NO KEY UPDATE serializes concurrent issuances for one target without
+// conflicting with the foreign-key KEY SHARE that inserting a session takes on
+// the same row. A plain FOR UPDATE would let reset issuance and a password
+// change deadlock (ADR 0018).
 func (q *Queries) LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (LockPasswordResetTargetRow, error) {
 	row := q.db.QueryRow(ctx, lockPasswordResetTarget, id)
 	var i LockPasswordResetTargetRow

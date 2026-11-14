@@ -10,8 +10,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -263,5 +265,85 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		if !contract[key] {
 			t.Errorf("%s: routed but not declared in the contract", key)
 		}
+	}
+}
+
+// TestContractUnsafeOperationsRequireOriginBeforeAuthentication pins the global
+// browser-origin middleware in front of the real production composition: a
+// state-changing contract operation without an Origin header is refused with
+// 403 before the route handler or its authentication middleware runs.
+//
+// The requests carry a well-formed session cookie and the configured setup
+// token, so a composition that authenticated first would answer 401 for a bad
+// credential or 503 when it reached the unreachable database. A uniform 403
+// therefore proves the origin decision comes first. The middleware answers with
+// the code-less `about:blank` problem its contract fixture documents
+// (api/oidc-middleware.test.mjs, origin_contract_test.go), so the assertion is
+// the exact envelope rather than a `forbidden_origin` code that no middleware
+// emits.
+func TestContractUnsafeOperationsRequireOriginBeforeAuthentication(t *testing.T) {
+	pool, err := pgxpool.New(t.Context(), "postgres://tendo@127.0.0.1:1/tendo?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	cfg := config.Config{
+		PublicURL:        "http://127.0.0.1",
+		SetupToken:       strings.Repeat("A", 43) + "=",
+		OIDCIssuer:       "http://127.0.0.1:1",
+		OIDCClientID:     "client",
+		OIDCClientSecret: "secret",
+		OIDCDisplayName:  "Contract IdP",
+	}
+	var registerErr error
+	app := httpx.NewAppWithRoutes(pool, time.Second, make(chan struct{}), httpx.OriginPolicy{PublicURL: cfg.PublicURL}, func(r chi.Router) {
+		registerErr = registerAPI(r, cfg, pool)
+	})
+	if registerErr != nil {
+		t.Fatal(registerErr)
+	}
+
+	checked := 0
+	for _, op := range readContractSecurity(t) {
+		if !strings.HasPrefix(op.path, "/api/v1/") {
+			continue
+		}
+		switch op.method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			continue
+		}
+		checked++
+		key := op.method + " " + op.path
+		t.Run(key, func(t *testing.T) {
+			target := contractPathParam.ReplaceAllString(op.path, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61")
+			// The request must address the configured public authority, so the
+			// only defect it carries is the missing Origin header; otherwise the
+			// middleware would answer 421 for a foreign authority instead.
+			r := httptest.NewRequest(op.method, cfg.PublicURL+target, strings.NewReader("{}"))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("X-Tendo-Setup-Token", cfg.SetupToken)
+			r.AddCookie(&http.Cookie{Name: "tendo_session", Value: strings.Repeat("A", 43)})
+			w := httptest.NewRecorder()
+			app.ServeHTTP(w, r)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("status=%d body=%s, want 403 before authentication", w.Code, w.Body)
+			}
+			var body struct {
+				Type   string  `json:"type"`
+				Title  string  `json:"title"`
+				Status float64 `json:"status"`
+				Code   string  `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("body=%s: %v", w.Body, err)
+			}
+			if body.Type != "about:blank" || body.Title != "Forbidden" || body.Status != http.StatusForbidden || body.Code != "" {
+				t.Fatalf("body=%s, want the documented code-less Forbidden problem", w.Body)
+			}
+		})
+	}
+	if checked == 0 {
+		t.Fatal("parsed no unsafe contract operations; parser out of sync with api/openapi.yaml")
 	}
 }

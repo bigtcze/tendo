@@ -158,9 +158,17 @@ func (s *PasswordChangeService) now() time.Time { return s.clock().UTC().Truncat
 // contract: the session kind is checked before any body password work, the new
 // password policy before the current password, and the current password before
 // the transaction.
+//
+// A wrong sign-in kind or a non-canonical user ID means "this browser is not
+// signed in with a usable local session" (403). A malformed session token means
+// the cookie itself is not a session at all, which is an authentication failure
+// (401) so the browser is told to sign in again.
 func (s *PasswordChangeService) ChangePassword(ctx context.Context, in ChangePasswordInput) (Session, error) {
-	if in.SignInMethod != SignInPassword || !ids.IsCanonicalUUID(in.Principal.UserID) || !validToken(in.SessionToken) {
+	if in.SignInMethod != SignInPassword || !ids.IsCanonicalUUID(in.Principal.UserID) {
 		return Session{}, ErrLocalSessionRequired
+	}
+	if !validToken(in.SessionToken) {
+		return Session{}, ErrUnauthenticated
 	}
 	if err := validatePassword(in.NewPassword); err != nil {
 		var validation *ValidationError

@@ -127,7 +127,6 @@ func TestChangePasswordRefusesNonLocalSessionsBeforePersistence(t *testing.T) {
 		{name: "legacy session", input: func() ChangePasswordInput { in := newChangeInput(); in.SignInMethod = SignInLegacy; return in }},
 		{name: "zero session kind", input: func() ChangePasswordInput { in := newChangeInput(); in.SignInMethod = ""; return in }},
 		{name: "malformed user id", input: func() ChangePasswordInput { in := newChangeInput(); in.Principal.UserID = "not-a-uuid"; return in }},
-		{name: "malformed session token", input: func() ChangePasswordInput { in := newChangeInput(); in.SessionToken = "short"; return in }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &passwordChangeRepoStub{credential: LocalCredential{PasswordHash: "hash:" + testOldPassword, Version: 1}}
@@ -139,6 +138,21 @@ func TestChangePasswordRefusesNonLocalSessionsBeforePersistence(t *testing.T) {
 				t.Fatalf("refused session reached persistence: reads=%d tx=%d", repo.reads, repo.txCalls)
 			}
 		})
+	}
+}
+
+// A malformed session token is an authentication failure, not a
+// sign-in-kind refusal: the handler answers 401 so the browser signs in again.
+func TestChangePasswordMalformedSessionTokenIsUnauthenticated(t *testing.T) {
+	repo := &passwordChangeRepoStub{credential: LocalCredential{PasswordHash: "hash:" + testOldPassword, Version: 1}}
+	service := newTestPasswordChange(t, repo, nil)
+	input := newChangeInput()
+	input.SessionToken = "short"
+	if _, err := service.ChangePassword(context.Background(), input); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("error=%v, want ErrUnauthenticated", err)
+	}
+	if repo.reads != 0 || repo.txCalls != 0 {
+		t.Fatalf("refused request reached persistence: reads=%d tx=%d", repo.reads, repo.txCalls)
 	}
 }
 

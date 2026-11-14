@@ -46,8 +46,17 @@ type Querier interface {
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error)
 	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
+	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
+	// conflicting with the foreign-key KEY SHARE that inserting a session takes on
+	// the same row. A plain FOR UPDATE would let reset issuance and a password
+	// change deadlock (ADR 0018).
 	LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (LockPasswordResetTargetRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
+	// The accept path only serializes writes to this account row (joining, default
+	// household) and never touches its credential or reset links, so it needs no
+	// exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
+	// UPDATE keeps concurrent acceptances and account deletion serialized without
+	// that conflict (ADR 0018).
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	OutstandingPasswordResetsByUserIDs(ctx context.Context, arg OutstandingPasswordResetsByUserIDsParams) ([]OutstandingPasswordResetsByUserIDsRow, error)
