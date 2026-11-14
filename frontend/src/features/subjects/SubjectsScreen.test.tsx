@@ -382,6 +382,74 @@ describe('list', () => {
   });
 });
 
+/**
+ * V5-07 slice: the calm list. Rows are one flat divided list (as on Home and All items), a row names the record
+ * and exactly one metadata line, and the screen keeps one compact band. These assertions lock that structure.
+ */
+describe('calm list structure', () => {
+  it('lists people and things as flat divided rows without a card or an icon tile', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([anna, octavia]) });
+    renderApp();
+    await openPeople();
+    const list = (await screen.findByText('Anna')).closest('ul')!;
+    expect(list).toHaveClass('divide-y', 'divide-line');
+    expect(list.className).not.toMatch(/rounded-2xl/);
+    expect(list.className).not.toMatch(/bg-raised/);
+    // No decorative tile: the only glyph is the small inline one inside the metadata line.
+    expect(list.querySelectorAll('.bg-sand')).toHaveLength(0);
+    expect(list.querySelector('[data-subject-icon]')!.closest('.bg-sand')).toBeNull();
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('keeps the type and the household member on one quiet metadata line', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([memberPerson('s-1', 'Anna')]), [membersKey]: membersResponse() });
+    renderApp();
+    await openPeople();
+    const row = (await screen.findByText('Anna')).closest('li')!;
+    const name = row.querySelector('[data-subject-name]')!;
+    const meta = row.querySelector('[data-subject-type]')!.closest('p')!;
+    expect(meta).not.toBe(name);
+    expect(meta).toContainElement(row.querySelector('[data-subject-member]'));
+    expect(meta).toHaveTextContent('Person · Household member · member_one');
+    // Two text lines per row: the name and that one metadata line, nothing else.
+    expect(row.querySelectorAll('p')).toHaveLength(2);
+  });
+
+  it('keeps Add on the title line instead of wrapping it below the heading', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([anna]) });
+    renderApp();
+    const heading = await openPeople();
+    const band = heading.parentElement!;
+    expect(band).toContainElement(screen.getByRole('button', { name: 'Add' }));
+    expect(band).toHaveClass('flex');
+    // No wrapping: the title column gives way (and wraps its own words) before the action drops to its own line.
+    expect(band.className).not.toMatch(/flex-wrap/);
+  });
+
+  it('offers the archived view as a quiet control rather than a filled pill', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([anna]) });
+    renderApp();
+    await openPeople();
+    const toggle = await screen.findByRole('button', { name: 'Show archived' });
+    expect(toggle).toHaveClass('min-h-11');
+    expect(toggle.classList.contains('bg-sand')).toBe(false);
+    expect(toggle.classList.contains('rounded-full')).toBe(false);
+    // A secondary control reads quieter than the list: the muted tone must survive the size override.
+    expect(toggle).toHaveClass('text-muted');
+    expect(toggle.classList.contains('text-ink')).toBe(false);
+  });
+
+  it('names the archived view with its heading and no decorative subtitle', async () => {
+    installFakeServer({ ...signedIn, [listKey]: (req) => page(req.query.get('archived') === 'true' ? [subject('s-9', 'Old car', 'vehicle', true)] : [anna]) });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Show archived' }));
+    expect(await screen.findByRole('heading', { name: 'Archived' })).toBeVisible();
+    expect(screen.queryByText('Archived ones stay out of the way. You can restore them any time.')).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Restore Old car' })).toBeVisible();
+  });
+});
+
 describe('add', () => {
   it('preserves a newer uncertain subject create after an obsolete successful response', async () => {
     let releaseOriginal!: (response: Response) => void;
@@ -1208,6 +1276,24 @@ describe('member person reassociation', () => {
     await dialog.findByText(/This is not a merge/);
     return element;
   }
+
+  it('gives the transfer section its own dismiss name, so Cancel keeps one meaning in the dialog', async () => {
+    installFakeServer(routes(json(200, { person: { ...anna, linkedUserId: memberId }, previous: currentPerson })));
+    renderApp();
+    const element = await startTransfer();
+    const dialog = within(element);
+    expect(dialog.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+    const dismiss = dialog.getByRole('button', { name: 'Keep separate' });
+    // The confirm action stays the only control whose name contains "Connect", so a substring role query (as
+    // Playwright's default) cannot mistake the dismiss for it.
+    expect(dialog.getAllByRole('button', { name: /connect/i })).toHaveLength(1);
+    expect(cs['subjects.transfer.dismiss'].toLowerCase()).not.toContain(cs['subjects.transfer.confirmAction'].toLowerCase());
+    expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await userEvent.click(dismiss);
+    expect(dialog.queryByRole('combobox', { name: 'Household member' })).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'This is a household member…' })).toBeVisible();
+    expect(dialog.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+  });
 
   it('sends the exact transfer with both versions, then shows this record as the member’s person', async () => {
     let putBody = '';

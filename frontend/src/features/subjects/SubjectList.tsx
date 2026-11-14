@@ -21,7 +21,7 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
   if (list.kind !== 'ready') return null;
   return <div className="mt-5 space-y-4">
     {empty ? <SubjectsEmpty showArchived={showArchived} cursorStackEmpty={cursorStack.length === 0} adding={adding} t={t} /> : null}
-    {items.length > 0 ? <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
+    {items.length > 0 ? <ul className="divide-y divide-line border-t border-line">
       {items.map((subject) => <SubjectRow key={subject.id} subject={subject} editing={editing} transfer={transfer} members={members}
         membersLoaded={membersLoaded} showArchived={showArchived} interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
         onStartEditing={onStartEditing} onArchive={onArchive} onRestore={onRestore} onSave={onSave} onCancelEditing={onCancelEditing} />)}

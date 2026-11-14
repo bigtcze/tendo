@@ -82,10 +82,73 @@ describe('members and invitations', () => {
     expect(rows[0]).toHaveTextContent('Administrator');
     expect(rows[1]).toHaveTextContent('petr');
     expect(rows[1]).toHaveTextContent('Member');
-    // The avatar-initial tile is decorative; the login and role stay readable without it.
-    expect(rows[0].querySelector('[data-member-avatar]')).toHaveTextContent('A');
-    expect(rows[0].querySelector('[data-member-avatar]')).toHaveAttribute('aria-hidden', 'true');
+    // No avatar tile: the login and its role are the whole row, so nothing decorative precedes the name.
+    expect(rows[0].querySelector('[data-member-avatar]')).toBeNull();
+    expect(rows[0].firstElementChild).toHaveAttribute('data-member-login');
     expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members`)).toBe(true);
+  });
+
+  /**
+   * V5-07 slice: the calm list on Members. The member list is flat and divided, the role is plain muted text,
+   * the invite section is a plain section rather than a card inside a card, and invitation status is text.
+   */
+  it('lists members as a flat divided list with the role as plain text', async () => {
+    installFakeServer(defaults());
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const list = await screen.findByRole('list', { name: 'Members' });
+    expect(list).toHaveClass('divide-y', 'divide-line');
+    expect(list.className).not.toMatch(/rounded-2xl|bg-raised/);
+    const rows = within(list).getAllByRole('listitem');
+    const role = within(rows[0]!).getByText('Administrator');
+    expect(role).toHaveClass('text-meta', 'text-muted');
+    expect(role.classList.contains('rounded-full')).toBe(false);
+    expect(role.classList.contains('bg-sand')).toBe(false);
+    expect(rows[0]!.querySelector('[data-member-avatar]')).toBeNull();
+    expect(rows[0]!.querySelector('[data-member-login]')).toHaveTextContent('anna (you)');
+  });
+
+  it('opens the invite area as a plain section instead of a card inside a card', async () => {
+    installFakeServer(defaults());
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const section = await screen.findByRole('region', { name: 'Invite someone' });
+    expect(section.className).not.toMatch(/rounded-2xl|bg-raised/);
+    expect(section.querySelector('.rounded-2xl')).toBeNull();
+    expect(within(section).getByRole('heading', { name: 'Invite someone' })).toBeVisible();
+    expect(within(section).getByText('Create a private link to invite someone to your household. The link works once and is shown only now.')).toBeVisible();
+    expect(within(section).getByRole('button', { name: 'Create invite link' })).toBeVisible();
+  });
+
+  it('shows invitation status as text beside one created and expiry line', async () => {
+    installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: page([invitation('one')]) });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const list = await screen.findByRole('list', { name: 'Invitations' });
+    const row = within(list).getAllByRole('listitem')[0]!;
+    const status = within(row).getByText('Pending', { exact: true });
+    expect(status).toHaveClass('text-waiting');
+    expect(status.classList.contains('rounded-full')).toBe(false);
+    expect(status.classList.contains('bg-waiting-bg')).toBe(false);
+    expect(row.querySelector('[data-invitation-details]')).toHaveTextContent(/^Created .+ · Expires .+$/);
+    // The status and the dates are one line of text; no second paragraph repeats the state.
+    expect(row.querySelectorAll('p')).toHaveLength(1);
+    const line = row.querySelector('p')!;
+    expect(line.firstElementChild).toBe(status);
+    expect(line.children[1]).toBe(row.querySelector('[data-invitation-details]'));
+    expect(within(row).getByRole('button', { name: 'Revoke' })).toBeVisible();
+  });
+
+  it('explains the member-only view without a tinted card', async () => {
+    const routes = defaults();
+    routes[`GET ${base}/members`] = page(members('member'));
+    installFakeServer(routes);
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const help = await screen.findByRole('region', { name: 'Need to invite someone?' });
+    expect(help.className).not.toMatch(/rounded-2xl|bg-sand|border/);
+    expect(within(help).getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
+    expect(within(help).getByText('Ask a household administrator to send them an invite link.')).toBeVisible();
   });
 
   it('retryable list failure announces the error and keeps Retry adjacent', async () => {

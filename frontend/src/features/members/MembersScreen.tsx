@@ -44,15 +44,15 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     </div>
     {state === 'loading' ? <p role="status" className="mt-6 text-small text-muted">{t('members.loading')}</p> : null}
     {state === 'error' ? <LoadError notice={listErrorNotice} onRetry={() => { setNotice(null); setAttempt((n) => n + 1); }} t={t} /> : null}
-    {state === 'ready' ? <div className="mt-6 space-y-4 sm:mt-8 sm:space-y-6">
+    {state === 'ready' ? <div className="mt-6 space-y-8 sm:mt-8 sm:space-y-10">
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}
         cursor={members.memberCursor} busy={members.memberBusy} onPrevious={members.previousMembers} onNext={members.nextMembers} t={t} />
       {admin === true ? <InvitePanel inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
-        : admin === false ? <section className="rounded-2xl border border-line bg-sand px-5 py-4" aria-labelledby="members-help-heading">
-            <h2 id="members-help-heading" className="text-lg font-bold text-ink">{t('members.help.title')}</h2>
+        : admin === false ? <section className="min-w-0" aria-labelledby="members-help-heading">
+            <h2 id="members-help-heading" className="text-h2 text-ink">{t('members.help.title')}</h2>
             <p className="mt-1 max-w-prose text-small text-muted">{t('members.help.body')}</p>
           </section>
-          : inv.invitationsError ? <InvitationsError className="rounded-2xl border border-line bg-raised p-5" notice={notice} onRetry={inv.refreshInvitations} t={t} />
+          : inv.invitationsError ? <InvitationsError notice={notice} onRetry={inv.refreshInvitations} className="min-w-0" t={t} />
             : <p role="status" className="text-small text-muted">{t('members.loading')}</p>}
     </div> : null}
   </section></Layout>;

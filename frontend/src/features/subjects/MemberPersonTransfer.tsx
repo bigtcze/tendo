@@ -90,7 +90,7 @@ export function MemberPersonTransfer({ subject, etag, members, membersLoaded, ap
         {pending ? t('subjects.transfer.pending') : t('subjects.transfer.confirmAction')}
       </Button>
       <Button type="button" variant="quiet" disabled={pending} onClick={reset}>
-        {t('subjects.cancel')}
+        {t('subjects.transfer.dismiss')}
       </Button>
     </div>
   </section>;
