@@ -770,7 +770,8 @@ test('Czech Home, add form and detail', async ({ browser }) => {
   await captureScreen(page, 'home-cs', true);
   await openAdd(page, cs['items.add']);
   await captureScreen(page, 'add-cs', false);
-  await page.getByRole('dialog').getByRole('button', { name: cs['items.cancel'], exact: true }).first().click();
+  // Cancel lives inside the form; the dialog's own close is a separate icon in the header, so no `.first()` is needed.
+  await page.getByRole('dialog').getByRole('form').getByRole('button', { name: cs['items.cancel'], exact: true }).click();
   await page.goto(`/items/${requiredFixture().items[0].id}`);
   await captureScreen(page, 'detail-cs', true);
   await context.close();

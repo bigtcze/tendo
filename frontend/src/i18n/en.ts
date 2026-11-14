@@ -230,7 +230,6 @@ export const en = {
   'admin.action.demoteLabel': 'Make member: {login}',
   'admin.action.saving': 'Saving…',
   'admin.action.cancel': 'Cancel',
-  'admin.dialog.close': 'Close',
   'admin.dialog.promote.title': 'Make {login} an administrator?',
   'admin.dialog.promote.body': 'Administrators can invite people, manage invitations, change roles and help with passwords.',
   'admin.dialog.demote.title': 'Make {login} a member?',

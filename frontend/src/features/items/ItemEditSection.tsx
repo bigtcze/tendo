@@ -17,7 +17,7 @@ export function ItemEditSection({ editing, subjects, members, busy, locale, t, o
     ? <ItemEditConflictSummary latest={editing.latest} mine={editing.mine} subjects={subjects} members={members} locale={locale} t={t} />
     : null;
   return <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }} title={t('itemDetail.edit.formLabel')}
-    closeLabel={t('dialog.close')} busy={busy} sheet initialFocusRef={initialFocusRef}>
+    busy={busy} sheet initialFocusRef={initialFocusRef}>
     <div className="space-y-4">
       {conflict}
       <ItemForm

@@ -135,7 +135,8 @@ describe('item details', () => {
     const value = (name: string) => fact(name).querySelector('dd')!.textContent!.replaceAll('\u00a0', ' ');
     expect(value('attention')).toBe('Oct 10, 2026');
     expect(value('lastDone')).toBe('Oct 10, 2025');
-    expect(value('repeat')).toContain('2 years');
+    // The interval line states the repeat exactly; the mode sentence below it explains what that means.
+    expect(fact('repeat').querySelector('p')!.textContent).toBe('2 years');
     expect(value('repeat')).toContain('Keeps the planned dates.');
     expect(value('responsible')).toBe('petr');
     expect(value('notes')).toBe('Bring old passport');
@@ -183,10 +184,10 @@ describe('item details', () => {
     expect(buttons.map((button) => button.textContent!.trim())).toEqual(['Edit', 'Done', 'Start', 'Waiting', 'Pause', 'Archive']);
     expect(band).toHaveClass('border-t');
     expect(band.querySelectorAll('button[data-variant="primary"]')).toHaveLength(1);
-    // Archive is the small, quiet control at the end, never a card of its own.
+    // Archive is the small, quiet control at the end, never a card of its own, and it keeps a 44px target.
     const archive = within(band as HTMLElement).getByRole('button', { name: 'Archive' });
     expect(archive).toHaveAttribute('data-variant', 'secondary');
-    expect(archive.className).toContain('px-3');
+    expect(archive).toHaveClass('min-h-11');
   });
 
   it('offers a way back to the overview from the gone item screen', async () => {
@@ -200,7 +201,7 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   });
 
-  it('gives the loading, failed and gone states the same page-title type as the ready item', async () => {
+  it('gives the failed and gone states the same page-title type as the ready item', async () => {
     window.history.replaceState(null, '', `/items/${itemId}`);
     installFakeServer(common({}));
     app();
@@ -511,7 +512,10 @@ describe('item details', () => {
     installFakeServer(common({ [`GET ${path}`]: json(200, item({ archived: true, done: true } ), { ETag: '"1"' }) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     expect(await screen.findByText(/This item stays here, and its history is still available\./)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Restore' })).toBeVisible();
+    const restore = screen.getByRole('button', { name: 'Restore' });
+    expect(restore).toBeVisible();
+    // The end-of-band swap keeps the same 44px target as the Archive it replaces.
+    expect(restore).toHaveClass('min-h-11');
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'History' })).toBeVisible();
   });
@@ -1403,7 +1407,9 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { name: 'Renew passport' })).toBeVisible();
     const lastDone = document.querySelector('[data-item-fact="lastDone"]')!;
     expect(lastDone.querySelector('dt')).toHaveTextContent('Naposledy hotovo');
-    expect(lastDone.querySelector('dd')).toHaveTextContent('10. 10. 2025');
+    const lastDoneValue = lastDone.querySelector('dd')!;
+    expect(lastDoneValue).toHaveTextContent('10. 10. 2025');
+    expect(lastDoneValue).toBeVisible();
     window.history.back(); await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(await screen.findByRole('heading', { name: 'Přehled' })).toBeVisible();
   });

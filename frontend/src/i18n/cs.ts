@@ -233,7 +233,6 @@ export const cs: Record<MessageKey, string> = {
   'admin.action.demoteLabel': 'Změnit na člena: {login}',
   'admin.action.saving': 'Ukládám…',
   'admin.action.cancel': 'Zrušit',
-  'admin.dialog.close': 'Zavřít',
   'admin.dialog.promote.title': 'Jmenovat {login} správcem?',
   'admin.dialog.promote.body': 'Správci mohou zvát lidi, spravovat pozvánky, měnit role a pomáhat s hesly.',
   'admin.dialog.demote.title': 'Změnit {login} na člena?',

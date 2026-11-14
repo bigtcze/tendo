@@ -21,7 +21,7 @@ export function SubjectAddAction({ adding, createUncertain, createLocked, pendin
   return <>
     <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled} onClick={onAdd}>{t('subjects.add')}</Button>
     <Dialog open={adding} onOpenChange={(open) => { if (!open) onCancelAdd(); }} title={t('subjects.add.formLabel')}
-      closeLabel={t('dialog.close')} busy={createPending} sheet triggerRef={addRef} initialFocusRef={addNameRef}>
+      busy={createPending} sheet triggerRef={addRef} initialFocusRef={addNameRef}>
       {adding ? <SubjectForm key={String(adding)} label={t('subjects.add.formLabel')} initial={pendingInitial}
         submitLabel={t('subjects.add.submit')} pendingLabel={t('subjects.add.submitting')}
         locked={createLocked} retryLabel={t('subjects.create.checkAgain')}

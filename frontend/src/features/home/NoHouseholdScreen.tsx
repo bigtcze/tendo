@@ -42,7 +42,6 @@ export function NoHouseholdScreen({ onSignedOut, onDiscarded }: { onSignedOut: (
         open={discard.open}
         onOpenChange={(open) => { if (!open) discard.closeDialog(); }}
         title={t('home.noHousehold.discard.confirmTitle')}
-        closeLabel={t('notice.dismiss')}
         busy={discard.pending}
         triggerRef={triggerRef}
       >

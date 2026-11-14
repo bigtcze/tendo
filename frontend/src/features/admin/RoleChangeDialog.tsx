@@ -29,7 +29,6 @@ export function RoleChangeDialog({ pending, viewerId, busy, triggerRef, onConfir
     open={pending !== null}
     onOpenChange={(open) => { if (!open) onCancel(); }}
     title={title}
-    closeLabel={t('admin.dialog.close')}
     busy={busy}
     triggerRef={triggerRef}
   >
