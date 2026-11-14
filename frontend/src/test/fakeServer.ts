@@ -66,6 +66,60 @@ export const session = (withHousehold = true): components['schemas']['Session'] 
   signInMethod: 'password',
 });
 
+/**
+ * The change-password contract at the network boundary: a provider or pre-upgrade session is refused before anything
+ * else, a policy-breaking new password is refused before a wrong current one (like the server), and success replaces
+ * the account's password and answers with a freshly rotated session. The stub keeps no cookie jar, so the rotation is
+ * visible only as the `Set-Cookie` header and in the returned `expiresAt`.
+ */
+export function passwordChange(options: {
+  currentPassword: string;
+  signInMethod?: components['schemas']['Session']['signInMethod'];
+  /** The session the app booted with; the success body is the same person with the rotated expiry. */
+  session?: components['schemas']['Session'];
+  expiresAt?: string;
+  /** The account throttle is already spent, so every attempt is refused with 429. */
+  rateLimited?: boolean;
+}) {
+  const base = options.session ?? session();
+  const account = {
+    password: options.currentPassword,
+    signInMethod: options.signInMethod ?? 'password',
+    expiresAt: options.expiresAt ?? '2030-06-01T00:00:00Z',
+    rotations: 0,
+  };
+  const route = (req: RecordedRequest): Response => {
+    if (account.signInMethod !== 'password') {
+      return json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'local_session_required' });
+    }
+    if (options.rateLimited) {
+      return json(
+        429,
+        { type: 'about:blank', title: 'Too Many Requests', status: 429, code: 'rate_limited' },
+        { 'Retry-After': '30' },
+      );
+    }
+    const body = JSON.parse(req.body) as { currentPassword: string; newPassword: string };
+    if (body.newPassword.length < 15 || body.newPassword.length > 128) {
+      return json(422, {
+        type: 'about:blank', title: 'Validation Failed', status: 422, code: 'invalid_length', field: 'newPassword',
+      });
+    }
+    if (body.currentPassword !== account.password) {
+      return json(422, {
+        type: 'about:blank', title: 'Validation Failed', status: 422, code: 'incorrect', field: 'currentPassword',
+      });
+    }
+    account.password = body.newPassword;
+    account.rotations += 1;
+    return json(200, { ...base, expiresAt: account.expiresAt }, {
+      'Set-Cookie': `tendo_session=rotated-${account.rotations}; Path=/; HttpOnly; SameSite=Lax`,
+    });
+  };
+  return { routes: { 'POST /api/v1/auth/password': route }, account };
+}
+
+
 export const household: components['schemas']['Household'] = {
   id: HOUSEHOLD_ID,
   name: 'Veselí',

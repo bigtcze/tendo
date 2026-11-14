@@ -356,7 +356,8 @@ describe('account screen', () => {
     const main = screen.getByRole('main');
     expect(within(main).getByRole('heading', { level: 2, name: 'Appearance' })).toBeVisible();
     expect(within(main).getByRole('heading', { level: 2, name: 'Language' })).toBeVisible();
-    expect(within(main).queryByLabelText('Current password')).not.toBeInTheDocument();
+    // V5-08: the one password form on Account is the local change form; no manual sign-in linking came back.
+    expect(within(main).getByLabelText('Current password')).toBeVisible();
     expect(within(main).queryByRole('button', { name: /Connect/ })).not.toBeInTheDocument();
     expect(within(main).queryByRole('heading', { name: /sign-in with/i })).not.toBeInTheDocument();
     // The provider is enabled, yet the retired identity lookup and link start are never issued.
@@ -372,7 +373,8 @@ describe('account screen', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
     await waitFor(() => expect(window.location.hash).toBe(''));
     expect(window.location.pathname).toBe('/account');
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    // The password section's success host stays mounted empty, so "no notice" means an empty one.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
     expect(screen.queryByText(/Connected\./)).not.toBeInTheDocument();
     expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc/identity')).toBe(false);
   });
@@ -384,7 +386,7 @@ describe('account screen', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
     await waitFor(() => expect(window.location.hash).toBe(''));
     expect(screen.queryByText(en['oidc.error.identity_conflict'], { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('renders Czech', async () => {

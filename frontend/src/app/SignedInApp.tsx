@@ -150,7 +150,11 @@ function renderHouseholdRecords(props: Props, householdId: string) {
 function renderRouteScreen(props: Props, householdId: string | null) {
   const { route, session, navigation, sessionActions } = props;
   if (route.kind === 'account') {
-    return <AccountScreen login={session.login} onSignedOut={sessionActions.sessionEnded} />;
+    return <AccountScreen
+      session={session}
+      onSessionChanged={sessionActions.updateSession}
+      onSignedOut={sessionActions.sessionEnded}
+    />;
   }
   if (route.kind === 'admin' && householdId) {
     return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login} onSignedOut={sessionActions.sessionEnded} />;

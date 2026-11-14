@@ -92,14 +92,14 @@ afterEach(() => {
 });
 
 describe('account page is a stack of flat sections', () => {
-  it('separates identity, admin and preferences with a top rule and h2 titles', async () => {
+  it('separates identity, password, admin and preferences with a top rule and h2 titles', async () => {
     installFakeServer(signedInRoutes());
     open('/account');
     await screen.findByRole('heading', { level: 1, name: 'Your account' });
     // The admin section renders once the household role is known; it is not part of the static account data.
     await screen.findByRole('heading', { level: 2, name: 'Admin center' });
     const main = screen.getByRole('main');
-    for (const id of ['account-identity-heading', 'account-admin-heading', 'account-appearance-heading', 'account-language-heading']) {
+    for (const id of ['account-identity-heading', 'account-password-heading', 'account-admin-heading', 'account-appearance-heading', 'account-language-heading']) {
       const section = main.querySelector(`section[aria-labelledby="${id}"]`);
       if (!section) throw new Error(`missing Account section ${id}`);
       expect(section.classList.contains('rounded-2xl'), `${id} is not a rounded card`).toBe(false);

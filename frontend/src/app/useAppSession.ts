@@ -72,6 +72,15 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
     setAttempt((n) => n + 1);
   }, [transitionedRef]);
 
+  /**
+   * A fresh session for the same person and household, not a new sign-in: the password change rotates the cookie and
+   * returns the new expiry, so the shell keeps reading the live session instead of the one it booted with. Nothing
+   * else is reset — the route, the drafts and the household all stay where the person left them.
+   */
+  const updateSession = useCallback((session: Session) => {
+    setState((previous) => (previous.kind === 'signedIn' ? { kind: 'signedIn', session } : previous));
+  }, []);
+
   const transitions = useSessionTransitions({
     setRoute, transitionedRef, setOidcOutcome, entry, setState, advanceSessionGeneration, isCurrentSession,
     setAccountReadyNotice, setSessionEndedNotice, setOidcContinueExpired, setInviteFocusLogin,
@@ -79,7 +88,7 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
   });
 
   return {
-    state, retry,
+    state, retry, updateSession,
     ...transitions,
     accountReadyNotice, sessionEndedNotice, oidcContinueExpired, inviteFocusLogin,
     loginPrefill, passwordResetNotice,
