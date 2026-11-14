@@ -171,7 +171,7 @@ func (s *OIDCService) CreatePendingAccount(ctx context.Context, token string) (O
 					UserID: outcome.UserID, Login: outcome.Login, DefaultHouseholdID: outcome.DefaultHouseholdID,
 					InstanceAdmin: outcome.InstanceAdmin,
 				},
-				ExpiresAt: session.ExpiresAt,
+				ExpiresAt: session.ExpiresAt, SignInMethod: session.Method,
 			},
 			Invitation: outcome.Invitation,
 		}, nil
@@ -223,7 +223,7 @@ func (s *OIDCService) LinkPendingAccount(ctx context.Context, token, login, pass
 				UserID: outcome.UserID, Login: outcome.Login, DefaultHouseholdID: outcome.DefaultHouseholdID,
 				InstanceAdmin: outcome.InstanceAdmin,
 			},
-			ExpiresAt: session.ExpiresAt,
+			ExpiresAt: session.ExpiresAt, SignInMethod: session.Method,
 		},
 		Invitation: outcome.Invitation,
 		EmailSaved: outcome.EmailSaved,
