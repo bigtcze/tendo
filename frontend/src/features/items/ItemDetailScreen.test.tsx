@@ -656,7 +656,8 @@ describe('item details', () => {
     expect(release).toBeDefined();
     expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
     expect(pages().getByRole('status')).toHaveTextContent('Page 1');
-    for (const button of pages().queryAllByRole('button')) expect(button).toBeDisabled();
+    // Back on page 1 there is no Newer, and Older waits for the fresh first-page cursor.
+    expect(pages().queryAllByRole('button')).toHaveLength(0);
 
     await act(async () => release!(json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' })));
     expect(await main.findByText('Done Apr 2, 2025')).toBeVisible();
