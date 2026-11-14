@@ -39,6 +39,14 @@ export type MotionMeasurement = {
   rootScrollBehavior: string;
 };
 
+/**
+ * Waits until no Web Animation is running. Entry animations translate content, and a transformed rect can report
+ * sub-pixel geometry (a 44 px control as 43.99998 px), so size and position assertions measure only at rest.
+ */
+export async function waitForSettledAnimations(page: Page): Promise<void> {
+  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
+}
+
 type RawStyle = { transitionDuration: string; transitionDelay: string; animationDuration: string; animationDelay: string };
 type RawSample = RawStyle & { tag: string; class: string; pseudo: string; text: string };
 
