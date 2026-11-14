@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
+import { assertFieldsAtLeast16px } from './visual/capture';
 import { createTabRepeatGuard } from './tabRepeatGuard';
 import { measureMotion, waitForSettledAnimations } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
@@ -1435,6 +1436,7 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('button', { name: en['members.invite.action'] }).click();
     const inviteField = page.getByRole('textbox', { name: en['members.invite.link'] });
     const firstLink = await inviteField.inputValue();
+    await assertFieldsAtLeast16px(page, 'members owner invite link');
     expect(firstLink.startsWith(`${baseURL}/invite#`)).toBe(true);
     expect(new URL(firstLink).hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
     const invitationList = page.getByRole('heading', { name: en['members.invitations.title'] }).locator('..');
@@ -1918,6 +1920,8 @@ test.describe('Tendo production journey', () => {
     const manualEdit = await openSubjectEdit(manualName);
     await manualEdit.dialog.getByRole('button', { name: en['subjects.transfer.action'], exact: true }).click();
     const memberSelect = manualEdit.dialog.getByRole('combobox', { name: en['subjects.transfer.memberLabel'] });
+    await expect(memberSelect).toBeVisible();
+    await assertFieldsAtLeast16px(page, 'person transfer member select');
     await memberSelect.selectOption(member!.userId);
     await expect(manualEdit.dialog.getByText(en['subjects.transfer.confirm'].replace('{name}', manualName)
       .replace('{login}', member!.login).replace('{current}', currentPerson.name))).toBeVisible();
@@ -6083,7 +6087,10 @@ test.describe('Tendo production journey', () => {
       await openWindow();
       const peopleFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(peoplePath)}(?:\\?.*)?$`), 'GET');
       await page.goto('/people');
-      await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      // The visible notice holds the sentence and Retry; the persistent polite host announces the same sentence.
+      const peopleRetry = page.getByRole('main').getByRole('button', { name: en['app.error.retry'], exact: true });
+      await expect(peopleRetry.locator('..').getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').locator('p.sr-only[aria-live="polite"]')).toHaveText(en['app.error.body']);
       expect(peopleFailure.count()).toBe(1);
       await closeWindow([peopleFailure]);
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();

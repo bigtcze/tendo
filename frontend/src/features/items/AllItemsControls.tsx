@@ -10,7 +10,7 @@ import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 const labelClass = 'block min-w-0 text-label font-semibold text-ink';
-const controlClass = `mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 text-ink ${focusRing}`;
+const controlClass = `mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 text-control font-normal text-ink ${focusRing}`;
 
 export function AllItemsSearch({ draft, page, actions, searchRef }: {
   draft: Draft; page: PageState; actions: AllItemsActions; searchRef: RefObject<HTMLInputElement | null>;

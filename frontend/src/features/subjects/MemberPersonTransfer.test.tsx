@@ -30,6 +30,8 @@ describe('member person transfer', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'This is a household member…' }));
     const select = screen.getByRole('combobox', { name: 'Household member' });
+    // 16 px like every field, so iOS Safari does not zoom the dialog when the select takes focus.
+    expect(select).toHaveClass('text-control');
     const confirm = screen.getByRole('button', { name: 'Connect' });
     expect(confirm).toBeDisabled();
 

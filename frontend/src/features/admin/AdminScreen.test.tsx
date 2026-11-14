@@ -452,6 +452,9 @@ describe('Admin center', () => {
     const linkField = within(linkDialog).getByRole('textbox', { name: 'Reset link' }) as HTMLInputElement;
     expect(linkField).toHaveValue(link);
     expect(linkField).toHaveAttribute('readonly');
+    // 16 px like every field, so iOS Safari does not zoom the dialog when the link takes focus.
+    expect(linkField).toHaveClass('text-control');
+    expect(linkField.className).not.toMatch(/\btext-(small|label|meta|micro|sm|xs)\b/);
     // Focus lands on the one-time link after the dialog opens, and the field selects itself for copying.
     await waitFor(() => expect(linkField).toHaveFocus());
     expect(linkField.selectionStart).toBe(0);

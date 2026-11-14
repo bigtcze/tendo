@@ -228,7 +228,8 @@ describe('load errors', () => {
     // Announced by the persistent polite host, which stays mounted across the retry.
     const host = document.querySelector<HTMLElement>('main p.sr-only[aria-live="polite"][aria-atomic="true"]');
     expect(host).not.toBeNull();
-    expect(host).toHaveTextContent(`${en['app.error.title']} ${en['app.error.body']}`);
+    // It says exactly what the visible notice says, as All items does, not an extra title sighted users never see.
+    expect(host?.textContent).toBe(en['app.error.body']);
   });
 });
 
@@ -263,7 +264,11 @@ describe('empty states', () => {
     const section = heading.parentElement!;
     expectFlatSection(section);
     // The one Clear action stays in that section, on the action row under the message.
-    expect(section.querySelector('[data-all-items-clear]')).not.toBeNull();
+    const clear = section.querySelector('[data-all-items-clear]');
+    expect(clear).not.toBeNull();
+    // A bordered button whose edge lines up with the message, like Retry under a failed load. A quiet button has
+    // no visible edge, so its padded label sat inset from the heading as a stray floating word.
+    expect(clear).toHaveAttribute('data-variant', 'secondary');
   });
 
   it('an empty People screen is the same plain section', async () => {
