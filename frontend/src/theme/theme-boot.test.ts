@@ -16,6 +16,8 @@ describe('public/theme-boot.js', () => {
     vi.restoreAllMocks();
     localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
+    // Also runs when an assertion fails mid-test, so no metas leak into the next case.
+    document.head.innerHTML = '';
   });
 
   it.each(['light', 'dark'])('applies a saved %s choice before the app loads', (value) => {
@@ -47,14 +49,12 @@ describe('public/theme-boot.js', () => {
     runBoot();
     expect(themeColorMedia()).toEqual(fromApp);
     expect(fromApp[value]).toBe('all');
-    document.head.innerHTML = '';
   });
 
   it('leaves the device-driven theme-color untouched without a saved choice', () => {
     installThemeColorMetas();
     runBoot();
     expect(themeColorMedia()).toEqual({ light: '(prefers-color-scheme: light)', dark: '(prefers-color-scheme: dark)' });
-    document.head.innerHTML = '';
   });
 
   it('uses the same storage key and accepted values as the theme module', () => {

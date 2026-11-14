@@ -11,6 +11,7 @@ import { createTabRepeatGuard } from './tabRepeatGuard';
 import { measureMotion, waitForSettledAnimations } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
+import { effectiveThemeColor } from './themeColor';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -102,11 +103,6 @@ async function trackInFlightApiFetches(page: Page) {
     };
   });
 }
-
-/** The browser chrome tint: the first theme-color meta whose media query matches (a meta without media always does). */
-const effectiveThemeColor = (page: Page) => page.evaluate(() => [...document.querySelectorAll('meta[name="theme-color"]')]
-  .find((meta) => !meta.getAttribute('media') || window.matchMedia(meta.getAttribute('media')!).matches)
-  ?.getAttribute('content') ?? null);
 
 function watch(page: Page) {
   page.on('console', (message: ConsoleMessage) => {
@@ -3070,6 +3066,11 @@ test.describe('Tendo production journey', () => {
       await expect.poll(() => effectiveThemeColor(page), 'choosing Light retints the chrome without a reload').toBe(designTokens.light.paper);
       await appearanceGroup.getByRole('button', { name: en['account.appearance.system'], exact: true }).click();
       await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+      // System hands the tint back to the device: it follows a live device flip both ways, with no reload.
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await expect.poll(() => effectiveThemeColor(page), 'restored System follows a dark device').toBe(designTokens.dark.paper);
+      await page.emulateMedia({ colorScheme: 'light' });
+      await expect.poll(() => effectiveThemeColor(page), 'restored System follows the device back to light').toBe(designTokens.light.paper);
       await page.getByRole('main').getByRole('button', { name: 'Čeština', exact: true }).click();
       try {
         await page.getByRole('link', { name: cs['nav.home'], exact: true }).click();

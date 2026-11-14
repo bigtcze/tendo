@@ -212,6 +212,23 @@ func TestBrandAssetsServedWithTheirOwnContentType(t *testing.T) {
 	}
 }
 
+// The pinned types must not depend on the host MIME table: Debian's /etc/mime.types maps .ico to
+// image/vnd.microsoft.icon while a distroless image has no table at all, and the shipped type must be the same.
+func TestContentTypeForPinsShellAssetsIndependentOfHost(t *testing.T) {
+	for name, want := range map[string]string{
+		"favicon.ico":          "image/x-icon",
+		"FAVICON.ICO":          "image/x-icon",
+		"manifest.webmanifest": "application/manifest+json",
+		"a.woff2":              "font/woff2",
+		"a.woff":               "font/woff",
+	} {
+		// Data that sniffs as something else proves the extension pin wins over both the host table and sniffing.
+		if got := contentTypeFor(name, []byte("<html>app</html>")); got != want {
+			t.Fatalf("contentTypeFor(%q)=%q want %q", name, got, want)
+		}
+	}
+}
+
 // A missing brand asset is a 404, never the app document: serving HTML under an icon or manifest URL makes
 // the browser drop the icon and reject the manifest.
 func TestMissingBrandAssetsAre404NotIndex(t *testing.T) {

@@ -60,6 +60,8 @@ rsvg-convert -w 192 -h 192 -b '#1a6a55' -o public/icon-192.png public/favicon.sv
 rsvg-convert -w 512 -h 512 -b '#1a6a55' -o public/icon-512.png public/favicon.svg
 ```
 
+`-b` paints the light tile colour behind the rounded corners, because Apple touch icons and the manifest icons must be opaque (`rsvg-convert` ignores the dark media rule and always exports the light variant). The manifest declares `display: browser`: Tendo is an ordinary web app, not an installable standalone app, and it registers no service worker.
+
 `public/favicon.ico` is the raster fallback for browsers without SVG favicon support and for the browser's own `/favicon.ico` request. It holds 16, 32 and 48 px PNG exports of the same SVG (transparent corners, light variant). `index.html` links it first with `sizes="32x32"` and the typed SVG last, so browsers that support SVG favicons choose the SVG. Regenerate it with the PNGs:
 
 ```sh
@@ -77,8 +79,6 @@ PY
 ```
 
 The browser chrome tint (`theme-color`) comes from two tagged metas in `index.html` (`data-scheme="light"`/`"dark"`, paper token colours). With System they follow the device through `prefers-color-scheme`; an explicit Light or Dark choice keeps only its own meta (`media="all"`, the other `"not all"`). `public/theme-boot.js` applies this before first paint and `src/theme/theme.ts` on every Appearance change.
-
-`-b` paints the light tile colour behind the rounded corners, because Apple touch icons and the manifest icons must be opaque (`rsvg-convert` ignores the dark media rule and always exports the light variant). The manifest declares `display: browser`: Tendo is an ordinary web app, not an installable standalone app, and it registers no service worker.
 
 ## Checks
 

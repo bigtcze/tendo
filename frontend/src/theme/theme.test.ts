@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyThemePreference, parseThemePreference, readThemePreference, setThemePreference, THEME_STORAGE_KEY } from './theme';
-import { installThemeColorMetas, themeColorMedia } from '../test/themeColor';
+import { installThemeColorMetas, shippedThemeColorMedia, themeColorMedia } from '../test/themeColor';
 
 describe('parseThemePreference', () => {
   it.each([
@@ -110,6 +110,8 @@ describe('browser theme-color follows the in-app choice', () => {
     applyThemePreference('dark');
     applyThemePreference('system');
     expect(themeColorMedia()).toEqual({ light: '(prefers-color-scheme: light)', dark: '(prefers-color-scheme: dark)' });
+    // Restoring System must give back exactly the markup index.html ships, so a later markup edit cannot drift.
+    expect(themeColorMedia()).toEqual(shippedThemeColorMedia());
   });
 
   it('updates the tint when the choice is saved, not only on the next load', () => {
