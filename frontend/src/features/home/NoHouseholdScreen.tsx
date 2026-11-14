@@ -25,14 +25,15 @@ export function NoHouseholdScreen({ onSignedOut, onDiscarded }: { onSignedOut: (
   return (
     <section className="settle mx-auto w-full max-w-3xl">
       <Heading className="text-h1 leading-tight text-ink">{t('home.noHousehold.title')}</Heading>
-      <p className="mt-2 max-w-prose text-base text-muted">{t('home.noHousehold.body')}</p>
-      <div className="mt-6 rounded-2xl border border-line bg-raised p-5 sm:p-6">
-        <h2 className="text-lg font-bold text-ink">{t('home.noHousehold.how.title')}</h2>
-        <p className="mt-2 max-w-prose text-body text-muted">{t('home.noHousehold.how.body')}</p>
+      <p className="mt-2 max-w-prose text-body text-muted">{t('home.noHousehold.body')}</p>
+      {/* Flat sections separated by a rule, as on Account: the screen is two short explanations, not two boxes. */}
+      <div className="mt-6 border-t border-line pt-6">
+        <h2 className="text-h2 text-ink">{t('home.noHousehold.how.title')}</h2>
+        <p className="mt-1 max-w-prose text-body text-muted">{t('home.noHousehold.how.body')}</p>
       </div>
-      <section aria-labelledby="no-household-account-heading" className="mt-4 rounded-2xl border border-line bg-raised p-5 sm:p-6">
-        <h2 id="no-household-account-heading" className="text-lg font-bold text-ink">{t('home.noHousehold.discard.title')}</h2>
-        <p className="mt-2 max-w-prose text-body text-muted">{t('home.noHousehold.discard.body')}</p>
+      <section aria-labelledby="no-household-account-heading" className="mt-6 border-t border-line pt-6">
+        <h2 id="no-household-account-heading" className="text-h2 text-ink">{t('home.noHousehold.discard.title')}</h2>
+        <p className="mt-1 max-w-prose text-body text-muted">{t('home.noHousehold.discard.body')}</p>
         {discard.failure ? <Notice tone="error" className="mt-4">{t(failureKeys[discard.failure])}</Notice> : null}
         <Button ref={triggerRef} variant="secondary" className="mt-4 w-full whitespace-normal text-center sm:w-auto" onClick={discard.openDialog}>
           {t('home.noHousehold.discard.action')}

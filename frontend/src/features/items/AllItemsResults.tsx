@@ -21,7 +21,7 @@ const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-
 const titleLink = 'relative z-10 flex min-h-11 max-w-full items-center rounded-lg py-[11px] -my-[11px] '
   + '[overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent '
   + 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus';
-const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
+const addLink = `inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 const subjectPill = 'inline-flex max-w-full items-center rounded-full bg-upcoming-bg px-2.5 py-0.5 text-meta font-semibold text-ink [overflow-wrap:anywhere]';
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
@@ -120,13 +120,13 @@ export function AllItemsResults({ view, context, page, subjectNames, subjectType
   resultRef: RefObject<HTMLElement | null>; onBack: () => void; onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
-  if (view === 'none') return <EmptyState title={t('allItems.none')}>
+  if (view === 'none') return <EmptyState title={t('allItems.none')} action={
     <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
-  </EmptyState>;
-  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')}>
-    {(hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
-      onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null}
-  </EmptyState>;
+  } />;
+  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')} action={
+    (hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet"
+      onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null
+  } />;
   if (view !== 'rows') return null;
   const range = rangeLabel(context, page, t, locale);
   return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="min-w-0 space-y-3 outline-none">

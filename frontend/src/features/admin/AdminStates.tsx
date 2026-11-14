@@ -1,6 +1,6 @@
 import type { Translate } from '../../i18n';
 import { Heading } from '../../app/Heading';
-import { Button } from '../../components/ui/button';
+import { LoadError } from '../../components/ui/load-error';
 import { Notice } from '../../components/ui/notice';
 import { Skeleton } from '../../components/ui/skeleton';
 import type { NoticeSpec } from './useRoleChange';
@@ -48,8 +48,5 @@ export function AdminOnlyAdmins({ t }: { t: Translate }) {
 }
 
 export function AdminLoadError({ notice, onRetry, t }: { notice: string; onRetry: () => void; t: Translate }) {
-  return <div className="mt-8 space-y-3">
-    <Notice tone="error" aria-atomic="true">{notice}</Notice>
-    <Button onClick={onRetry}>{t('app.error.retry')}</Button>
-  </div>;
+  return <LoadError className="mt-8" message={notice} retryLabel={t('app.error.retry')} onRetry={onRetry} />;
 }
