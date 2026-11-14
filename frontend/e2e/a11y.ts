@@ -14,8 +14,8 @@ type LabelledByStash = { __tendoLabelledByDescriptor?: PropertyDescriptor };
  * During a Firefox scan the page-world getter returns null, so axe resolves `aria-labelledby` from the attribute, the
  * path it already takes when the property is absent. Tendo never sets element references from script, so the scan
  * checks the same relations. Playwright's own utility world keeps the native getter. Remove this once the locked
- * Playwright bundles a fixed Firefox (r1575 or later): the #493 regression test in cross-browser.spec.ts then passes
- * without it.
+ * Playwright bundles a fixed Firefox (r1578 from the 1.66 line no longer crashes on the reproduction): the #493
+ * regression test in cross-browser.spec.ts then passes without it.
  */
 async function withoutPageWorldLabelledByReflection<T>(page: Page, run: () => Promise<T>): Promise<T> {
   if (page.context().browser()?.browserType().name() !== 'firefox') return run();
@@ -25,16 +25,16 @@ async function withoutPageWorldLabelledByReflection<T>(page: Page, run: () => Pr
     (window as LabelledByStash).__tendoLabelledByDescriptor = native;
     Object.defineProperty(Element.prototype, 'ariaLabelledByElements', { ...native, get: () => null });
   });
-  try {
-    return await run();
-  } finally {
-    await page.evaluate(() => {
-      const native = (window as LabelledByStash).__tendoLabelledByDescriptor;
-      if (!native) return;
-      Object.defineProperty(Element.prototype, 'ariaLabelledByElements', native);
-      delete (window as LabelledByStash).__tendoLabelledByDescriptor;
-    });
-  }
+  // A failed or crashed scan fails the test and its page is discarded, so restore only after success: restoring in a
+  // `finally` would replace the scan's own error with a second one from a dead page.
+  const result = await run();
+  await page.evaluate(() => {
+    const native = (window as LabelledByStash).__tendoLabelledByDescriptor;
+    if (!native) return;
+    Object.defineProperty(Element.prototype, 'ariaLabelledByElements', native);
+    delete (window as LabelledByStash).__tendoLabelledByDescriptor;
+  });
+  return result;
 }
 
 /** Runs the WCAG-tagged axe scan on the settled page and returns the raw results. */
