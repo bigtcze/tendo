@@ -239,15 +239,20 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   for (const width of [390, 1440] as const) {
     const accountContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: heightFor(width) } });
     const accountPage = await accountContext.newPage();
-    await accountPage.route('**/api/v1/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ userId: '0198a2f0-0000-7000-8000-000000000001', login: 'audit_owner', expiresAt: '2030-01-01T00:00:00Z' }) }));
+    await accountPage.route('**/api/v1/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ userId: '0198a2f0-0000-7000-8000-000000000001', login: 'audit_owner', expiresAt: '2030-01-01T00:00:00Z', signInMethod: 'password' }) }));
     await accountPage.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
     await accountPage.goto('/account');
     const page = accountPage;
     await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toContainText(en['account.signedInAs'].replace('{login}', 'audit_owner'));
-    await expect(page.getByRole('main').locator('input[type="password"]')).toHaveCount(0);
+    // A password session is offered the local change form, so the capture shows the three fields and no
+    // provider pairing control.
+    const passwordSection = page.getByRole('main').locator('section[aria-labelledby="account-password-heading"]');
+    await expect(passwordSection.getByRole('heading', { level: 2, name: en['account.password.title'] })).toBeVisible();
+    await expect(passwordSection.locator('input[type="password"]')).toHaveCount(3);
+    await expect(page.getByRole('main').locator('input')).toHaveCount(3);
     await expect(page.getByRole('main').getByRole('button', { name: /OIDC Smoke Provider/ })).toHaveCount(0);
-    for (const sectionId of ['account-identity-heading', 'account-appearance-heading', 'account-language-heading']) {
+    for (const sectionId of ['account-identity-heading', 'account-password-heading', 'account-appearance-heading', 'account-language-heading']) {
       const section = page.getByRole('main').locator(`section[aria-labelledby="${sectionId}"]`);
       await expect(section).toHaveClass(/border-t/);
       await expect(section).not.toHaveClass(/rounded-2xl/);

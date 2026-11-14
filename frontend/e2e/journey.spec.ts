@@ -198,6 +198,7 @@ test.describe('Tendo production journey', () => {
   let lastAdminRefusal = '';
   let memberAdminRefusal = '';
   let passwordResetFailures: string[] = [];
+  let passwordChangeFailures: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
@@ -1987,12 +1988,28 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
       await waitForSettledHouseholdRequests(page);
 
-      // Account is settings only: no password field, no Connect button and no frontend request to the
-      // retired pairing endpoints. The legacy identity API is retained for other clients.
+      // Account is settings only. This session signed in with the password, so the password section holds the
+      // local change form; nothing pairs a provider and no frontend request reaches the retired pairing
+      // endpoints. The legacy identity API is retained for other clients.
       const main = page.getByRole('main');
       await expect(main.getByText(en['account.signedInAs'].replace('{login}', ownerLogin), { exact: true })).toBeVisible();
       await expect(main.getByRole('heading', { level: 2, name: en['account.identity.title'] })).toBeVisible();
-      await expect(main.locator('input')).toHaveCount(0);
+      const passwordSection = main.locator('section[aria-labelledby="account-password-heading"]');
+      await expect(passwordSection.getByRole('heading', { level: 2, name: en['account.password.title'] })).toBeVisible();
+      await expect(passwordSection.getByRole('form', { name: en['account.password.form.label'] })).toBeVisible();
+      // The whole input set of Account is exactly the three password fields of that section, so no provider
+      // pairing form is mounted anywhere on the page.
+      await expect(main.locator('input')).toHaveCount(3);
+      await expect(main.locator('input:not([type="password"])')).toHaveCount(0);
+      for (const [id, label, name] of [
+        ['account-password-current', en['account.password.current'], 'current-password'],
+        ['account-password-new', en['account.password.new'], 'new-password'],
+        ['account-password-confirm', en['account.password.confirm'], 'confirm-password'],
+      ] as const) {
+        const field = passwordSection.getByLabel(label, { exact: true });
+        await expect(field).toHaveAttribute('id', id);
+        await expect(field).toHaveAttribute('name', name);
+      }
       await expect(main.getByRole('button', { name: /connect/i })).toHaveCount(0);
       await expect(main.getByRole('heading', { name: new RegExp(provider) })).toHaveCount(0);
       expect(oidcRequests, 'Account must not call the retired OIDC frontend API').toEqual([]);
@@ -2137,6 +2154,156 @@ test.describe('Tendo production journey', () => {
     } finally {
       await visitorContext.close();
     }
+  });
+
+  test('n31. Account changes the local password, ends other sessions, and refuses an OIDC session', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const provider = 'OIDC Smoke Provider';
+    const changedPassword = `${ownerPassword}-changed`;
+    const membersPath = `/api/v1/households/${householdId}/members`;
+    const issuer = process.env.E2E_OIDC_ISSUER;
+    if (!issuer) throw new Error('E2E_OIDC_ISSUER is required; run scripts/e2e-smoke.sh');
+    const authorize = `${issuer}/authorize**`;
+    const accountPasswordSection = (target: Page) => target.getByRole('main')
+      .locator('section[aria-labelledby="account-password-heading"]');
+    const sessionCookie = async (target: Page) => (await target.context().cookies())
+      .find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session')?.value ?? '';
+    let changeRequests = 0;
+    const recordChangeRequest = (request: Request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/auth/password') changeRequests += 1;
+    };
+
+    // The local sign-in throttle admits ten attempts per client IP and minute, and the steps just before this one
+    // spend seven of that budget, so this step signs in exactly three times: the local session that makes the change,
+    // then the rejected and the accepted old and new password. Every other session used here is one this journey
+    // already holds or a provider sign-in, which the throttle does not count.
+
+    // n9 left this browser signed in through the provider, and the owner account holds a linked identity as well as
+    // a local password, so the refusal below needs no new session and no sign-in attempt.
+    await page.goto('/');
+    await waitForSettledHome(page, householdName);
+    expect(await (await page.request.get('/api/v1/session')).json(), 'n9 left a provider session')
+      .toMatchObject({ login: ownerLogin, signInMethod: 'oidc' });
+
+    await page.goto('/account');
+    await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    await expect(page.getByRole('main').getByText(en['account.signedInAs'].replace('{login}', ownerLogin), { exact: true })).toBeVisible();
+    const providerSection = accountPasswordSection(page);
+    await expect(providerSection.getByRole('heading', { level: 2, name: en['account.password.title'] })).toBeVisible();
+    // Account states why instead of showing a form nobody could submit successfully.
+    await expect(providerSection).toContainText(en['account.password.provider']);
+    await expect(providerSection.locator('input')).toHaveCount(0);
+    await expect(providerSection.getByRole('form')).toHaveCount(0);
+    await expect(providerSection.getByRole('button')).toHaveCount(0);
+
+    // The refusal is the server's, not a hidden form: the same cookie with the canonical Origin is refused before
+    // the body is read. Nothing is replaced, which the change below proves by still asking for the old password.
+    const refused = await page.request.post('/api/v1/auth/password', {
+      headers: { Origin: baseURL },
+      data: { currentPassword: ownerPassword, newPassword: changedPassword },
+    });
+    expect(refused.status(), 'an OIDC session may not change the local password').toBe(403);
+    expect(await refused.json()).toMatchObject({ status: 403, code: 'local_session_required' });
+
+    // A second browser holds its own session for the same account: one provider click, no sign-in attempt. The
+    // change below must end it.
+    const otherContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const otherPage = await otherContext.newPage();
+    await trackInFlightApiFetches(otherPage);
+    watch(otherPage);
+    try {
+      await otherPage.goto('/login');
+      await expect(otherPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await otherPage.route(authorize, (route) => route.continue({ url: `${route.request().url()}&sub=owner-subject` }));
+      await otherPage.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider), exact: true }).click();
+      await waitForSettledHome(otherPage, householdName);
+      expect(await (await otherPage.request.get('/api/v1/session')).json(), 'the second browser signed in through the provider')
+        .toMatchObject({ login: ownerLogin, signInMethod: 'oidc' });
+
+      // The change itself needs the local session, so this browser replaces n9's provider session with the password
+      // it is about to replace.
+      await page.getByRole('button', { name: en['header.signOut'] }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await signIn(page, ownerPassword);
+      await waitForSettledHome(page, householdName);
+      await page.goto('/account');
+      await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      const section = accountPasswordSection(page);
+      const form = section.getByRole('form', { name: en['account.password.form.label'] });
+      await expect(form).toBeVisible();
+      await expect(section).toContainText(en['account.password.body']);
+      const currentField = form.getByLabel(en['account.password.current'], { exact: true });
+      const newField = form.getByLabel(en['account.password.new'], { exact: true });
+      const confirmField = form.getByLabel(en['account.password.confirm'], { exact: true });
+      const submitChange = form.getByRole('button', { name: en['account.password.submit'], exact: true });
+      const changePassword = async (current: string, next: string, confirmation: string) => {
+        await currentField.fill(current);
+        await newField.fill(next);
+        await confirmField.fill(confirmation);
+        await submitChange.click();
+      };
+      // Console filter keys are `<path> <status>`; step r asserts the method-qualified record.
+      expectedFailedStatuses.add('/api/v1/auth/password 422');
+      page.on('request', recordChangeRequest);
+      try {
+        // A wrong current password is a field answer: the session stays and nothing is written.
+        await changePassword(`${ownerPassword}-wrong`, changedPassword, changedPassword);
+        await expect(currentField).toHaveAttribute('aria-invalid', 'true');
+        await expect(currentField).toHaveAttribute('aria-describedby', 'account-password-current-error');
+        await expect(page.locator('#account-password-current-error')).toHaveText(en['account.password.error.current']);
+        expect(changeRequests, 'the wrong current password was sent').toBe(1);
+        expect((await page.request.get('/api/v1/session')).status(), 'a wrong current password keeps the session').toBe(200);
+
+        // A confirmation mismatch never reaches the server.
+        await changePassword(ownerPassword, changedPassword, `${changedPassword}-different`);
+        await expect(confirmField).toHaveAttribute('aria-invalid', 'true');
+        await expect(page.locator('#account-password-confirm-error')).toHaveText(en['account.password.error.mismatch']);
+        expect(changeRequests, 'the mismatch is refused before the request').toBe(1);
+
+        // The accepted change reports success, clears the entries and rotates this browser's only session.
+        const cookieBefore = await sessionCookie(page);
+        await changePassword(ownerPassword, changedPassword, changedPassword);
+        await expect(page.getByRole('status').filter({ hasText: en['account.password.success'] })).toBeVisible();
+        await expect(currentField).toHaveValue('');
+        await expect(newField).toHaveValue('');
+        await expect(confirmField).toHaveValue('');
+        const rotated = await page.request.get('/api/v1/session');
+        expect(rotated.status()).toBe(200);
+        expect(await rotated.json()).toMatchObject({ login: ownerLogin, signInMethod: 'password' });
+        expect(await sessionCookie(page), 'the caller keeps one fresh session').not.toBe(cookieBefore);
+
+        // Every other session of the account is gone: the second browser's next household read answers 401 and the
+        // client returns to sign-in with the calm notice.
+        expectedFailedStatuses.add(`${membersPath} 401`);
+        await otherPage.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['members.title'], exact: true }).click();
+        await expect(otherPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+        await expect(otherPage.getByRole('status').filter({ hasText: en['login.sessionEnded'] })).toBeVisible();
+        expect((await otherPage.request.get('/api/v1/session')).status(), 'the other session was deleted').toBe(401);
+
+        // The old password is gone and the new one works from that second browser.
+        await otherPage.getByLabel(en['login.login'], { exact: true }).fill(ownerLogin);
+        await otherPage.getByLabel(en['login.password'], { exact: true }).fill(ownerPassword);
+        await otherPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+        await expect(otherPage.getByRole('alert').filter({ hasText: en['login.error.invalid'] })).toBeVisible();
+        await signIn(otherPage, changedPassword);
+        await waitForSettledHome(otherPage, householdName);
+
+        // Changing back restores the password every later step signs in with, and ends the session that just proved
+        // the new one workable.
+        const cookieBeforeRestore = await sessionCookie(page);
+        await changePassword(changedPassword, ownerPassword, ownerPassword);
+        await expect(page.getByRole('status').filter({ hasText: en['account.password.success'] })).toBeVisible();
+        expect(await sessionCookie(page), 'the second accepted change rotates the cookie again').not.toBe(cookieBeforeRestore);
+        expect((await otherPage.request.get('/api/v1/session')).status(), 'the second change ended the other session too').toBe(401);
+        expect((await page.request.get('/api/v1/session')).status(), 'the caller keeps its rotated session').toBe(200);
+        expect(changeRequests, 'two accepted changes and one refused current password').toBe(3);
+      } finally {
+        page.off('request', recordChangeRequest);
+      }
+    } finally {
+      await otherContext.close();
+    }
+    passwordChangeFailures = [`GET ${membersPath} 401`, 'POST /api/v1/auth/password 422'];
   });
 
   test('n10. foreign household and resource access is indistinguishable from missing data', async () => {
@@ -6248,7 +6415,9 @@ test.describe('Tendo production journey', () => {
     const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
     const n17FailedResponses = [`GET /api/v1/households/${householdId}/items/summary 503`, `GET /api/v1/households/${householdId}/members 403`];
     // The two refusals are only ledgered by the tests that proved them, so a skipped proof cannot pass here.
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, ...passwordResetFailures].sort());
+    // The ledger is a set, so two independent proofs of the same refusal (a reset and a password change each end a
+    // session, and both prove it with the same refused household read) collapse into one expected entry.
+    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, ...passwordResetFailures, ...passwordChangeFailures])].sort());
     expect(problems).toEqual([]);
   });
 });
