@@ -201,6 +201,9 @@ describe('members and invitations', () => {
     const create = await screen.findByRole('button', { name: 'Create invite link' });
     await userEvent.click(create); const link = `${location.origin}/invite#${token}`;
     expect(await screen.findByLabelText('Invitation link')).toHaveValue(link);
+    // 16 px like every field, so iOS Safari does not zoom the page when the selected link takes focus.
+    expect(screen.getByLabelText('Invitation link')).toHaveClass('text-control');
+    expect(screen.getByLabelText('Invitation link').className).not.toMatch(/\btext-(small|label|meta|micro|sm|xs)\b/);
     await userEvent.click(screen.getByRole('button', { name: 'Copy' })); expect(writeText).toHaveBeenCalledWith(link);
     await userEvent.click(screen.getByRole('button', { name: 'Create invite link' }));
     const posts = fake.requests.filter((r) => r.method === 'POST' && r.path === `${base}/invitations`);

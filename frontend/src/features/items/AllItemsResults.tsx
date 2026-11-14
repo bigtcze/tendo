@@ -124,7 +124,9 @@ export function AllItemsResults({ view, context, page, subjectNames, subjectType
     <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
   } />;
   if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')} action={
-    (hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet"
+    // Secondary, like Retry under a failed load: its edge lines up with the message above, where a quiet button's
+    // padded label would float inset with no visible edge.
+    (hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="secondary"
       onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null
   } />;
   if (view !== 'rows') return null;

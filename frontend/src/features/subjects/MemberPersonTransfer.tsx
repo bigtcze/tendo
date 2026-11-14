@@ -104,7 +104,7 @@ function MemberPicker({ id, memberId, members, pending, onChange }: {
     <Label htmlFor={id}>{t('subjects.transfer.memberLabel')}</Label>
     <select id={id} value={memberId} disabled={pending} onChange={(event) => onChange(event.target.value)}
       className={cn(
-        'min-h-11 w-full rounded-xl border border-field bg-raised px-3 text-ink',
+        'min-h-11 w-full rounded-xl border border-field bg-raised px-3 text-control text-ink',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
       )}>
       <option value="">{t('subjects.transfer.choose')}</option>

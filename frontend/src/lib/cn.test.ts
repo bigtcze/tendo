@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { cn, typeScaleTokens } from './cn';
 
 const css = readFileSync('src/index.css', 'utf8');
-const themeBlock = css.slice(css.indexOf('@theme {'), css.indexOf('}', css.indexOf('@theme {')));
+// Every `@theme` block (Tailwind allows several, e.g. `@theme inline`), so a size token added in a later block is
+// still checked. The blocks hold only declarations, so each ends at its first closing brace.
+const themeBlocks = [...css.matchAll(/@theme\b[^{]*\{([^}]*)\}/g)].map(match => match[1]);
+const themeBlock = themeBlocks.join('\n');
 // Size tokens only: `--text-h1`, not `--text-h1--line-height`, and not the `--text-ink`/`--text-muted` colour roles
-// that live outside the @theme block.
-const declaredSizes = [...themeBlock.matchAll(/--text-([a-z0-9-]+?):/g)].map(match => match[1]).filter(name => !name.includes('--'));
+// that live outside the @theme blocks.
+const declaredSizes = [...new Set([...themeBlock.matchAll(/--text-([a-z0-9-]+?):/g)].map(match => match[1]).filter(name => !name.includes('--')))];
 
 describe('cn', () => {
   it('knows every type-scale size token declared in the theme', () => {
@@ -30,7 +33,9 @@ describe('cn', () => {
     expect(cn('text-ink', 'text-muted')).toBe('text-muted');
   });
 
-  it('drops a leading override that a later size token resets, as Tailwind font-size utilities do', () => {
+  // tailwind-merge's default conflict rule: a later font-size class drops an earlier `leading-*`, because a
+  // font-size utility may carry its own line height. Tailwind CSS itself would keep both classes.
+  it('drops a leading override that a later size token resets, following tailwind-merge\'s default conflict', () => {
     expect(cn('leading-6', 'text-meta')).toBe('text-meta');
     expect(cn('text-meta', 'leading-6')).toBe('text-meta leading-6');
   });

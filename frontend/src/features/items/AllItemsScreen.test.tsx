@@ -48,6 +48,14 @@ describe('All items', () => {
     expect(within(status).getByRole('option', { name: 'Active (2)' })).toBeInTheDocument();
     expect(within(status).getByRole('option', { name: 'Done (1)' })).toBeInTheDocument();
     expect(within(status).getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
+    // Every filter is a 16 px field at regular weight like the shared Select, never the 13 px semibold label text
+    // it sits in, so iOS Safari does not zoom the page when a filter takes focus.
+    const filters = within(screen.getByRole('main')).getAllByRole('combobox');
+    expect(filters.length).toBeGreaterThanOrEqual(4);
+    for (const filter of filters) {
+      expect(filter).toHaveClass('text-control', 'font-normal');
+      expect(filter.className).not.toMatch(/\btext-(small|label|meta|micro|sm|xs)\b/);
+    }
   });
 
   it.each([

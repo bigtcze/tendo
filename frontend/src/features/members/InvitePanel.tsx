@@ -17,7 +17,7 @@ function InviteLink({ actions, t }: { actions: InviteActions; t: Translate }) {
     <p className="text-small font-semibold text-ink">{t('members.invite.share')}</p>
     <div className="mt-3 flex flex-wrap gap-2">
       <input ref={linkRef} readOnly value={link ?? ''} aria-label={t('members.invite.link')}
-        className={'min-h-11 min-w-0 flex-1 basis-48 rounded-xl border border-field bg-raised px-3 text-small break-all text-ink '
+        className={'min-h-11 min-w-0 flex-1 basis-48 rounded-xl border border-field bg-raised px-3 text-control break-all text-ink '
           + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus'} />
       <Button variant="secondary" onClick={copyLink}>{copied ? t('members.invite.copiedButton') : t('members.invite.copy')}</Button>
     </div>
