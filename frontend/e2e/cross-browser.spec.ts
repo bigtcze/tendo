@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { en } from '../src/i18n/en';
-import { expectNoAxeViolations } from './a11y';
+import { analyzeWcag, expectNoAxeViolations } from './a11y';
 import { focusIndicatorSignature, hasPaintedFocusIndicator } from './focusIndicator';
 
 const password = process.env.E2E_OWNER_PASSWORD;
@@ -22,6 +22,36 @@ async function ready(page: Page, heading: string, path: string) {
     await expect(main.getByRole('heading', { name: en['members.invitations.title'], exact: true })).toBeVisible();
   }
 }
+
+// Regression for #493: Playwright 1.65's Firefox 159 (build r1572) crashed the content process when a role or label
+// locator and an axe scan both read Element.ariaLabelledByElements (Mozilla bug 2090055, microsoft/playwright#43967).
+// Tendo labels sections and the interval input with aria-labelledby, and the journey below locates by role and label
+// before every scan, so it hit this intermittently. This page triggers it on every run.
+test('axe scan survives earlier role and label lookups on aria-labelledby markup', async ({ page }) => {
+  await page.setContent(`<!doctype html><html lang="en"><head><title>Regression 493</title></head><body><main>
+    <h1>Settings</h1>
+    <section aria-labelledby="appearance-heading"><h2 id="appearance-heading">Appearance</h2><p>Theme</p></section>
+    <fieldset><legend id="interval-label">Every</legend><input id="interval" type="number" aria-labelledby="interval-label"></fieldset>
+    <label for="name">Name</label><input id="name">
+  </main></body></html>`);
+  await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Every', exact: true })).toBeVisible();
+  // The input is named only through aria-labelledby, so this scan passes only if axe resolves the reference.
+  await expectNoAxeViolations(page, 'regression-493-aria-labelledby');
+  // The scan leaves the browser's own reflection getter in place for the page.
+  expect(await page.evaluate(() => Object.getOwnPropertyDescriptor(Element.prototype, 'ariaLabelledByElements')?.get?.name))
+    .toBe('get ariaLabelledByElements');
+  // The page is still alive and the locators still resolve through aria-labelledby after the scan.
+  await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Every', exact: true })).toBeVisible();
+  // A dangling reference leaves the input unnamed; the scan must still report it.
+  await page.locator('#interval').evaluate((element) => element.setAttribute('aria-labelledby', 'missing-label'));
+  await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
+  const broken = await analyzeWcag(page);
+  expect(broken.violations.find((violation) => violation.id === 'label')?.nodes.map((node) => node.target.join(' ')),
+    'axe reports the input whose aria-labelledby resolves to nothing').toEqual(['#interval']);
+});
 
 test('owner journeys stay accessible in Firefox and WebKit', async ({ page, browserName }) => {
   test.setTimeout(180_000);
