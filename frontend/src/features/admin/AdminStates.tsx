@@ -20,13 +20,12 @@ export function formatResetExpiry(iso: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
 }
 
-/** A calm white surface stands in for the list while roles load, so the screen never jumps empty. */
+/** Flat placeholder rows in the list's own rhythm hold its place while roles load, so the screen never jumps empty. */
 export function AdminListSkeleton({ label }: { label: string }) {
-  return <div role="status" className="mt-6 overflow-hidden rounded-2xl border border-line bg-raised sm:mt-8">
+  return <div role="status" className="mt-6 border-t border-line sm:mt-8">
     <span className="sr-only">{label}</span>
     {[0, 1, 2].map((row) => (
-      <div key={row} className="flex min-h-16 items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
-        <Skeleton className="size-9 shrink-0 rounded-full" />
+      <div key={row} className="flex min-h-16 items-center gap-3 border-b border-line py-3 last:border-b-0">
         <div className="flex-1 space-y-2">
           <Skeleton className="h-3.5 w-32 max-w-[45%]" />
           <Skeleton className="h-3 w-24 max-w-[35%]" />
@@ -37,10 +36,13 @@ export function AdminListSkeleton({ label }: { label: string }) {
   </div>;
 }
 
-/** Members reach this by opening the address directly: the server refused, so no account data is shown. */
+/**
+ * Members reach this by opening the address directly: the server refused, so no account data is shown. A plain
+ * section like the member view of Members, not a card.
+ */
 export function AdminOnlyAdmins({ t }: { t: Translate }) {
-  return <section aria-labelledby="admin-restricted-heading" className="mt-6 rounded-2xl border border-line bg-raised p-5 sm:mt-8 sm:p-6">
-    <h2 id="admin-restricted-heading" className="text-lg font-bold text-ink">{t('admin.onlyAdmins.title')}</h2>
+  return <section aria-labelledby="admin-restricted-heading" className="mt-6 sm:mt-8">
+    <h2 id="admin-restricted-heading" className="text-h2 text-ink">{t('admin.onlyAdmins.title')}</h2>
     <p className="mt-1 max-w-prose text-body text-muted">{t('admin.onlyAdmins.body')}</p>
   </section>;
 }

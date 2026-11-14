@@ -2,14 +2,11 @@ import { Button } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
 import { signInMethod, type Account } from './adminApi';
 
-function initialOf(login: string): string {
-  return login.trim().charAt(0).toLocaleUpperCase() || '?';
-}
-
 /**
- * One compact account row: who it is, what they can do, how they sign in, and the role and password actions.
- * Password reset appears only for a local password that is not the viewer's own; single sign-on accounts keep
- * a short explanation instead so the missing action never looks broken.
+ * One flat account row, like a Members row: the login over one muted line that says the role and how the account
+ * signs in, then the role and password actions. No avatar tile and no pill: the header already shows the viewer's
+ * initial, and the role is a fact, not a badge. Password reset appears only for a local password that is not the
+ * viewer's own; single sign-on accounts keep a short explanation instead so the missing action never looks broken.
  */
 export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChange, onReset, onCancelReset, t }: {
   account: Account;
@@ -24,19 +21,15 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
   const isAdmin = account.role === 'admin';
   const self = account.userId === viewerId;
   const reset = account.passwordReset;
-  return <li data-account-id={account.userId} className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-nav-selected text-small font-semibold text-ink">
-      {initialOf(account.login)}
-    </span>
-    <div className="min-w-0 flex-1">
+  return <li data-account-id={account.userId} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+    <div className="min-w-0 flex-1 basis-40">
       <p className="min-w-0 break-words text-row-title font-semibold text-ink">
         <span data-account-login>{account.login}</span>
         {self ? <span className="font-normal text-muted"> ({t('members.you')})</span> : null}
       </p>
-      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-muted">
-        <span data-account-role className="rounded-full bg-sand px-2 py-0.5 text-small font-semibold text-muted">
-          {t(isAdmin ? 'members.role.admin' : 'members.role.member')}
-        </span>
+      <p data-account-meta className="mt-0.5 text-meta leading-snug text-muted">
+        <span data-account-role>{t(isAdmin ? 'members.role.admin' : 'members.role.member')}</span>
+        {' '}<span aria-hidden="true" className="select-none">·</span>{' '}
         <span>{t(`admin.signIn.${signInMethod(account)}`)}</span>
       </p>
       {reset
