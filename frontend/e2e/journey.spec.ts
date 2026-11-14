@@ -2176,7 +2176,8 @@ test.describe('Tendo production journey', () => {
     // The local sign-in throttle admits ten attempts per client IP and minute, and the steps just before this one
     // spend seven of that budget, so this step signs in exactly three times: the local session that makes the change,
     // then the rejected and the accepted old and new password. Every other session used here is one this journey
-    // already holds or a provider sign-in, which the throttle does not count.
+    // already holds or a provider sign-in, which the throttle does not count (provider sign-ins spend the separate
+    // OIDC start limiter instead, ten per client IP and minute).
 
     // n9 left this browser signed in through the provider, and the owner account holds a linked identity as well as
     // a local password, so the refusal below needs no new session and no sign-in attempt.

@@ -100,7 +100,8 @@ export function passwordChange(options: {
       );
     }
     const body = JSON.parse(req.body) as { currentPassword: string; newPassword: string };
-    if (body.newPassword.length < 15 || body.newPassword.length > 128) {
+    const newPasswordLength = [...body.newPassword].length; // code points, as the server counts
+    if (newPasswordLength < 15 || newPasswordLength > 128) {
       return json(422, {
         type: 'about:blank', title: 'Validation Failed', status: 422, code: 'invalid_length', field: 'newPassword',
       });
@@ -118,7 +119,6 @@ export function passwordChange(options: {
   };
   return { routes: { 'POST /api/v1/auth/password': route }, account };
 }
-
 
 export const household: components['schemas']['Household'] = {
   id: HOUSEHOLD_ID,

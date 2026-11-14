@@ -91,5 +91,3 @@ export function usePasswordChange({ signInMethod, onChanged, onSignedOut, onRefu
     failure, success, pending, currentRef, newRef, confirmRef, submit,
   };
 }
-
-export type PasswordChange = ReturnType<typeof usePasswordChange>;
