@@ -85,8 +85,10 @@ drift and one path would eventually keep a session or a reset link alive.
   Issuing a reset link locks the target account row first, then revokes the
   target's previous link rows. The change and the operator reset revoke the
   account's links, then take the credential row `FOR UPDATE`, then delete and
-  re-insert sessions; inserting a session also takes the foreign-key `KEY SHARE`
-  on the account row. Redemption takes the token row `FOR UPDATE` before the
+  re-insert sessions. The change takes its only lock on the account row — the
+  foreign-key `KEY SHARE` — at that final session insert, not at the start: it
+  never pre-locks `user_accounts`, because an early stronger lock is exactly what
+  closed the cycle below. Redemption takes the token row `FOR UPDATE` before the
   credential row. The account lock is deliberately `FOR NO KEY UPDATE` and not
   `FOR UPDATE`: it still serializes two issuances for the same target (and an
   account deletion still conflicts with it), but it does not conflict with the
@@ -99,6 +101,13 @@ drift and one path would eventually keep a session or a reset link alive.
   alone. Invitation acceptance locks the same account row in the same
   `FOR NO KEY UPDATE` mode but takes no link or credential rows, so it only
   serializes account-row writes and cannot join the cycle.
+- **No `user_accounts` `FOR UPDATE` followed by these rows.** Any path that takes
+  `user_accounts` `FOR UPDATE` must not afterwards wait on
+  `password_reset_tokens`, `local_credentials` or `user_sessions` rows of that
+  account. The change holds link, credential and session rows while it inserts
+  its replacement session, so such a path would recreate the `40P01` cycle with
+  it. Future instance-admin account deletion must respect this rule when it
+  locks the account row.
 - **The caller keeps exactly one fresh session.** The replacement deletes the
   caller's own session like every other one, so the transaction proves the
   caller's session was among the deleted ones (`ErrUnauthenticated` otherwise),

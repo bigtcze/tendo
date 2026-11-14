@@ -342,35 +342,6 @@ func isDeadlockError(err error) bool {
 	return errors.As(err, &postgresError) && postgresError.Code == "40P01"
 }
 
-// waitForSessionInsertLockWait blocks until the change's session insert is
-// queued on a lock, or until the watched work finished. PostgreSQL reports a
-// foreign-key key-share wait as a wait on the holding transaction, so pg_locks
-// alone would miss it; the statement text in pg_stat_activity identifies it.
-func waitForSessionInsertLockWait(t *testing.T, ctx context.Context, observer *pgxpool.Pool, finished <-chan struct{}) bool {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		select {
-		case <-finished:
-			return false
-		default:
-		}
-		var waiting int
-		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
-			WHERE datname=current_database() AND wait_event_type='Lock'
-				AND query ILIKE '%INSERT INTO user_sessions%'`).Scan(&waiting); err != nil {
-			t.Fatalf("lock probe: %v", err)
-		}
-		if waiting > 0 {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
 // TestPasswordChangePostgresDoesNotDeadlockWithResetIssuance pins the lock order
 // every credential path shares (ADR 0018): user_accounts FOR NO KEY UPDATE ->
 // password_reset_tokens -> local_credentials -> user_sessions.
@@ -384,9 +355,10 @@ func waitForSessionInsertLockWait(t *testing.T, ctx context.Context, observer *p
 // change waits for the key share. PostgreSQL then aborts one side with 40P01,
 // which the HTTP layer can only report as 503. FOR NO KEY UPDATE still
 // serializes two issuances for one target but never conflicts with the key
-// share, so the change proceeds and the issuance waits for it.
+// share, so the change finishes while the issuance is still holding the account
+// lock and only the issuance waits.
 func TestPasswordChangePostgresDoesNotDeadlockWithResetIssuance(t *testing.T) {
-	ctx, admin, app, observer := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, target, house := passwordResetFixture(t, ctx, admin)
 	clock := &passwordResetTestClock{at: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)}
 	sessions := newSessionService(t, app, clock)
@@ -442,8 +414,19 @@ func TestPasswordChangePostgresDoesNotDeadlockWithResetIssuance(t *testing.T) {
 		})
 	}()
 
-	observedWait := waitForSessionInsertLockWait(t, ctx, observer, changeFinished)
-	t.Logf("change waited on the account row lock behind reset issuance: %v", observedWait)
+	// The change must finish while the issuance still holds the account row
+	// lock. With FOR NO KEY UPDATE the key share taken by the session insert is
+	// compatible, so nothing on the change side waits for the issuance. If this
+	// times out the account lock blocks session insertion again; the issuance is
+	// then released so the blocked change can resolve before the test fails.
+	select {
+	case <-changeFinished:
+	case <-time.After(5 * time.Second):
+		close(revokeNow)
+		<-issuanceDone
+		<-changeFinished
+		t.Fatalf("change blocked behind issuance's account-row lock: issuance=%v change=%v", issuanceErr, changeErr)
+	}
 
 	close(revokeNow)
 	<-issuanceDone

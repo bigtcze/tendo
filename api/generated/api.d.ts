@@ -4032,7 +4032,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The request Origin is missing or foreign (forbidden_origin), or the authenticated session was not established by a local password sign-in (local_session_required). */
+            /** @description The request Origin is missing or foreign (code-less Forbidden problem), or the authenticated session was not established by a local password sign-in (local_session_required). */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

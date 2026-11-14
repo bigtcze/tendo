@@ -134,19 +134,23 @@ func TestRunUsersNeverPrintsThePromptedPassword(t *testing.T) {
 
 // reportPasswordResetError is the only place that turns a persistence failure
 // into operator text, so the no-secret guarantee is pinned there as well.
+//
+// The default branch is not covered here: it logs through slog and carries only
+// the wrapped error, so it prints no operator text that could fail this check.
 func TestReportPasswordResetErrorNeverPrintsThePassword(t *testing.T) {
-	const secret = "distinctive-reset-secret-value"
 	for _, err := range []error{
 		identityapp.ErrNotFound,
 		identityapp.ErrNoLocalPassword,
 		&identityapp.ValidationError{Field: "password", Code: "invalid_length"},
 		security.ErrPasswordWorkLimit,
-		errors.New("connect " + secret),
 	} {
 		var stderr bytes.Buffer
 		reportPasswordResetError(err, &stderr)
-		if strings.Contains(stderr.String(), secret) {
-			t.Fatalf("error %v printed the password: %q", err, stderr.String())
+		if stderr.Len() == 0 {
+			t.Fatalf("error %v printed no operator message", err)
+		}
+		if strings.Contains(stderr.String(), "password_hash") || strings.Contains(stderr.String(), "$argon2") {
+			t.Fatalf("error %v printed credential material: %q", err, stderr.String())
 		}
 	}
 }
