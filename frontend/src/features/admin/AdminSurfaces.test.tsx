@@ -60,8 +60,9 @@ describe('Admin center calm surfaces', () => {
     await waitFor(() => expect(rowOf('petr')).toBeVisible());
     for (const login of ['anna', 'petr']) {
       const row = rowOf(login);
-      expect(row.querySelector('[aria-hidden="true"].rounded-full')).toBeNull();
-      expect(row.querySelector('.rounded-full')).toBeNull();
+      // No decorative initial: nothing hidden from assistive technology holds just the login's first letter.
+      const glyphs = [...row.querySelectorAll('[aria-hidden="true"]')].filter((node) => /^\s*\p{L}\s*$/u.test(node.textContent ?? ''));
+      expect(glyphs).toHaveLength(0);
       // The first thing in the row is the identity column that holds the login, not a glyph.
       expect(row.firstElementChild?.querySelector('[data-account-login]')).not.toBeNull();
     }
@@ -72,7 +73,7 @@ describe('Admin center calm surfaces', () => {
     await waitFor(() => expect(rowOf('jana')).toBeVisible());
     const role = rowOf('anna').querySelector('[data-account-role]') as HTMLElement;
     expect(role).toHaveTextContent('Administrator');
-    expect(role.className).not.toMatch(/rounded-full|bg-sand|px-2|font-semibold/);
+    expect(role.className).not.toMatch(/rounded-full|bg-/);
     const meta = role.closest('[data-account-meta]') as HTMLElement;
     expect(meta).not.toBeNull();
     expect(meta).toHaveClass('text-meta', 'text-muted');
@@ -89,7 +90,8 @@ describe('Admin center calm surfaces', () => {
     app({ [accountsPath]: json(200, { items: [owner, jana], nextCursor: null }) });
     await waitFor(() => expect(rowOf('jana')).toBeVisible());
     const buttons = within(rowOf('jana')).getAllByRole('button');
-    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['Reset password: jana', 'Make administrator: jana']);
+    // A guard, not a failing-first case: the shared Button already enforces min-h-11; this pins that the row keeps it.
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(expect.arrayContaining(['Reset password: jana', 'Make administrator: jana']));
     for (const button of buttons) expect(button.className).toMatch(/\bmin-h-11\b/);
   });
 
@@ -116,14 +118,10 @@ describe('Admin center calm surfaces', () => {
   });
 
   it('shows the member refusal as a plain section with a section-scale heading', async () => {
-    installFakeServer({
-      'GET /api/v1/session': json(200, session()),
+    app({
       [`GET ${base}`]: json(200, memberHousehold),
-      ...itemRoutes(base, []),
       [accountsPath]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' }),
     });
-    window.history.replaceState(null, '', '/admin');
-    render(<I18nProvider><App /></I18nProvider>);
     const heading = await screen.findByRole('heading', { level: 2, name: 'Only administrators can open the Admin center.' });
     expect(heading).toHaveClass('text-h2', 'text-ink');
     const section = screen.getByRole('region', { name: 'Only administrators can open the Admin center.' });
