@@ -434,6 +434,9 @@ describe('calm list structure', () => {
     expect(toggle).toHaveClass('min-h-11');
     expect(toggle.classList.contains('bg-sand')).toBe(false);
     expect(toggle.classList.contains('rounded-full')).toBe(false);
+    // A secondary control reads quieter than the list: the muted tone must survive the size override.
+    expect(toggle).toHaveClass('text-muted');
+    expect(toggle.classList.contains('text-ink')).toBe(false);
   });
 
   it('names the archived view with its heading and no decorative subtitle', async () => {
@@ -1284,6 +1287,7 @@ describe('member person reassociation', () => {
     // The confirm action stays the only control whose name contains "Connect", so a substring role query (as
     // Playwright's default) cannot mistake the dismiss for it.
     expect(dialog.getAllByRole('button', { name: /connect/i })).toHaveLength(1);
+    expect(cs['subjects.transfer.dismiss'].toLowerCase()).not.toContain(cs['subjects.transfer.confirmAction'].toLowerCase());
     expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
     await userEvent.click(dismiss);
     expect(dialog.queryByRole('combobox', { name: 'Household member' })).not.toBeInTheDocument();

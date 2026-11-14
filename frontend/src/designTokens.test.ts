@@ -55,6 +55,10 @@ const documentedPairs: Pair[] = [
   { label: 'Done / subtle', foreground: 'done', background: 'doneBg', minimum: 4.5, light: 5.31, dark: 8.55 },
   { label: 'Error / subtle', foreground: 'danger', background: 'dangerBg', minimum: 4.5, light: 5.89, dark: 7.57 },
   { label: 'Success / subtle', foreground: 'success', background: 'successBg', minimum: 4.5, light: 5.31, dark: 8.55 },
+  // Flat member/invitation rows print status as plain toned text directly on paper, without a subtle chip.
+  { label: 'Waiting / paper', foreground: 'waiting', background: 'paper', minimum: 4.5, light: 5.52, dark: 10.44 },
+  { label: 'Done / paper', foreground: 'done', background: 'paper', minimum: 4.5, light: 5.72, dark: 10.93 },
+  { label: 'Paused / paper', foreground: 'paused', background: 'paper', minimum: 4.5, light: 5.86, dark: 8.18 },
 ];
 
 describe('CSS theme declarations', () => {
