@@ -19,6 +19,11 @@ func testFS() fstest.MapFS {
 		"assets/inter-latin-wght-normal-abc123.woff":  {Data: []byte("wOFF\x00\x01")},
 		"robots.txt":                  {Data: []byte("User-agent: *")},
 		"theme-boot.js":               {Data: []byte("(function(){})();")},
+		"favicon.svg":                 {Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32"/></svg>`)},
+		"apple-touch-icon.png":        {Data: []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")},
+		"icon-192.png":                {Data: []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")},
+		"icon-512.png":                {Data: []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")},
+		"manifest.webmanifest":        {Data: []byte(`{"name":"Tendo","icons":[]}`)},
 		"fonts/INTER-OFL-LICENSE.txt": {Data: []byte("Copyright 2016 The Inter Project Authors\nSIL OPEN FONT LICENSE Version 1.1\n")},
 		".gitkeep":                    {Data: []byte("")},
 		"assets/.gitkeep":             {Data: []byte("")},
@@ -170,6 +175,47 @@ func TestThemeBootScriptServedAsSameOriginJavaScript(t *testing.T) {
 	}
 	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatal("missing nosniff on theme script")
+	}
+}
+
+// Brand assets sit at the dist root, outside /assets, so they are revalidated rather than cached immutably.
+// A browser asks for them by exact path: a sniffed or generic type (text/plain for .webmanifest, which has no
+// Go builtin MIME entry) or an index.html body would break the tab icon, the iOS home-screen icon and the
+// installed-app manifest. distroless images carry no /etc/mime.types, so the mapping is explicit in contentTypeFor.
+func TestBrandAssetsServedWithTheirOwnContentType(t *testing.T) {
+	h := New(testFS())
+	for file, want := range map[string]string{
+		"/favicon.svg":          "image/svg+xml",
+		"/apple-touch-icon.png": "image/png",
+		"/icon-192.png":         "image/png",
+		"/icon-512.png":         "image/png",
+		"/manifest.webmanifest": "application/manifest+json",
+	} {
+		w := do(h, http.MethodGet, file)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status=%d", file, w.Code)
+		}
+		if got := w.Header().Get("Content-Type"); got != want {
+			t.Fatalf("%s content-type=%q want %q", file, got, want)
+		}
+		if got := w.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Fatalf("%s cache-control=%q, want no-cache (not immutable: the file is not content-hashed)", file, got)
+		}
+		if w.Body.String() == "<html>app</html>" || w.Header().Get("Content-Security-Policy") != "" {
+			t.Fatalf("%s fell back to the SPA document: headers=%v body=%q", file, w.Header(), w.Body)
+		}
+		if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%s missing nosniff", file)
+		}
+	}
+}
+
+// A missing brand asset is a 404, never the app document: serving HTML under an icon or manifest URL makes
+// the browser drop the icon and reject the manifest.
+func TestMissingBrandAssetsAre404NotIndex(t *testing.T) {
+	h := New(fstest.MapFS{"index.html": {Data: []byte("<html>app</html>")}})
+	for _, p := range []string{"/favicon.svg", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"} {
+		assertProblem(t, do(h, http.MethodGet, p), http.StatusNotFound)
 	}
 }
 

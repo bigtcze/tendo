@@ -16,17 +16,33 @@ function HistoryRow({ completion, t, locale }: { completion: Completion; t: Tran
   </li>;
 }
 
+/**
+ * Paged history controls. The list is newest first, so Newer/Older are the Previous/Next of this list, and the
+ * current page is stated as text inside the navigation.
+ *
+ * The navigation stays mounted while a page loads, including the load back to a lone first page from the last
+ * one: moving the cursor stack happens on click, before the request,
+ * so the page number changes inside an existing live region and assistive tech announces it. The buttons only go
+ * disabled for that load, which also keeps a second page change out of the in-flight one.
+ * A failed page keeps just the error and its Retry action, so recovery stays the only thing to do next.
+ */
 function HistoryPaging({ history, t }: { history: ItemDetailHistoryState; t: Translate }) {
+  if (history.state === 'error') return null;
   const hasNewer = history.cursors.length > 1;
-  if (!history.nextCursor && !hasNewer) return null;
-  return <div className="mt-3 flex flex-wrap gap-2">
-    {hasNewer ? <Button type="button" variant="quiet" onClick={history.newer}>{t('itemDetail.historyNewer')}</Button> : null}
-    {history.nextCursor ? <Button type="button" variant="quiet" onClick={history.older}>{t('itemDetail.historyOlder')}</Button> : null}
-    {hasNewer ? <Button type="button" variant="quiet" onClick={history.latest}>{t('itemDetail.historyLatest')}</Button> : null}
-  </div>;
+  if (!history.nextCursor && !hasNewer && !history.paging) return null;
+  const loading = history.state === 'loading';
+  return <nav aria-label={t('itemDetail.historyPages')} className="mt-3 flex flex-wrap items-center gap-2">
+    {hasNewer ? <Button type="button" variant="quiet" disabled={loading} onClick={history.newer}>{t('itemDetail.historyNewer')}</Button> : null}
+    <p role="status" className="px-1 text-small text-muted">
+      {t('itemDetail.historyPage', { page: String(history.cursors.length) })}
+    </p>
+    {history.nextCursor ? <Button type="button" variant="quiet" disabled={loading} onClick={history.older}>{t('itemDetail.historyOlder')}</Button> : null}
+    {hasNewer ? <Button type="button" variant="quiet" disabled={loading} onClick={history.latest}>{t('itemDetail.historyLatest')}</Button> : null}
+  </nav>;
 }
 
-function HistoryBody({ history, t, locale }: { history: ItemDetailHistoryState; t: Translate; locale: string }) {
+/** The list area of the history: the page rows, or what replaced them. The paging navigation is its sibling. */
+function HistoryList({ history, t, locale }: { history: ItemDetailHistoryState; t: Translate; locale: string }) {
   if (history.state === 'loading') return <p role="status" className="mt-3 text-small text-muted">{t('itemDetail.historyLoading')}</p>;
   if (history.state === 'error') {
     return <div className="mt-3 space-y-2">
@@ -34,12 +50,16 @@ function HistoryBody({ history, t, locale }: { history: ItemDetailHistoryState; 
       <Button type="button" variant="quiet" onClick={history.retry}>{t('app.error.retry')}</Button>
     </div>;
   }
+  return history.history.length
+    ? <ol className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
+      {history.history.map((completion) => <HistoryRow key={completion.id} completion={completion} t={t} locale={locale} />)}
+    </ol>
+    : <p className="mt-3 text-small text-muted">{t('itemDetail.historyEmpty')}</p>;
+}
+
+function HistoryBody({ history, t, locale }: { history: ItemDetailHistoryState; t: Translate; locale: string }) {
   return <>
-    {history.history.length
-      ? <ol className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
-        {history.history.map((completion) => <HistoryRow key={completion.id} completion={completion} t={t} locale={locale} />)}
-      </ol>
-      : <p className="mt-3 text-small text-muted">{t('itemDetail.historyEmpty')}</p>}
+    <HistoryList history={history} t={t} locale={locale} />
     <HistoryPaging history={history} t={t} />
   </>;
 }

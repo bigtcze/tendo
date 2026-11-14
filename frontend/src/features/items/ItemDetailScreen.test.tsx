@@ -451,8 +451,8 @@ describe('item details', () => {
     expect(screen.getByRole('heading', { name: 'History' })).toBeVisible();
   });
 
-  it('pages history with a cursor stack, keeps 25 rows, and returns to latest with focus', async () => {
-    const page = (prefix: string, year: number) => Array.from({ length: 25 }, (_, index) => completion(`${prefix}-${index}`, `${year}-${String(12 - Math.floor(index / 2.5)).padStart(2, '0')}-${String(28 - index).padStart(2, '0')}`));
+  it('pages history with a cursor stack, keeps 20 rows, states the current page, and returns to latest with focus', async () => {
+    const page = (prefix: string, year: number) => Array.from({ length: 20 }, (_, index) => completion(`${prefix}-${index}`, `${year}-${String(12 - Math.floor(index / 2.5)).padStart(2, '0')}-${String(28 - index).padStart(2, '0')}`));
     const fake = installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
       const cursor = request.query.get('cursor');
       if (cursor === 'c-older') return json(200, { items: [completion('oldest', '2020-01-01', { undoneAt: '2020-01-02T00:00:00Z' })], nextCursor: null });
@@ -464,17 +464,20 @@ describe('item details', () => {
     const main = within(screen.getByRole('main'));
     const historyList = async () => within(await main.findByRole('list'));
     const historyQuery = () => requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'));
-    expect((await historyList()).getAllByRole('listitem')).toHaveLength(25);
+    const currentPage = () => within(main.getByRole('navigation', { name: 'History pages' })).getByRole('status');
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(20);
     const first = requestsOf(fake.requests, 'GET', historyPath)[0]!;
-    expect(first.query.get('limit')).toBe('25'); expect(first.query.get('order')).toBe('newest'); expect(first.query.has('cursor')).toBe(false);
+    expect(first.query.get('limit')).toBe('20'); expect(first.query.get('order')).toBe('newest'); expect(first.query.has('cursor')).toBe(false);
     expect((await historyList()).getAllByRole('listitem')[0]).toHaveTextContent('Done Dec 28, 2025');
+    expect(currentPage()).toHaveTextContent('Page 1');
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
 
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
     expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
-    expect((await historyList()).getAllByRole('listitem')).toHaveLength(25);
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(20);
     expect(main.queryByText('Done Dec 28, 2025')).not.toBeInTheDocument();
+    expect(currentPage()).toHaveTextContent('Page 2');
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
 
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
@@ -483,15 +486,18 @@ describe('item details', () => {
     expect(oldest.closest('li')).not.toHaveClass(/opacity-/);
     expect((await historyList()).getAllByRole('listitem')).toHaveLength(1);
     expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+    expect(currentPage()).toHaveTextContent('Page 3');
 
     await userEvent.click(main.getByRole('button', { name: 'Newer' }));
     expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(currentPage()).toHaveTextContent('Page 2');
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle']);
 
     await userEvent.click(main.getByRole('button', { name: 'Newer' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null]);
+    expect(currentPage()).toHaveTextContent('Page 1');
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
@@ -502,11 +508,12 @@ describe('item details', () => {
     await userEvent.click(main.getByRole('button', { name: 'Latest' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null, 'c-middle', 'c-older', null]);
+    expect(currentPage()).toHaveTextContent('Page 1');
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
     expect(main.getByRole('button', { name: 'Older' })).toBeVisible();
     expect(main.queryByText('secret-user')).not.toBeInTheDocument();
-    expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '25' && request.query.get('order') === 'newest')).toBe(true);
+    expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '20' && request.query.get('order') === 'newest')).toBe(true);
   });
 
   it('does not steal focus when a slow history page arrives after the user moved on', async () => {
@@ -587,12 +594,77 @@ describe('item details', () => {
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
     expect(await main.findByText('History could not be loaded.')).toBeVisible();
     await userEvent.click(main.getByRole('button', { name: 'Try again' }));
-    expect(await main.findByRole('status')).toHaveTextContent('Loading history…');
+    // Loading is announced as its own status; the paging navigation keeps stating the page being loaded.
+    expect(main.getAllByRole('status').map((node) => node.textContent)).toEqual(['Loading history…', 'Page 2']);
     await act(async () => releaseRetry());
     expect(await main.findByText('Nothing completed yet.')).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'))).toEqual([null, 'older-cursor', 'older-cursor']);
+    expect(within(main.getByRole('navigation', { name: 'History pages' })).getByRole('status')).toHaveTextContent('Page 2');
     expect(main.getByRole('button', { name: 'Newer' })).toBeVisible();
     expect(main.getByRole('button', { name: 'Latest' })).toBeVisible();
+  });
+
+  it('keeps the history paging navigation mounted with the new page announced while a page loads', async () => {
+    let release!: (response: Response) => void;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.has('cursor')
+      ? new Promise<Response>((resolve) => { release = resolve; })
+      : json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
+    expect(pages().getByRole('status')).toHaveTextContent('Page 1');
+
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    // The cursor stack moves before the request, so the live region announces the new page right away; the
+    // navigation itself must still be there, otherwise that status node would be created with its text already in it.
+    expect(release).toBeDefined();
+    expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 2');
+    for (const name of ['Newer', 'Older', 'Latest']) expect(main.getByRole('button', { name })).toBeDisabled();
+
+    await act(async () => release(json(200, { items: [completion('older', '2024-03-01')], nextCursor: null })));
+    expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 2');
+    expect(main.getByRole('button', { name: 'Newer' })).toBeEnabled();
+    expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+  });
+
+  it('keeps announcing the page while returning from the last page to the first one', async () => {
+    let release: ((response: Response) => void) | undefined;
+    let firstPageReads = 0;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
+      if (request.query.has('cursor')) return json(200, { items: [completion('older', '2024-03-01')], nextCursor: null });
+      firstPageReads += 1;
+      return firstPageReads === 1
+        ? json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' })
+        : new Promise<Response>((resolve) => { release = resolve; });
+    } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Older' }));
+    expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
+    const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
+    expect(pages().getByRole('status')).toHaveTextContent('Page 2');
+
+    // The last page has no next cursor and going back empties the stack: the navigation must still stay mounted,
+    // so the existing status node changes to "Page 1" and is announced.
+    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    expect(release).toBeDefined();
+    expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 1');
+    // Back on page 1 there is no Newer, and Older waits for the fresh first-page cursor.
+    expect(pages().queryAllByRole('button')).toHaveLength(0);
+
+    await act(async () => release!(json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' })));
+    expect(await main.findByText('Done Apr 2, 2025')).toBeVisible();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 1');
+    expect(main.getByRole('button', { name: 'Older' })).toBeEnabled();
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
   });
 
   it('renders Czech history navigation labels', async () => {
@@ -606,6 +678,7 @@ describe('item details', () => {
     expect(await main.findByRole('button', { name: 'Novější' })).toBeVisible();
     expect(main.getByRole('button', { name: 'Nejnovější' })).toBeVisible();
     expect(main.queryByRole('button', { name: 'Starší' })).not.toBeInTheDocument();
+    expect(within(main.getByRole('navigation', { name: 'Stránky historie' })).getByRole('status')).toHaveTextContent('Strana 2');
   });
 
   it('loads details via deep link, shows gone for 404/malformed ids and Home returns home', async () => {
