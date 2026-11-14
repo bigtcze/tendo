@@ -44,12 +44,13 @@ function StaleItemNotice({ busy, onReload, t }: Pick<Props, 'busy' | 'onReload' 
 }
 
 /**
- * One action hierarchy: the obvious Done is the only primary, and every other action (Edit, the workflow
- * options, Archive/Restore) is the same outlined secondary. Edit stays first in the tab order.
+ * One action hierarchy: the obvious Done is the only primary, set apart from the status changes it is not
+ * part of, and every other action (Edit, the workflow options) is the same outlined secondary. Edit stays
+ * first in the tab order.
  */
 function LiveRow(props: Props) {
   const { item, busy, editLoading, editRef, t, onEdit, onDone, stale } = props;
-  return <div className="flex flex-wrap items-center gap-2">
+  return <>
     <Button ref={editRef} type="button" variant="secondary" disabled={busy || editLoading || stale} onClick={onEdit}>
       {t('itemDetail.edit.button')}
     </Button>
@@ -59,8 +60,10 @@ function LiveRow(props: Props) {
     >
       {t('items.done')}
     </Button>
-    <WorkflowButtons {...props} busy={busy || stale} />
-  </div>;
+    <div className="flex flex-wrap items-center gap-2 sm:border-l sm:border-line sm:pl-4">
+      <WorkflowButtons {...props} busy={busy || stale} />
+    </div>
+  </>;
 }
 
 function CompletionNotice(props: Props) {
@@ -75,29 +78,27 @@ function CompletionNotice(props: Props) {
 
 function ArchiveControl({ item, busy, stale, t, onArchive, onRestore }: Pick<Props, 'item' | 'busy' | 'stale' | 't' | 'onArchive' | 'onRestore'>) {
   return item.archived
-    ? <Button type="button" variant="secondary" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
-    : <Button type="button" variant="secondary" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
+    ? <Button type="button" variant="secondary" size="small" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
+    : <Button type="button" variant="secondary" size="small" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
 }
 
-/** One action band: Edit, the obvious Done and the workflow options, with Archive/Restore kept apart below. */
+/**
+ * One flat action band on the page: Edit, the obvious Done and the workflow options, with the small quiet
+ * Archive/Restore at its end instead of a card of its own. The outcome of a completion sits under the band.
+ */
 export function ItemDetailActions(props: Props) {
   const { item, busy, t } = props;
   const live = !item.done && !item.archived;
   const staleNotice = props.stale && !props.completionNotice
     ? <StaleItemNotice busy={busy} onReload={props.onReload} t={t} /> : null;
   const archive = <ArchiveControl item={item} busy={busy} stale={props.stale} t={t} onArchive={props.onArchive} onRestore={props.onRestore} />;
-  if (!live && !props.completionNotice) {
-    // Nothing to do on a finished or archived item beyond its facts: a slim hairline band, not an empty card.
-    return <div data-item-actions className="mt-4 space-y-3 border-t border-line pt-3">
-      {staleNotice}
-      <div className="flex flex-wrap items-center gap-2">{archive}</div>
-    </div>;
-  }
-  return <section data-item-actions className="mt-4 space-y-3 rounded-2xl border border-line bg-raised p-4 sm:p-5">
-    {staleNotice}
-    {props.editLoading ? <p role="status" className="text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
-    {live ? <LiveRow {...props} /> : null}
-    {props.completionNotice ? <CompletionNotice {...props} /> : null}
-    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">{archive}</div>
-  </section>;
+  return <div data-item-actions className="mt-6 border-t border-line pt-4">
+    {staleNotice ? <div className="mb-3">{staleNotice}</div> : null}
+    {props.editLoading ? <p role="status" className="mb-3 text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
+    <div className="flex flex-wrap items-center gap-2">
+      {live ? <LiveRow {...props} /> : null}
+      <div className="ml-auto flex flex-wrap items-center gap-2">{archive}</div>
+    </div>
+    {props.completionNotice ? <div className="mt-3"><CompletionNotice {...props} /></div> : null}
+  </div>;
 }

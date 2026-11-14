@@ -21,7 +21,7 @@ export function SubjectEditDialog({ subject, etag, conflict, transfer, members, 
   const memberPerson = isMemberPerson(subject);
   const label = t('subjects.edit.label', { name: subject.name });
   return <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }} title={label}
-    closeLabel={t('subjects.cancel')} sheet triggerRef={triggerRef} initialFocusRef={initialFocusRef} busy={saving || transferring}>
+    closeLabel={t('dialog.close')} sheet triggerRef={triggerRef} initialFocusRef={initialFocusRef} busy={saving || transferring}>
     <SubjectForm key={`${subject.id}:${etag}`} label={label}
       initial={{ name: subject.name, type: subject.type }} memberPerson={memberPerson}
       submitLabel={t('subjects.save')} pendingLabel={t('subjects.saving')}

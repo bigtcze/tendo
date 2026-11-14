@@ -885,7 +885,7 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow, `${viewport.width}px horizontal overflow with the item form open`).toBeLessThanOrEqual(0);
-        await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
+        await page.getByRole('dialog').locator('header button[aria-label="Close"]').click();
       }
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
@@ -1206,7 +1206,9 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', fixedTitle) }).click();
     await expect(page.getByRole('heading', { level: 1, name: fixedTitle })).toBeVisible();
     const dateLabel = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
-    await expect(page.getByText(en['itemDetail.lastDone'].replace('{date}', dateLabel('2025-10-31')))).toBeVisible();
+    // The detail states each fact once: a visible term and its bare value.
+    await expect(page.locator('[data-item-fact="lastDone"] dt')).toHaveText(en['itemDetail.fact.lastDone']);
+    await expect(page.locator('[data-item-fact="lastDone"] dd')).toHaveText(dateLabel('2025-10-31'));
     await page.reload();
     await expect(page.getByRole('heading', { level: 1, name: fixedTitle })).toBeVisible();
     await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
@@ -1259,7 +1261,8 @@ test.describe('Tendo production journey', () => {
     const medium = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
       .format(new Date(`${value}T00:00:00Z`)).replace(/\s/g, '\u00a0');
     const doneNotice = (title: string, next: string) => en['items.notice.doneNext'].replace('{title}', title).replace('{date}', medium(next));
-    const nextAttention = (value: string) => en['itemDetail.nextAttention'].replace('{date}', medium(value));
+    // The attention fact states one bare date under a visible term; the assertion pins the date, not a sentence.
+    const attentionFact = (value: string) => expect(page.locator('[data-item-fact="attention"] dd')).toHaveText(medium(value));
     // A history row is three stacked paragraphs, so its raw text content is the three lines with no separator between
     // them (regex matching sees the raw U+00A0 of the no-break date unit, unlike string matching which normalizes it).
     const historyRow = (doneKey: 'itemDetail.historyDone' | 'itemDetail.historyUndone', done: string, planned: string, next: string) => new RegExp(
@@ -1305,14 +1308,14 @@ test.describe('Tendo production journey', () => {
       await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', monthlyTitle) }).click();
       await expect(page).toHaveURL(new RegExp(`/items/${monthly.id}$`));
       await expect(page.getByRole('heading', { level: 1, name: monthlyTitle })).toBeVisible();
-      await expect(page.getByText(nextAttention('2026-02-28'), { exact: true })).toBeVisible();
+      await attentionFact('2026-02-28');
       const detailDone = main.getByRole('button', { name: en['items.done.label'].replace('{title}', monthlyTitle), exact: true });
       await detailDone.click();
       // The detail notice holds only its own sentence, so its whole text is the exact expected wording. That text pins
       // the restored 31st: an early completion that re-anchored to the clamped day would show 28 March here.
       const detailNotice = main.getByRole('status').filter({ hasText: monthlyTitle });
       await expect(detailNotice).toHaveText(doneNotice(monthlyTitle, '2026-03-31'));
-      await expect(page.getByText(nextAttention('2026-03-31'), { exact: true })).toBeVisible();
+      await attentionFact('2026-03-31');
       await expect.poll(async () => (await serverItem(monthlyTitle)).attentionOn).toBe('2026-03-31');
       const afterSecond = await serverItem(monthlyTitle);
       expect(afterSecond).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
@@ -1331,7 +1334,7 @@ test.describe('Tendo production journey', () => {
       // February occurrence, and the receipt keeps its facts with undoneAt set.
       await main.getByRole('button', { name: en['items.undo'], exact: true }).click();
       await expect(main.getByRole('status').filter({ hasText: en['itemDetail.completionUndone'] })).toBeVisible();
-      await expect(page.getByText(nextAttention('2026-02-28'), { exact: true })).toBeVisible();
+      await attentionFact('2026-02-28');
       await expect.poll(async () => (await serverCompletions(monthly.id)).filter((receipt) => receipt.undoneAt !== null).length).toBe(1);
       expect(await serverItem(monthlyTitle)).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
       const afterUndo = await serverCompletions(monthly.id);
@@ -1360,14 +1363,14 @@ test.describe('Tendo production journey', () => {
       expect(yearly).toMatchObject({ attentionOn: '2028-02-29', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
       await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', yearlyTitle) }).click();
       await expect(page.getByRole('heading', { level: 1, name: yearlyTitle })).toBeVisible();
-      await expect(page.getByText(nextAttention('2028-02-29'), { exact: true })).toBeVisible();
+      await attentionFact('2028-02-29');
       const yearlyDone = main.getByRole('button', { name: en['items.done.label'].replace('{title}', yearlyTitle), exact: true });
       const yearlyNotice = main.getByRole('status').filter({ hasText: yearlyTitle });
       const yearlySteps = ['2029-02-28', '2030-02-28', '2031-02-28', '2032-02-29'];
       for (const [index, expected] of yearlySteps.entries()) {
         await yearlyDone.click();
         await expect(yearlyNotice).toHaveText(doneNotice(yearlyTitle, expected));
-        await expect(page.getByText(nextAttention(expected), { exact: true })).toBeVisible();
+        await attentionFact(expected);
         await expect.poll(async () => (await serverItem(yearlyTitle)).attentionOn).toBe(expected);
         await expect.poll(async () => (await serverCompletions(yearly.id)).length).toBe(index + 1);
         expect((await serverCompletions(yearly.id))[index]).toMatchObject({
@@ -1379,7 +1382,7 @@ test.describe('Tendo production journey', () => {
       }
       await main.getByRole('button', { name: en['items.undo'], exact: true }).click();
       await expect(main.getByRole('status').filter({ hasText: en['itemDetail.completionUndone'] })).toBeVisible();
-      await expect(page.getByText(nextAttention('2031-02-28'), { exact: true })).toBeVisible();
+      await attentionFact('2031-02-28');
       await expect.poll(async () => (await serverCompletions(yearly.id)).filter((receipt) => receipt.undoneAt !== null).length).toBe(1);
       expect(await serverItem(yearlyTitle)).toMatchObject({ attentionOn: '2031-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
       const yearlyAfterUndo = await serverCompletions(yearly.id);
@@ -1820,7 +1823,9 @@ test.describe('Tendo production journey', () => {
     await expect(rowDone).not.toHaveAttribute('data-variant');
     await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toHaveAttribute('data-variant', 'primary');
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
-    await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
+    const responsible = page.locator('[data-item-fact="responsible"]');
+    await expect(responsible.locator('dt')).toHaveText(en['itemDetail.fact.responsible']);
+    await expect(responsible.locator('dd')).toHaveText(member!.login);
     const created = await serverItem(title);
     expect(created.responsibleUserId).toBe(member!.userId);
     await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
@@ -1830,7 +1835,7 @@ test.describe('Tendo production journey', () => {
     // The read view is unmounted while the edit dialog is open: wait for the saved read view before asserting absence.
     await expect(edit).toHaveCount(0);
     await expect(page.getByText(en['itemDetail.updated'], { exact: true })).toBeVisible();
-    await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toHaveCount(0);
+    await expect(page.locator('[data-item-fact="responsible"]')).toHaveCount(0);
     expect((await serverItem(title)).responsibleUserId).toBeNull();
     await page.setViewportSize({ width: 360, height: 740 });
     try {
@@ -2735,7 +2740,7 @@ test.describe('Tendo production journey', () => {
       const chooser = page.getByRole('form', { name: en['items.add.formLabel'] }).getByLabel(en['items.subject'], { exact: true });
       const chooserIDs = await chooser.locator('option').evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
       expect([...chooserIDs].sort()).toEqual([...expectedActiveIDs].sort());
-      await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
+      await page.getByRole('dialog').locator('header button[aria-label="Close"]').click();
     } catch (error) { primaryFailure = error; }
     finally {
       page.off('request', onSubjectRequest);
@@ -5988,7 +5993,7 @@ test.describe('Tendo production journey', () => {
       const addItemButton = page.getByRole('button', { name: en['items.add'], exact: true });
       await addItemButton.click();
       await expect(page.getByText(en['items.subjects.error'], { exact: true })).toBeVisible();
-      await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
+      await page.getByRole('dialog').locator('header button[aria-label="Close"]').click();
       await expect(page.getByText(en['items.subjects.error'], { exact: true })).toHaveCount(0);
       await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
       await expect(addItemButton).toBeFocused();

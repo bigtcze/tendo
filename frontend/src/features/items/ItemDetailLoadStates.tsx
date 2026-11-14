@@ -1,33 +1,35 @@
-import type { ReactNode } from 'react';
 import { Heading } from '../../app/Heading';
+import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
+import { DETAIL_BACK_LINK_CLASS, DETAIL_TITLE_CLASS } from './itemDetailStyles';
 import type { DetailLoadState } from './useItemDetail';
 
-/** White surface for the loading, failed-load and gone states, the same rhythm as the full-page secondary states. */
-function StatePanel({ children }: { children: ReactNode }) {
-  return <div className="mt-4 w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">{children}</div>;
-}
-
-/** Loading, failed-load and gone states; the ready state renders the item itself. */
-export function ItemDetailLoadStates({ state, t, onRetry }: { state: DetailLoadState; t: Translate; onRetry: () => void }) {
+/**
+ * Loading, failed-load and gone states, laid out as the same page the ready item is: the shared page title,
+ * one quiet paragraph and, when the screen was not reached from All items, a way back to the overview.
+ */
+export function ItemDetailLoadStates({ state, t, onRetry, onOverview }: {
+  state: DetailLoadState; t: Translate; onRetry: () => void; onOverview: (() => void) | null;
+}) {
   if (state === 'loading') {
-    return <StatePanel>
-      <p role="status" className="text-lg text-ink">{t('items.loading')}</p>
-    </StatePanel>;
+    return <p role="status" className="mt-4 text-lg text-ink">{t('items.loading')}</p>;
   }
   if (state === 'error') {
-    return <StatePanel>
-      <Heading className="text-h1 font-semibold text-ink">{t('app.error.title')}</Heading>
+    return <div className="mt-4">
+      <Heading className={DETAIL_TITLE_CLASS}>{t('app.error.title')}</Heading>
       <p className="mt-3 max-w-prose text-base text-muted">{t('app.error.body')}</p>
       <Button type="button" className="mt-6" onClick={onRetry}>{t('app.error.retry')}</Button>
-    </StatePanel>;
+    </div>;
   }
   if (state === 'gone') {
-    return <StatePanel>
-      <Heading className="text-h1 leading-tight text-ink">{t('itemDetail.gone')}</Heading>
+    return <div className="mt-4">
+      <Heading className={DETAIL_TITLE_CLASS}>{t('itemDetail.gone')}</Heading>
       <p className="mt-3 max-w-prose text-base text-muted">{t('itemDetail.goneBody')}</p>
-    </StatePanel>;
+      {onOverview
+        ? <NavLink href="/" onNavigate={onOverview} className={`${DETAIL_BACK_LINK_CLASS} mt-4`}>{t('itemDetail.backOverview')}</NavLink>
+        : null}
+    </div>;
   }
   return null;
 }

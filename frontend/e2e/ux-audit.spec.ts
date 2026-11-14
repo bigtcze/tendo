@@ -698,7 +698,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await capture(darkAdd, join(dir, `audit-add-after-completion-dark-en-${width}.png`), false);
           await darkAddContext.close();
         }
-        await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
+        await page.getByRole('dialog').locator('header button[aria-label="Close"]').click();
         await page.setViewportSize({ width, height: 900 });
         const afterCompletionDetail = createdItems.find(item => item.id === afterCompletionItemId)!;
         const detailResponse = await api(page, 'get', `${root}/items/${afterCompletionItemId}`);
@@ -714,7 +714,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(editForAfterMode.getByRole('switch', { name: /Count the next/ })).toBeVisible();
         await expect(editForAfterMode.getByRole('switch', { name: /Count the next/ })).toBeChecked();
         await capture(page, join(dir, `audit-item-edit-after-completion-en-${width}.png`), false);
-        await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
+        await page.getByRole('dialog').locator('header button[aria-label="Close"]').click();
         const csContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
         await csContext.addCookies(await page.context().cookies());
         const csPage = await csContext.newPage();
@@ -789,7 +789,9 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await capture(page, join(dir, `audit-item-detail-done-en-${width}.png`));
           await page.goto(`/items/${archivedDetailFixture!.id}`);
           await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-          await expect(page.getByRole('main').getByText(/Archived\./)).toBeVisible();
+          // The pill states the state once; the quiet line explains what stays true without repeating it.
+          await expect(page.getByRole('main').locator('[data-item-state-kind="archived"]')).toBeVisible();
+          await expect(page.getByRole('main').getByText(en['itemDetail.archived'], { exact: true })).toBeVisible();
           await capture(page, join(dir, `audit-item-detail-archived-en-${width}.png`));
           // Done then Undo on detail: the fixture ends open again, so later stages see the same household.
           await page.goto(`/items/${openDetailFixture!.id}`);

@@ -55,15 +55,18 @@ describe('item details', () => {
     await waitFor(() => expect(document.title).toBe('Renew passport — Tendo'));
   });
 
-  it('shows the assigned member in the detail read view and hides the line when unassigned', async () => {
+  it('names the assigned member as a fact value and drops the row when unassigned', async () => {
     const assigned = item({ responsibleUserId: secondMember.userId });
     installFakeServer(common({ [`GET ${path}`]: json(200, assigned, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
-    expect(await screen.findByText('Looked after by petr')).toBeVisible();
+    await screen.findByText('petr');
+    const responsible = document.querySelector<HTMLElement>('[data-item-fact="responsible"]')!;
+    expect(responsible.querySelector('dt')).toHaveTextContent('Looked after by');
+    expect(responsible.querySelector('dd')).toHaveTextContent('petr');
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
     installFakeServer(common({ [`GET ${base}/members`]: members })); app();
     await screen.findByRole('heading', { name: 'Renew passport' });
-    expect(screen.queryByText(/Looked after by/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-item-fact="responsible"]')).toBeNull();
   });
 
   it('loads history while the member list is still pending', async () => {
@@ -108,27 +111,38 @@ describe('item details', () => {
     expect(await screen.findByText('Item updated.')).toHaveFocus();
   });
 
-  it('shows dates, repeat, responsible and notes in the agreed detail order using plain copy', async () => {
+  it('reads the item facts as one flat labelled list in the agreed order, not a raised card', async () => {
     const fixture = item({ responsibleUserId: secondMember.userId, attention: 'needs_attention', attentionOn: '2026-10-10', lastCompletedOn: '2025-10-10' });
     const fake = installFakeServer(common({ [`GET ${path}`]: json(200, fixture, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
     window.history.replaceState(null, '', `/items/${itemId}`);
     app();
     await screen.findByRole('heading', { name: fixture.title });
-    await screen.findByText('Looked after by petr');
+    await screen.findByText('petr');
     expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(1);
     const main = within(screen.getByRole('main'));
-    // The state is a header pill written out beside an icon; the facts card keeps the dated facts in order.
+    // The state is a header pill written out beside an icon; the facts below are a plain definition list.
     const state = main.getByText('Needs attention', { exact: true });
     expect(state).toHaveAttribute('data-item-state');
     expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-    const card = main.getByText('Bring old passport').closest('[data-item-facts]')!;
-    // Dates are rendered as non-breaking units (U+00A0 inside the date), so the order check reads them as plain text.
-    const text = card.textContent!.replaceAll('\u00a0', ' ');
-    expect(text.indexOf('Due Oct 10, 2026')).toBeLessThan(text.indexOf('Last done Oct 10, 2025'));
-    expect(text.indexOf('Last done Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
-    expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('Looked after by petr'));
-    expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Bring old passport'));
-    expect(text).not.toMatch(/attentionOn|workflow|ETag|fluid/i);
+    const facts = document.querySelector('[data-item-facts]')!;
+    expect(facts.tagName).toBe('DL');
+    expect(facts).not.toHaveClass('rounded-2xl', 'bg-raised');
+    expect(facts).toHaveClass('border-t', 'divide-y');
+    // Every fact is a term and a bare value; the term alone carries the label, so values never repeat it.
+    const fact = (name: string) => facts.querySelector<HTMLElement>(`[data-item-fact="${name}"]`)!;
+    expect([...facts.querySelectorAll('dt')].map((term) => term.textContent))
+      .toEqual(['Attention date', 'Last done', 'Repeats', 'Looked after by', 'Notes']);
+    const value = (name: string) => fact(name).querySelector('dd')!.textContent!.replaceAll('\u00a0', ' ');
+    expect(value('attention')).toBe('Oct 10, 2026');
+    expect(value('lastDone')).toBe('Oct 10, 2025');
+    expect(value('repeat')).toContain('2 years');
+    expect(value('repeat')).toContain('Keeps the planned dates.');
+    expect(value('responsible')).toBe('petr');
+    expect(value('notes')).toBe('Bring old passport');
+    // Reading order follows the DOM order of the rows, not a hand-built string.
+    expect([...facts.querySelectorAll('[data-item-fact]')].map((row) => row.getAttribute('data-item-fact')))
+      .toEqual(['attention', 'lastDone', 'repeat', 'responsible', 'notes']);
+    expect(facts.textContent).not.toMatch(/attentionOn|workflow|ETag|fluid/i);
   });
 
   it('reads the archived state on an archived detail item, with the archived tone and icon', async () => {
@@ -142,7 +156,9 @@ describe('item details', () => {
     expect(pill).toHaveClass('bg-sand', 'text-muted');
     expect(pill.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     expect(pill).not.toHaveTextContent('Done');
-    expect(screen.getByText('Archived. This item stays here and its history is still available.')).toBeVisible();
+    // The sentence explains what stays true; the pill already says the item is archived, so it says it once.
+    expect(await screen.findByText('This item stays here, and its history is still available.')).toBeVisible();
+    expect(screen.getAllByText(/archived/i)).toHaveLength(1);
   });
 
   it('renders no facts surface for an item that has no dates, repeat, responsible member or notes', async () => {
@@ -153,6 +169,53 @@ describe('item details', () => {
     expect(document.querySelector('[data-item-facts]')).toBeNull();
     // The action band is still the one obvious next step.
     expect(within(screen.getByRole('main')).getByRole('button', { name: 'Done: Renew passport' })).toBeVisible();
+  });
+
+  it('keeps one Done primary in a flat action band, with Edit first and a small Archive last', async () => {
+    installFakeServer(common({}));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    const done = await screen.findByRole('button', { name: 'Done: Renew passport' });
+    const band = done.closest('[data-item-actions]')!;
+    // No card: a hairline band on the page, not a raised panel with its own border.
+    expect(band.tagName).not.toBe('SECTION');
+    expect(band).not.toHaveClass('rounded-2xl', 'bg-raised');
+    const buttons = [...band.querySelectorAll('button')];
+    expect(buttons.map((button) => button.textContent!.trim())).toEqual(['Edit', 'Done', 'Start', 'Waiting', 'Pause', 'Archive']);
+    expect(band).toHaveClass('border-t');
+    expect(band.querySelectorAll('button[data-variant="primary"]')).toHaveLength(1);
+    // Archive is the small, quiet control at the end, never a card of its own.
+    const archive = within(band as HTMLElement).getByRole('button', { name: 'Archive' });
+    expect(archive).toHaveAttribute('data-variant', 'secondary');
+    expect(archive.className).toContain('px-3');
+  });
+
+  it('offers a way back to the overview from the gone item screen', async () => {
+    installFakeServer(common({ [`GET ${path}`]: json(404) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    const gone = await screen.findByRole('heading', { level: 1, name: 'That item is gone' });
+    expect(gone.closest('.rounded-2xl')).toBeNull();
+    const back = screen.getByRole('link', { name: 'Back to overview' });
+    expect(back).toHaveAttribute('href', '/');
+    await userEvent.click(back);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  });
+
+  it('gives the loading, failed and gone states the same page-title type as the ready item', async () => {
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({}));
+    app();
+    const ready = await screen.findByRole('heading', { level: 1, name: 'Renew passport' });
+    cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${path}`]: json(503) }));
+    app();
+    const failed = await screen.findByRole('heading', { level: 1, name: 'Tendo can’t be reached right now.' });
+    expect(failed.className).toBe(ready.className);
+    expect(failed.closest('.rounded-2xl')).toBeNull();
+    cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${path}`]: json(404) }));
+    app();
+    const gone = await screen.findByRole('heading', { level: 1, name: 'That item is gone' });
+    expect(gone.className).toBe(ready.className);
   });
 
   it('completes and undoes from detail through shared outcomes with fresh ETags', async () => {
@@ -193,7 +256,9 @@ describe('item details', () => {
     expect(await screen.findByText('This item is complete. Its history is below.')).toBeVisible();
     expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
     expect(screen.getByText('“Renew passport” is done.').closest('[role="status"]')).toHaveFocus();
-    expect(screen.queryByText(/Next attention date|Due Oct/)).not.toBeInTheDocument();
+    // A completed item has no due date left to show; only the last-done fact stays.
+    expect(document.querySelector('[data-item-fact="attention"]')).toBeNull();
+    expect(document.querySelector('[data-item-fact="lastDone"]')).not.toBeNull();
     const historySection = screen.getByRole('heading', { name: 'History' }).closest('section')!;
     expect(await within(historySection).findByText('Done May 14, 2026')).toBeVisible();
     const undo = screen.getByRole('button', { name: 'Undo' });
@@ -261,13 +326,13 @@ describe('item details', () => {
     version++;
     await act(async () => releaseFirst(json(201, first)));
     await userEvent.click(await screen.findByRole('link', { name: 'Renew passport' }));
-    const dueText = () => (document.querySelector('[data-item-facts]')?.textContent ?? '').replaceAll('\u00a0', ' ');
-    await waitFor(() => expect(dueText()).toContain('Next attention date: Jan 31, 2027'));
+    const dueText = () => (document.querySelector('[data-item-fact="attention"] dd')?.textContent ?? '').replaceAll('\u00a0', ' ');
+    await waitFor(() => expect(dueText()).toContain('Jan 31, 2027'));
     await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(2));
     const posted = requestsOf(fake.requests, 'POST', historyPath);
     expect(posted[1]!.headers.get('Idempotency-Key')).not.toBe(posted[0]!.headers.get('Idempotency-Key'));
-    await waitFor(() => expect(dueText()).toContain('Next attention date: Feb 28, 2027'));
+    await waitFor(() => expect(dueText()).toContain('Feb 28, 2027'));
   });
 
   it('keeps the idempotency key of an uncertain completion that settled while detail was unmounted', async () => {
@@ -414,7 +479,7 @@ describe('item details', () => {
     const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, item({ archived }), { ETag: `"${version}"` }), [`PATCH ${path}`]: (req) => { archived = JSON.parse(req.body).archived; version++; return json(200, item({ archived }), { ETag: `"${version}"` }); } }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
-    expect(await screen.findByText(/Archived\. This item stays here/)).toBeVisible();
+    expect(await screen.findByText(/This item stays here, and its history is still available\./)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
     expect(requestsOf(fake.requests, 'PATCH', path).map((request) => JSON.parse(request.body))).toEqual([{ archived: true }, { archived: false }]);
@@ -445,7 +510,7 @@ describe('item details', () => {
   it('keeps archived item details/history and hides workflow controls', async () => {
     installFakeServer(common({ [`GET ${path}`]: json(200, item({ archived: true, done: true } ), { ETag: '"1"' }) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
-    expect(await screen.findByText(/Archived\. This item stays here/)).toBeVisible();
+    expect(await screen.findByText(/This item stays here, and its history is still available\./)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Restore' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'History' })).toBeVisible();
@@ -745,7 +810,7 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Restore' }));
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
-    expect(screen.getByText(/Archived\. This item stays here/)).toBeVisible();
+    expect(screen.getByText(/This item stays here, and its history is still available\./)).toBeVisible();
     expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1);
 
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
@@ -754,7 +819,7 @@ describe('item details', () => {
     const undo = await screen.findByRole('button', { name: 'Undo' });
     await userEvent.click(undo);
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
-    expect(screen.getByText(/Archived\. This item stays here/)).toBeVisible();
+    expect(screen.getByText(/This item stays here, and its history is still available\./)).toBeVisible();
 
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
     installFakeServer(common({ [`GET ${path}`]: json(404) })); app();
@@ -1277,7 +1342,7 @@ describe('item details', () => {
     await screen.findByText('That didn’t work. Check your connection and try again.');
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await screen.findByRole('form', { name: 'Edit item' });
-    await userEvent.click(screen.getByRole('dialog').querySelector('header button[aria-label="Cancel"]')!);
+    await userEvent.click(screen.getByRole('dialog').querySelector('header button[aria-label="Close"]')!);
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
   });
@@ -1336,7 +1401,9 @@ describe('item details', () => {
     installFakeServer(common({ [`GET ${base}/items`]: json(200, { items: [item()], nextCursor: null }) })); app();
     await userEvent.click(await screen.findByRole('link', { name: 'Otevřít položku Renew passport' }));
     expect(await screen.findByRole('heading', { name: 'Renew passport' })).toBeVisible();
-    expect(screen.getByText('Naposledy hotovo 10. 10. 2025')).toBeVisible();
+    const lastDone = document.querySelector('[data-item-fact="lastDone"]')!;
+    expect(lastDone.querySelector('dt')).toHaveTextContent('Naposledy hotovo');
+    expect(lastDone.querySelector('dd')).toHaveTextContent('10. 10. 2025');
     window.history.back(); await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(await screen.findByRole('heading', { name: 'Přehled' })).toBeVisible();
   });

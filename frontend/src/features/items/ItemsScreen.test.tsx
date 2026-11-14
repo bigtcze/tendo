@@ -365,7 +365,7 @@ describe('item creation', () => {
     await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
-    await userEvent.click((await screen.findByRole('dialog')).querySelector('header button[aria-label="Cancel"]')!);
+    await userEvent.click((await screen.findByRole('dialog')).querySelector('header button[aria-label="Close"]')!);
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));

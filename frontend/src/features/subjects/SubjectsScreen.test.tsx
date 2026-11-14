@@ -1603,7 +1603,7 @@ describe('refactor regressions', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     expect(await screen.findByRole('form', { name: 'Edit Anna' })).toBeVisible();
     expect(screen.getByRole('dialog', { name: 'Edit Anna' })).toBeVisible();
-    expect(screen.getByRole('dialog', { name: 'Edit Anna' }).querySelector('button[aria-label="Cancel"]')).toBeEnabled();
+    expect(screen.getByRole('dialog', { name: 'Edit Anna' }).querySelector('button[aria-label="Close"]')).toBeEnabled();
 
     const addButton = screen.getByRole('button', { name: 'Add' });
     expect(addButton).toBeEnabled();

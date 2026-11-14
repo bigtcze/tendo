@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from 'react';
 import { useEffect, useId, useRef } from 'react';
 import { cn } from '../../lib/cn';
 import { Button } from './button';
+import { Glyph } from './glyph';
 
 type DialogProps = {
   open: boolean;
@@ -108,15 +109,16 @@ export function Dialog({
     >
       <header className="flex min-w-0 items-start justify-between gap-4">
         <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words text-h2 font-bold text-ink">{title}</h2>
+        {/* One close control for every dialog: a 44px icon named for what it does, so a form's own Cancel is the only Cancel. */}
         <Button
           type="button"
           variant="quiet"
           disabled={busy}
           aria-label={closeLabel}
           onClick={() => onOpenChange(false)}
-          className="min-h-11 shrink-0 !px-2"
+          className="size-11 shrink-0 !px-0"
         >
-          {closeLabel}
+          <Glyph><path d="M6 6l12 12M18 6 6 18" /></Glyph>
         </Button>
       </header>
       <div data-dialog-content className="mt-4">{children}</div>
