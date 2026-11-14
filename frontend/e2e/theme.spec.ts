@@ -335,7 +335,8 @@ test.describe('self-hosted Inter Variable', () => {
 
     expect(result.bodyFamily, 'body uses Inter Variable before the system fallback').toContain('Inter Variable');
     expect(result.headingFamily, 'headings use the same Inter Variable family').toContain('Inter Variable');
-    expect(result.headingWeight, 'display headings render at bold weight').toBe('700');
+    // Page titles share the signed-in semibold scale; 600 is a variable-axis weight, not the regular face.
+    expect(result.headingWeight, 'page titles render at the shared semibold weight').toBe('600');
     expect(result.czechAvailable, 'a loaded Inter face reports readiness for the Czech sample').toBe(true);
     expect(result.missing, `loaded Inter unicode ranges cover every glyph in ${CZECH_SAMPLE}`).toEqual([]);
     expect(result.loaded.length, 'both Latin and Latin-ext faces are loaded').toBeGreaterThanOrEqual(2);

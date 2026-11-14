@@ -3,10 +3,6 @@ import { useI18n } from '../i18n';
 import { Heading } from './Heading';
 
 /**
- * Panel shared by the secondary full-page states. The shell owns these screens and names each one with its own
- * heading alone: no eyebrow line sits above it.
- */
-/**
  * Signed in, the shell's main fills the viewport, so a state sits in its vertical middle. Signed out, main follows its
  * content and the language footer comes right after it, so the state opens at the top like the rest of the sign-in
  * family instead of pushing the footer into the middle of the page.
@@ -17,6 +13,10 @@ function stateColumn(signedOut: boolean) {
     : 'mx-auto flex min-h-[55vh] w-full max-w-2xl flex-col justify-center';
 }
 
+/**
+ * Panel shared by the secondary full-page states. The shell owns these screens and names each one with its own
+ * heading alone: no eyebrow line sits above it.
+ */
 function StatePanel({ children }: { children: React.ReactNode }) {
   return (
     <div className="w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">

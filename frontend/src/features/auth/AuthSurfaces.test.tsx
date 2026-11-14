@@ -155,11 +155,12 @@ describe('sign-in family keeps one plain form surface', () => {
     installFakeServer({ ...signedOutBoot, 'GET /api/v1/auth/oidc': json(200, { enabled: true, displayName: 'Pocket ID' }) });
     open('/login');
     await screen.findByRole('heading', { level: 1, name: 'Welcome back' });
+    // The provider option appears once the provider status has loaded, after the page title.
+    const provider = await screen.findByRole('button', { name: 'Sign in with Pocket ID' });
     const surfaces = [...screen.getByRole('main').querySelectorAll('div')]
       .filter((element) => element.classList.contains('rounded-2xl') && element.classList.contains('border-line'));
     expect(surfaces, 'exactly one bordered form surface').toHaveLength(1);
-    // The provider option appears once the provider status has loaded, after the page title.
-    expect(surfaces[0]).toContainElement(await screen.findByRole('button', { name: 'Sign in with Pocket ID' }));
+    expect(surfaces[0]).toContainElement(provider);
     expectNoSunkenBand();
   });
 
