@@ -1,8 +1,10 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { en } from '../i18n/en';
 import { I18nProvider } from '../i18n';
 import { emptyHome, HOUSEHOLD_ID, household, installFakeServer, json, session } from '../test/fakeServer';
+import type { Item } from '../features/items/itemsApi';
 import { App } from './App';
 import { ErrorScreen, LoadingScreen, NotFoundScreen } from './StatusScreens';
 
@@ -19,6 +21,11 @@ const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const itemId = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80';
 const member = { userId: session().userId, login: 'anna', role: 'admin' as const };
 const problem = (status: number) => json(status, { type: 'about:blank', title: 'Unavailable', status });
+const loadedItem: Item = {
+  id: itemId, subjectId: 's-1', responsibleUserId: null, title: 'Renew passport', notes: null, attentionOn: null, recurrence: null,
+  workflowState: 'open', attention: 'needs_attention', archived: false, done: false, lastCompletedOn: null,
+  createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+};
 /** A request that never settles: the screen stays in its loading state for the assertion. */
 const held = () => new Promise<Response>(() => undefined);
 
@@ -140,10 +147,48 @@ describe('text loading lines', () => {
   });
 
   it('the Members role probe waits on the same muted line', async () => {
-    // The list answers without the viewer, so the role is still unknown: the screen keeps one line for it.
-    app('/members', signedIn({ [`GET ${base}/members`]: json(200, { items: [{ userId: 'other', login: 'petr', role: 'member' }], nextCursor: null }) }));
+    // The list answers without the viewer and the invitation probe has not answered yet, so the role is still
+    // unknown: the screen keeps one line for it. (An answered probe settles the role, so it is held here.)
+    app('/members', signedIn({
+      [`GET ${base}/members`]: json(200, { items: [{ userId: 'other', login: 'petr', role: 'member' }], nextCursor: null }),
+      [`GET ${base}/invitations`]: held,
+    }));
     await screen.findAllByText(en['members.loading']);
     for (const line of screen.getAllByText(en['members.loading'])) expectTextLoadingLine(line);
+  });
+
+  it('a loading invitation list is the same muted line', async () => {
+    app('/members', signedIn({ [`GET ${base}/invitations`]: held }));
+    await screen.findByRole('heading', { level: 2, name: en['members.invite.title'] });
+    const lines = await screen.findAllByText(en['members.loading']);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expectTextLoadingLine(line);
+  });
+
+  it('a loading completion history is the same muted line', async () => {
+    app(`/items/${itemId}`, signedIn({
+      [`GET ${base}/items/${itemId}`]: json(200, loadedItem, { ETag: '"1"' }),
+      [`GET ${base}/items/${itemId}/completions`]: held,
+    }));
+    expectTextLoadingLine(await screen.findByText(en['itemDetail.historyLoading']));
+  });
+
+  it('the add form waiting for people and things is the same muted line', async () => {
+    app('/', signedIn({ [`GET ${base}/subjects`]: held }));
+    await userEvent.click(await screen.findByRole('button', { name: en['items.add'] }));
+    expectTextLoadingLine(await screen.findByText(en['items.subjects.loading']));
+  });
+
+  it('the OIDC continue step waiting for its sign-in is the same muted line', async () => {
+    window.history.replaceState(null, '', '/login#oidc=continue');
+    installFakeServer({
+      'GET /api/v1/session': problem(401),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: true, displayName: 'Pocket ID' }),
+      'GET /api/v1/auth/oidc/pending': held,
+    });
+    render(<I18nProvider><App /></I18nProvider>);
+    expectTextLoadingLine(await screen.findByText(en['oidc.continue.loading']));
   });
 });
 

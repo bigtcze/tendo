@@ -6,6 +6,7 @@ import { OidcContinueLinkForm } from './OidcContinueLinkForm';
 import { useOidcContinue, type ContinueLoad } from './useOidcContinue';
 import { useOidcProviderStatus } from './useOidcProviderStatus';
 import type { Session } from './sessionApi';
+import { LoadingLine } from '../../components/ui/loading-line';
 
 type Flow = ReturnType<typeof useOidcContinue>;
 
@@ -13,7 +14,7 @@ const noFocus = () => {};
 
 function LoadingPanel() {
   const { t } = useI18n();
-  return <p role="status" className="p-5 text-body text-muted sm:p-7">{t('oidc.continue.loading')}</p>;
+  return <LoadingLine className="p-5 sm:p-7">{t('oidc.continue.loading')}</LoadingLine>;
 }
 
 function RecoveryPanel({ load, retry, cancel }: { load: ContinueLoad; retry: () => void; cancel: () => void }) {

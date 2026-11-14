@@ -4,6 +4,7 @@ import type { Translate } from '../../i18n';
 import type { Completion } from './itemsApi';
 import { formatDate } from './formatDate';
 import type { ItemDetailHistoryState } from './useItemDetailHistory';
+import { LoadingLine } from '../../components/ui/loading-line';
 
 function HistoryRow({ completion, t, locale }: { completion: Completion; t: Translate; locale: string }) {
   const doneKey = completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone';
@@ -43,7 +44,7 @@ function HistoryPaging({ history, t }: { history: ItemDetailHistoryState; t: Tra
 
 /** The list area of the history: the page rows, or what replaced them. The paging navigation is its sibling. */
 function HistoryList({ history, t, locale }: { history: ItemDetailHistoryState; t: Translate; locale: string }) {
-  if (history.state === 'loading') return <p role="status" className="mt-3 text-small text-muted">{t('itemDetail.historyLoading')}</p>;
+  if (history.state === 'loading') return <LoadingLine className="mt-3">{t('itemDetail.historyLoading')}</LoadingLine>;
   if (history.state === 'error') {
     return <div className="mt-3 space-y-2">
       <p className="text-small text-muted">{t('itemDetail.historyError')}</p>

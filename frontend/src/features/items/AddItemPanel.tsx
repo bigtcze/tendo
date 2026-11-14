@@ -5,6 +5,7 @@ import type { Member } from '../members/membersApi';
 import { ItemForm, type ItemFormValues } from './ItemForm';
 import type { Subject } from './itemsApi';
 import type { SubjectState, SubmitOutcome } from './useAddItem';
+import { LoadingLine } from '../../components/ui/loading-line';
 
 type CatalogueStatusProps = {
   adding: boolean;
@@ -22,7 +23,7 @@ export function AddItemCatalogueStatus(props: CatalogueStatusProps) {
   const { t } = useI18n();
   return <>
     {adding && subjectLoading && !editingRecovery
-      ? <p role="status" className="text-muted">{t('items.subjects.loading')}</p>
+      ? <LoadingLine>{t('items.subjects.loading')}</LoadingLine>
       : null}
     {adding && subjectState === 'error' && !editingRecovery ? <div className="space-y-3 rounded-xl border border-line bg-sand p-4">
       <p className="text-ink">{t('items.subjects.error')}</p>
