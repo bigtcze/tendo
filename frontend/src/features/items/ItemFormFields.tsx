@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { Field } from '../../components/ui/field';
+import { Glyph } from '../../components/ui/glyph';
 import { Input } from '../../components/ui/input';
 import { Select } from '../../components/ui/select';
 import { Switch as Toggle } from '../../components/ui/switch';
@@ -32,22 +33,22 @@ function invalidProps(state: ItemFormState, errorId: string, field: FormField, h
   return { 'aria-invalid': invalid, 'aria-describedby': describedBy };
 }
 
-/** Hairline-separated form sections: the everyday fields, then repeat, then who, then the optional notes. */
+/** Rhythm-separated form sections: the everyday fields, then repeat, then who, then the optional notes. */
 export function ItemFormFields(props: FormFieldsProps) {
   const { state, mode, members } = props;
   const showResponsible = members.length > 1 || state.draft.responsibleUserId !== null;
-  return <div className="divide-y divide-line">
-    <div className="space-y-5 pb-5">
+  return <div className="space-y-6">
+    <div className="space-y-5">
       <TitleField {...props} onTitleRef={props.onTitleRef} />
       <SubjectField {...props} />
       <DateField {...props} />
     </div>
-    <div className="py-5">
+    <div className="space-y-5">
       <RepeatSwitch {...props} />
       {state.draft.repeat ? <RecurrencePanel {...props} withHistory={mode === 'add'} /> : null}
     </div>
-    {showResponsible ? <div className="py-5"><ResponsibleField {...props} /></div> : null}
-    <div className="pt-5"><NotesField {...props} /></div>
+    {showResponsible ? <ResponsibleField {...props} /> : null}
+    <NotesField {...props} />
   </div>;
 }
 
@@ -140,9 +141,9 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
   const { id, state, disabled, withHistory } = props;
   const { t, locale } = useI18n();
   const exampleId = `${id}-repeat-example`;
-  return <div className="mt-4 space-y-4 rounded-xl border border-line bg-sand p-4">
+  return <div className="mt-4 space-y-4 rounded-xl bg-sand p-4">
     <IntervalFieldset {...props} />
-    <div className="border-t border-line pt-4">
+    <div>
       <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })}
         label={t('items.repeat.afterCompletion')} describedBy={exampleId} />
       <p id={exampleId} className="mt-1 text-meta text-muted">
@@ -157,7 +158,7 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
 
 function HistoricalCompletion({ id, errorId, state, historyDisabled }: FieldProps & { historyDisabled: boolean }) {
   const { t, locale } = useI18n();
-  return <div className="border-t border-line pt-3">
+  return <div>
     <Button
       type="button" variant="quiet" size="small" disabled={historyDisabled}
       aria-expanded={state.historicalOpen} onClick={state.toggleHistorical}
@@ -198,8 +199,9 @@ function ResponsibleField({ id, errorId, state, disabled, members }: FieldProps 
 function NotesField({ id, errorId, state, disabled }: FieldProps) {
   const { t } = useI18n();
   return <div>
-    <Button type="button" variant="quiet" size="small" disabled={disabled} aria-expanded={state.notesOpen} onClick={state.toggleNotes}
-      className="-ml-3 min-h-11">
+    {/* A real secondary control with a disclosure icon: the notes are optional, not hidden behind a text link. */}
+    <Button type="button" variant="secondary" disabled={disabled} aria-expanded={state.notesOpen} onClick={state.toggleNotes}>
+      <Glyph className="size-4">{state.notesOpen ? <path d="m6 14 6-6 6 6" /> : <path d="m6 10 6 6 6-6" />}</Glyph>
       {t(state.notesOpen ? 'items.notes.hide' : 'items.notes.show')}
     </Button>
     {state.notesOpen ? <div className="mt-2">

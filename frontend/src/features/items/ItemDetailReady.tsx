@@ -1,12 +1,14 @@
 import type { Ref } from 'react';
 import { Heading } from '../../app/Heading';
 import type { Translate } from '../../i18n';
+import type { Member } from '../members/membersApi';
 import type { Item } from './itemsApi';
 import { ItemDetailActions } from './ItemDetailActions';
 import { ItemDetailHistory } from './ItemDetailHistory';
 import { ItemDetailNotice } from './ItemDetailNotice';
 import { ItemDetailReadView } from './ItemDetailReadView';
 import { ItemEditSection } from './ItemEditSection';
+import { DETAIL_TITLE_CLASS } from './itemDetailStyles';
 import { ItemStateIcon, itemState, itemStateLabel, itemStateTone } from './itemStateTone';
 import type { ItemDetailBusy } from './useItemDetailBusy';
 import type { ItemDetailHistoryState } from './useItemDetailHistory';
@@ -22,6 +24,18 @@ function StatePill({ item, t }: { item: Item; t: Translate }) {
     <ItemStateIcon state={state} className="size-4 shrink-0" />
     {t(itemStateLabel(item))}
   </p>;
+}
+
+/** The assigned member's name, or "Unknown member" when the account left the household. */
+function responsibleName(item: Item, members: Member[], t: Translate) {
+  if (!item.responsibleUserId) return null;
+  return members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
+}
+
+/** One quiet line on what the page's state means; an archived item says that instead of the completion line. */
+function StateSentence({ item, t }: { item: Item; t: Translate }) {
+  const sentence = item.archived ? t('itemDetail.archived') : item.done ? t('itemDetail.done') : null;
+  return sentence ? <p className="mt-4 max-w-prose text-muted">{sentence}</p> : null;
 }
 
 export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, onReload, actions }: {
@@ -53,12 +67,7 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
   };
 }) {
   const { notice, undoArchive, members, editing, editLoading, completionNotice } = detail;
-  const responsibleMember = item.responsibleUserId
-    ? members.find((member) => member.userId === item.responsibleUserId)
-    : undefined;
-  const responsible = responsibleMember
-    ? t('items.responsible.read', { name: responsibleMember.login })
-    : item.responsibleUserId ? t('items.responsible.read', { name: t('items.responsible.unknown') }) : null;
+  const responsible = responsibleName(item, members, t);
 
   return <>
     <header className="mt-2 min-w-0">
@@ -67,12 +76,12 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
         {subjectOverride ?? (subjectName || t('items.subject.unknown'))}
       </p>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <Heading className="min-w-0 [overflow-wrap:anywhere] text-pretty text-[1.75rem] leading-[1.15] sm:text-4xl sm:leading-tight">{item.title}</Heading>
+        <Heading className={DETAIL_TITLE_CLASS}>{item.title}</Heading>
         <StatePill item={item} t={t} />
       </div>
     </header>
     <ItemDetailNotice notice={notice} undoArchive={undoArchive} busy={busy.busy} t={t} focusRef={refs.notice} onUndo={actions.onRestore} />
-    {item.archived ? <p className="mt-4 rounded-xl border border-line bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
+    <StateSentence item={item} t={t} />
     {editing
       ? <ItemEditSection editing={editing} subjects={edit.subjects} members={edit.members} busy={busy.busy} locale={locale} t={t}
         onSubmit={edit.saveEdit} onCancel={edit.cancelEdit} />

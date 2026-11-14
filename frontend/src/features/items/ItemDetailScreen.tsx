@@ -4,19 +4,24 @@ import { NavLink } from '../../app/NavLink';
 import { useI18n, type Translate } from '../../i18n';
 import { ItemDetailReady } from './ItemDetailReady';
 import { ItemDetailLoadStates } from './ItemDetailLoadStates';
+import { DETAIL_BACK_LINK_CLASS } from './itemDetailStyles';
 import { useLoadGeneration } from './useLoadGeneration';
 import { useItemDetailScreenState } from './useItemDetailScreenState';
 import { useItemDetailFocus } from './useItemDetailFocus';
 
 type Props = { householdId: string; itemId: string; login: string; userId: string; onBack: () => void; onSignedOut: () => void };
-const BACK_LINK_CLASS = '-ml-3 inline-flex min-h-11 max-w-full whitespace-normal break-words text-left items-center rounded-xl px-3 text-muted '
-  + 'hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+/** The filtered All items page this detail was opened from, when it came from there. */
+function allItemsReturnTo() {
+  const returnTo = window.history.state?.returnTo;
+  return typeof returnTo === 'string' && returnTo.startsWith('/items') ? returnTo : null;
+}
 
 /** Detail opened from All items keeps an exact "Back to all items" link to the filtered page it came from. */
 function BackToAllItems({ onBack, t }: { onBack: () => void; t: Translate }) {
-  const returnTo = window.history.state?.returnTo;
-  if (typeof returnTo !== 'string' || !returnTo.startsWith('/items')) return null;
-  return <NavLink href={returnTo} onNavigate={onBack} className={BACK_LINK_CLASS}>{t('itemDetail.backAllItems')}</NavLink>;
+  const returnTo = allItemsReturnTo();
+  if (!returnTo) return null;
+  return <NavLink href={returnTo} onNavigate={onBack} className={DETAIL_BACK_LINK_CLASS}>{t('itemDetail.backAllItems')}</NavLink>;
 }
 
 export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, onSignedOut }: Props) {
@@ -29,7 +34,8 @@ export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, o
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
     <BackToAllItems onBack={onBack} t={t} />
-    <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} />
+    {/* The gone screen keeps a way out: the All items link when it came from there, the overview otherwise. */}
+    <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} onOverview={allItemsReturnTo() ? null : onBack} />
     {state === 'ready' && item ? <ItemDetailReady
       item={item} subjectOverride={subjectOverride} subjectName={subjectName} detail={detail} busy={busy} edit={edit} history={history} locale={locale} t={t}
       onReload={screen.actions.reload}

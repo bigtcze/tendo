@@ -134,7 +134,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
     {emptyHome && !adding ? <HomeEmptyState /> : null}
-    <Dialog open={adding} onOpenChange={(open) => { if (!open) cancelAddAndFocus(); }} title={t('items.add.formLabel')} closeLabel={t('items.cancel')}
+    <Dialog open={adding} onOpenChange={(open) => { if (!open) cancelAddAndFocus(); }} title={t('items.add.formLabel')}
       busy={busy || recovering} sheet triggerRef={addRef} initialFocusRef={addInitialFocusRef}>
     <AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState}
       editingRecovery={recoveryEditable && !!pendingCreate} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={cancelAddAndFocus} />

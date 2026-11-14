@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
@@ -167,9 +167,37 @@ const title = () => screen.getByLabelText('What needs doing?');
 
   it('Dialog focuses the recovery notice instead of the title', async () => {
     const initialFocusRef: { current: HTMLElement | null } = { current: null };
-    render(<I18nProvider><Dialog open title="Add item" closeLabel="Cancel" initialFocusRef={initialFocusRef} onOpenChange={() => undefined}><ItemForm subjects={subjects} members={members} notice="Try again" initialFocusRef={initialFocusRef} onSubmit={vi.fn(async () => ({ kind: 'done' as const }))} onCancel={vi.fn()} /></Dialog></I18nProvider>);
+    render(<I18nProvider><Dialog open title="Add item" closeLabel="Close" initialFocusRef={initialFocusRef} onOpenChange={() => undefined}><ItemForm subjects={subjects} members={members} notice="Try again" initialFocusRef={initialFocusRef} onSubmit={vi.fn(async () => ({ kind: 'done' as const }))} onCancel={vi.fn()} /></Dialog></I18nProvider>);
     await waitFor(() => expect(screen.getByRole('status')).toHaveFocus());
     expect(title()).not.toHaveFocus();
+  });
+
+  it('leaves one Cancel in the form and closes the dialog from a 44px icon in its header', async () => {
+    // No closeLabel: the dialog names its own close control from the shared locale.
+    render(<I18nProvider><Dialog open title="Add item" onOpenChange={() => undefined}><ItemForm subjects={subjects} members={members} onSubmit={vi.fn(async () => ({ kind: 'done' as const }))} onCancel={vi.fn()} /></Dialog></I18nProvider>);
+    const dialog = screen.getByRole('dialog');
+    // Cancel is the form's own quiet action, so the header close is named for what it does instead of repeating it.
+    expect(within(dialog).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+    const close = within(dialog).getByRole('button', { name: 'Close' });
+    expect(dialog.querySelector('header')!.contains(close)).toBe(true);
+    expect(close).toHaveClass('size-11', '!px-0');
+    // An icon-only control is a non-text control: it needs its own boundary to be perceivable at all.
+    expect(close).toHaveClass('border', 'border-control-border');
+    expect(close.textContent).toBe('');
+    expect(close.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('separates the fields with rhythm rather than dividers and makes notes a real control', async () => {
+    renderForm({ initialValues: values });
+    expect(document.querySelector('form')!.querySelector('.divide-y')).toBeNull();
+    const notes = screen.getByRole('button', { name: 'Add notes (optional)' });
+    expect(notes).toHaveAttribute('data-variant', 'secondary');
+    expect(notes).toHaveAttribute('aria-expanded', 'false');
+    expect(notes).toHaveClass('min-h-11');
+    expect(notes.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    await userEvent.click(notes);
+    expect(screen.getByRole('button', { name: 'Hide notes' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Notes')).toBeVisible();
   });
 
   it('prevents double submission while request is pending', async () => {

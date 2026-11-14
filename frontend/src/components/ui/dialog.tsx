@@ -1,14 +1,17 @@
 // Adapted from shadcn/ui (MIT) — native dialog semantics, focus return owned here.
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useId, useRef } from 'react';
+import { useI18n } from '../../i18n';
 import { cn } from '../../lib/cn';
 import { Button } from './button';
+import { Glyph } from './glyph';
 
 type DialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  closeLabel: string;
+  /** Overrides the default `dialog.close` name; only fixtures that need a distinct name pass one. */
+  closeLabel?: string;
   children: ReactNode;
   busy?: boolean;
   triggerRef?: RefObject<HTMLElement | null>;
@@ -46,6 +49,7 @@ export function Dialog({
   const openRef = useRef(open);
   const busyRef = useRef(busy);
   const titleId = useId();
+  const close = () => onOpenChange(false);
 
   useEffect(() => {
     openRef.current = open;
@@ -108,18 +112,43 @@ export function Dialog({
     >
       <header className="flex min-w-0 items-start justify-between gap-4">
         <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words text-h2 font-bold text-ink">{title}</h2>
-        <Button
-          type="button"
-          variant="quiet"
-          disabled={busy}
-          aria-label={closeLabel}
-          onClick={() => onOpenChange(false)}
-          className="min-h-11 shrink-0 !px-2"
-        >
-          {closeLabel}
-        </Button>
+        {/* One close control for every dialog: a 44px icon named for what it does, so a form's own Cancel is the only Cancel. */}
+        {closeLabel
+          ? <CloseControl label={closeLabel} busy={busy} onClose={close} />
+          : <TranslatedCloseControl busy={busy} onClose={close} />}
       </header>
       <div data-dialog-content className="mt-4">{children}</div>
     </dialog>
   );
+}
+
+type CloseControlProps = { busy: boolean; onClose: () => void };
+
+/**
+ * The dialog's single close control. It keeps its own boundary because an icon-only control is audited as a
+ * non-text control: the border-field token reaches 3:1 against the raised dialog surface in both themes, while a
+ * borderless quiet control reads as an invisible 1.00:1 target.
+ */
+function CloseControl({ label, busy, onClose }: CloseControlProps & { label: string }) {
+  return (
+    <Button
+      type="button"
+      variant="quiet"
+      disabled={busy}
+      aria-label={label}
+      onClick={onClose}
+      className="size-11 shrink-0 border border-control-border !px-0"
+    >
+      <Glyph><path d="M6 6l12 12M18 6 6 18" /></Glyph>
+    </Button>
+  );
+}
+
+/**
+ * Resolves the translated default name only when a caller supplies none, so provider-free fixtures (the primitives
+ * harness, unit tests of dialog mechanics) can still pass an explicit label.
+ */
+function TranslatedCloseControl(props: CloseControlProps) {
+  const { t } = useI18n();
+  return <CloseControl label={t('dialog.close')} {...props} />;
 }

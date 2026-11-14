@@ -4,7 +4,7 @@ import type { Item, Subject } from './itemsApi';
 import type { ItemFormValues } from './ItemForm';
 import { formatDate } from './formatDate';
 import { recurrenceEqual } from './itemEditModel';
-import { repeatLabel } from './ItemDetailReadView';
+import { repeatLabel } from './repeatSummary';
 
 type Props = { latest: Item; mine?: ItemFormValues; subjects: Subject[]; members: Member[]; locale: string; t: Translate };
 

@@ -13,6 +13,14 @@ export function intervalWords(t: Translate, recurrence: Recurrence, locale: stri
   return `${recurrence.intervalValue} ${unitWord(t, locale, recurrence.intervalValue, recurrence.intervalUnit)}`;
 }
 
+/** The interval and the sentence that explains how the next date is chosen, for readers who need both parts. */
+export function repeatLabel(recurrence: Recurrence, locale: string, t: Translate) {
+  return {
+    interval: intervalWords(t, recurrence, locale),
+    mode: t(recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed'),
+  };
+}
+
 /** The unit word that agrees with a count ("1 rok", "2 roky", "5 let"); fractional "many" falls back to "other". */
 export function unitWord(t: Translate, locale: string, count: number, unit: Recurrence['intervalUnit']): string {
   const category = new Intl.PluralRules(locale).select(count);

@@ -106,7 +106,6 @@ export function PasswordResetDialog({ pending, issued, busy, triggerRef, onConfi
     open={open}
     onOpenChange={(next) => { if (!next) { if (issued) onCloseLink(); else onCancel(); } }}
     title={title}
-    closeLabel={t('admin.dialog.close')}
     busy={busy}
     triggerRef={triggerRef}
     initialFocusRef={issued ? linkRef : undefined}

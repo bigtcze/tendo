@@ -7,7 +7,7 @@ import type { ItemDetailHistoryState } from './useItemDetailHistory';
 
 function HistoryRow({ completion, t, locale }: { completion: Completion; t: Translate; locale: string }) {
   const doneKey = completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone';
-  return <li className={`px-4 py-3 text-small sm:px-5 ${completion.undoneAt ? 'text-muted' : 'text-ink'}`}>
+  return <li className={`py-3 text-small ${completion.undoneAt ? 'text-muted' : 'text-ink'}`}>
     <p>{t(doneKey, { date: formatDate(completion.completedOn, locale) })}</p>
     {completion.cycleAttentionOn
       ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}
@@ -51,7 +51,7 @@ function HistoryList({ history, t, locale }: { history: ItemDetailHistoryState; 
     </div>;
   }
   return history.history.length
-    ? <ol className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
+    ? <ol className="mt-3 divide-y divide-line border-t border-line">
       {history.history.map((completion) => <HistoryRow key={completion.id} completion={completion} t={t} locale={locale} />)}
     </ol>
     : <p className="mt-3 text-small text-muted">{t('itemDetail.historyEmpty')}</p>;
