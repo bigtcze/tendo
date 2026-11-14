@@ -35,3 +35,9 @@ describe('cn', () => {
     expect(cn('text-meta', 'leading-6')).toBe('text-meta leading-6');
   });
 });
+
+describe('type scale', () => {
+  it('keeps form controls at 16 px so iOS Safari does not zoom the page when a field gets focus', () => {
+    expect(themeBlock).toMatch(/--text-control:\s*1rem;/);
+  });
+});
