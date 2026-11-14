@@ -6,7 +6,7 @@ import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
 import { createTabRepeatGuard } from './tabRepeatGuard';
-import { measureMotion } from './motion';
+import { measureMotion, waitForSettledAnimations } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
 
@@ -1585,6 +1585,7 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px Admin center overflow').toBeLessThanOrEqual(0);
       const ownerControl = page.getByRole('main').getByRole('button', { name: en['admin.action.demoteLabel'].replace('{login}', ownerLogin) });
+      await waitForSettledAnimations(page);
       const controlBox = await ownerControl.boundingBox();
       expect(controlBox!.height, 'role control target height at 320').toBeGreaterThanOrEqual(44);
       await page.setViewportSize({ width: 1280, height: 800 });
@@ -2250,6 +2251,7 @@ test.describe('Tendo production journey', () => {
       await expectNoAxeViolations(page, 'home-groups');
       // S1: the row is as tall as its two reading lines, and the 44 px target comes from the row itself.
       const sampleRow = upcoming.getByRole('listitem').first();
+      await waitForSettledAnimations(page);
       const desktopRowHeight = await sampleRow.evaluate((node) => node.getBoundingClientRect().height);
       console.info(`journey-home-row-height width=1280 height=${desktopRowHeight}`);
       expect(desktopRowHeight, 'Home row height at 1280').toBeGreaterThanOrEqual(44);
@@ -5689,6 +5691,8 @@ test.describe('Tendo production journey', () => {
       const conflictOption = switchPanel.getByRole('button', { name: 'Conflict household', exact: true });
       await expect(conflictOption).toBeVisible();
       await expect(switchPanel.getByRole('button', { name: householdName, exact: true }), 'the active household is not offered as a switch').toHaveCount(0);
+      // Defensive: the switch panel lives in the header outside any entry animation; measure at rest like every target check.
+      await waitForSettledAnimations(joining.actor);
       const switchBox = await conflictOption.boundingBox();
       expect(switchBox?.height ?? 0, 'household switch rows are 44 px touch targets').toBeGreaterThanOrEqual(44);
       const switchResponse = joining.actor.waitForResponse(response => response.request().method() === 'PATCH' && new URL(response.url()).pathname === '/api/v1/session');
