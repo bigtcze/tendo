@@ -8,7 +8,7 @@ export function useScreenTransitions() {
 }
 
 /** Screen heading (h1). After a screen change it receives focus so assistive tech lands on the new screen. */
-export function Heading({ className, children, documentTitle }: { className?: string; children: ReactNode; documentTitle?: string }) {
+export function Heading({ className, children }: { className?: string; children: ReactNode }) {
   const transitioned = useScreenTransitions();
   const ref = useRef<HTMLHeadingElement>(null);
   // Layout effect: focus moves in the same commit that inserts the heading, so it can never be
@@ -18,7 +18,7 @@ export function Heading({ className, children, documentTitle }: { className?: st
   }, [transitioned]);
   // WCAG 2.4.2: the document title names the current screen; the h1 is its single source.
   useLayoutEffect(() => {
-    const title = documentTitle ?? ref.current?.textContent?.trim();
+    const title = ref.current?.textContent?.trim();
     document.title = title ? `${title} — Tendo` : 'Tendo';
   });
   useLayoutEffect(() => () => { document.title = 'Tendo'; }, []);

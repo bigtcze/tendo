@@ -3,7 +3,6 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
@@ -11,16 +10,6 @@ import { AllItemsResults, outcomeText, resultsView } from './AllItemsResults';
 import { buildQuery } from './allItemsUrl';
 import { useAllItems } from './useAllItems';
 import { useAllItemsFacets } from './useAllItemsFacets';
-
-/** Eyebrow, screen heading and supporting sentence, matching the Home and settings header band. */
-function AllItemsHeader() {
-  const { t } = useI18n();
-  return <header className="min-w-0">
-    <Eyebrow>{t('allItems.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('allItems.title')}</Heading>
-    <p className="mt-2 max-w-prose text-base text-muted">{t('allItems.subtitle')}</p>
-  </header>;
-}
 
 export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut, onOpenItem, onArchivedViewChange }: {
   householdId: string;
@@ -43,7 +32,9 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle min-w-0 space-y-6 max-sm:space-y-4">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
-      <AllItemsHeader />
+      <header className="min-w-0">
+        <Heading className="text-h1 font-semibold text-ink">{t('allItems.title')}</Heading>
+      </header>
       <div className="min-w-0 rounded-2xl border border-line bg-raised p-4 sm:p-5">
         <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
         {/* On phones the single card needs no divider between the search and the filters; removing it keeps the results higher. */}

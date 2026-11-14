@@ -2,7 +2,6 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type Translate } from '../../i18n';
 import { nonBreaking } from '../items/formatDate';
@@ -39,13 +38,11 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
   });
   const formatDate = (date: string) => nonBreaking(new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date)));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    <Eyebrow>{t('members.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('members.title')}</Heading>
-    <p className="mt-2 max-w-prose text-base text-muted">{t('members.subtitle')}</p>
-    <div ref={noticeRef} tabIndex={-1} role="status" aria-atomic="true" className="mt-5 outline-none empty:mt-0">
+    <Heading className="text-h1 font-semibold text-ink">{t('members.title')}</Heading>
+    <div ref={noticeRef} tabIndex={-1} role="status" aria-atomic="true" className="mt-6 outline-none empty:mt-0">
       {notice && state !== 'error' ? <Notice tone={noticeTone === 'success' ? 'success' : 'neutral'} role={null}>{notice}</Notice> : null}
     </div>
-    {state === 'loading' ? <p role="status" className="mt-5 text-small text-muted">{t('members.loading')}</p> : null}
+    {state === 'loading' ? <p role="status" className="mt-6 text-small text-muted">{t('members.loading')}</p> : null}
     {state === 'error' ? <LoadError notice={listErrorNotice} onRetry={() => { setNotice(null); setAttempt((n) => n + 1); }} t={t} /> : null}
     {state === 'ready' ? <div className="mt-6 space-y-4 sm:mt-8 sm:space-y-6">
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}

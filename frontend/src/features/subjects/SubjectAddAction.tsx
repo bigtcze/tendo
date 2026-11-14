@@ -19,8 +19,7 @@ export function SubjectAddAction({ adding, createUncertain, createLocked, pendin
   const addNameRef = useRef<HTMLInputElement | null>(null);
   const [createPending, setCreatePending] = useState(false);
   return <>
-    <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled} onClick={onAdd}
-      className="w-full lg:w-auto">{t('subjects.add')}</Button>
+    <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled} onClick={onAdd}>{t('subjects.add')}</Button>
     <Dialog open={adding} onOpenChange={(open) => { if (!open) onCancelAdd(); }} title={t('subjects.add.formLabel')}
       closeLabel={t('subjects.cancel')} busy={createPending} sheet triggerRef={addRef} initialFocusRef={addNameRef}>
       {adding ? <SubjectForm key={String(adding)} label={t('subjects.add.formLabel')} initial={pendingInitial}

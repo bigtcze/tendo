@@ -1,5 +1,4 @@
 import { Heading } from '../../app/Heading';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { SubjectAddAction } from './SubjectAddAction';
 import { SubjectList } from './SubjectList';
 import { SubjectNotice } from './SubjectNotice';
@@ -32,17 +31,13 @@ export function SubjectsScreenContent({
   switchView: () => void;
 }) {
   const canAdd = list.kind === 'ready' && !showArchived;
-  // Header band first, then the notice: DOM order matches what a reader sees, so the Add control is also the
-  // first thing a keyboard user reaches, as on Home.
+  // One compact band: the screen name and its single primary action on the same line, as on Home. It comes first in
+  // the DOM, so the Add control is also the first thing a keyboard user reaches.
   return <section className="settle flex min-w-0 flex-col">
     <div className="min-w-0 max-w-5xl">
-      <div className="grid gap-y-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-x-8 lg:gap-y-2">
-        <div className="col-start-1 row-start-1 min-w-0">
-          <Eyebrow>{t('subjects.eyebrow')}</Eyebrow>
-          <Heading className="mt-2 text-h1 leading-tight text-ink">{t('subjects.title')}</Heading>
-        </div>
-        <p className="col-start-1 row-start-2 max-w-prose text-base text-muted">{t('subjects.subtitle')}</p>
-        {canAdd ? <div className="col-start-1 row-start-3 shrink-0 lg:col-start-2 lg:row-start-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <Heading className="min-w-0 text-h1 font-semibold text-ink">{t('subjects.title')}</Heading>
+        {canAdd ? <div className="shrink-0">
           <SubjectAddAction adding={adding} createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
             pendingInitial={pendingFormInitial(createUncertain, pendingCreate)} addDisabled={addDisabled} t={t}
             onAdd={startAdding} onCancelAdd={cancelAdding} onAddSubmit={add} />
