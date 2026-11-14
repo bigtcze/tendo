@@ -57,8 +57,9 @@
   --text-meta--line-height: 1.5;
   --text-label: 0.8125rem;
   --text-label--line-height: 1.35;
-  --text-control: 0.9375rem;
-  --text-control--line-height: 1.4;
+  /* Form controls stay at 16 px: a smaller field font makes iOS Safari zoom the page on focus. */
+  --text-control: 1rem;
+  --text-control--line-height: 1.5;
   --text-small: 0.875rem;
   --text-small--line-height: 1.5;
   --text-micro: 0.75rem;

@@ -5,6 +5,7 @@ import { InvitationRows } from './InvitationRows';
 import { CursorPager } from '../../components/ui/cursor-pager';
 import type { InvitationList } from './useInvitationList';
 import type { InviteActions } from './useInviteActions';
+import { LoadingLine } from '../../components/ui/loading-line';
 
 /**
  * The one-time link is a functional readonly field plus a copy action, so it keeps a quiet sunken panel to read as
@@ -36,7 +37,7 @@ export function InvitationsError({ notice, onRetry, className, t }: { notice: st
 function InvitationsBody({ inv, actions, listReady, notice, formatDate, t }: {
   inv: InvitationList; actions: InviteActions; listReady: boolean; notice: string | null; formatDate: (date: string) => string; t: Translate;
 }) {
-  if (!listReady) return <p role="status" className="mt-3 text-small text-muted">{t('members.loading')}</p>;
+  if (!listReady) return <LoadingLine className="mt-3">{t('members.loading')}</LoadingLine>;
   if (inv.invitationsError) return <InvitationsError className="mt-3" notice={notice} onRetry={inv.refreshInvitations} t={t} />;
   if (inv.invitations.length) return <InvitationRows invitations={inv.invitations} actions={actions} formatDate={formatDate} t={t} />;
   return <div className="mt-3 space-y-1">
