@@ -621,6 +621,26 @@ describe('item creation', () => {
 });
 
 describe('Home items', () => {
+  it('never shows the unknown-subject fallback on a row whose label lookup has not answered yet', async () => {
+    // Text a row ever showed, including text React replaced in the same task: removed nodes keep their content and
+    // character-data records keep the old value, so a one-commit flash before the lookup is queued is still caught.
+    const shown: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === 'characterData' && record.oldValue) shown.push(record.oldValue);
+        for (const node of [...record.addedNodes, ...record.removedNodes]) if (node.textContent) shown.push(node.textContent);
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, characterDataOldValue: true });
+    installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => new Promise<Response>(() => {}), [memberList]: memberPage() });
+    app();
+    const row = (await screen.findByText('Renew passport')).closest('li')!;
+    await act(async () => { await Promise.resolve(); });
+    observer.disconnect();
+    expect(row).toHaveTextContent('Loading…');
+    expect(shown.filter((text) => text.includes('Person or thing'))).toEqual([]);
+  });
+
   it('avoids catalogue requests without rows and batch-loads only unique row subjects across groups', async () => {
     const noRows = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
     app();
@@ -1138,8 +1158,8 @@ describe('Home items', () => {
     app();
     const row = await screen.findByText('Renew passport');
     const containingRow = row.closest('li')!;
-    // The row reads "Person or thing" before the label lookup even starts, so that text alone does not prove the
-    // lookup concluded. The retry only appears once both lookups have answered and the ID is conclusively missing.
+    // "Person or thing" appears only once the lookup concluded the ID is missing; the retry appears at the same
+    // point, after both lookups have answered.
     const retry = await screen.findByRole('button', { name: 'Load names again' });
     expect(containingRow).toHaveTextContent('Person or thing');
     expect(containingRow).not.toHaveTextContent('does-not-exist');

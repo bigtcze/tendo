@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
-import { Button } from '../../components/ui/button';
+import { LoadError } from '../../components/ui/load-error';
+import { LoadingLine } from '../../components/ui/loading-line';
 import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
@@ -45,9 +46,9 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
       </div>
       <div className="min-w-0 space-y-4 max-sm:space-y-3">
         {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}
-        {page.loading ? <p role="status" className="text-small text-muted">{t('items.loading')}</p> : null}
-        {page.error ? <Notice tone="error" role={null} className="space-y-3"><p>{t('app.error.body')}</p>
-          <Button data-all-items-retry type="button" variant="secondary" onClick={actions.retry}>{t('app.error.retry')}</Button></Notice> : null}
+        {page.loading ? <LoadingLine>{t('items.loading')}</LoadingLine> : null}
+        {page.error ? <LoadError role={null} message={t('app.error.body')} retryLabel={t('app.error.retry')}
+          onRetry={actions.retry} retryProps={{ 'data-all-items-retry': true }} /> : null}
         <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} subjectTypes={subjectTypes}
           members={facets.members.values} actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
       </div>

@@ -35,4 +35,22 @@ describe('useSubjectLabels classification', () => {
     renderHook(() => useSubjectLabels('user', HOUSEHOLD_ID, ['missing'], onSignedOut));
     await waitFor(() => expect(onSignedOut).toHaveBeenCalledTimes(1));
   });
+
+  it('reports a visible ID as queued and loading from the first render, before its lookup is queued', () => {
+    installFakeServer({ [`GET ${path}`]: () => new Promise<Response>(() => {}) });
+    const seen: Array<{ state: string | undefined; loading: boolean }> = [];
+    renderHook(() => {
+      const labels = useSubjectLabels('user', HOUSEHOLD_ID, ['pending'], vi.fn());
+      seen.push({ state: labels.stateFor('pending'), loading: labels.loading });
+      return labels;
+    });
+    expect(seen[0]).toEqual({ state: 'queued', loading: true });
+    expect(seen.every((entry) => entry.state === 'queued' || entry.state === 'loading')).toBe(true);
+  });
+
+  it('reports no state for an ID that is not visible', () => {
+    installFakeServer({ [`GET ${path}`]: () => new Promise<Response>(() => {}) });
+    const { result } = renderHook(() => useSubjectLabels('user', HOUSEHOLD_ID, ['pending'], vi.fn()));
+    expect(result.current.stateFor('elsewhere')).toBeUndefined();
+  });
 });

@@ -1,6 +1,7 @@
 import { Heading } from '../../app/Heading';
 import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
+import { LoadingLine } from '../../components/ui/loading-line';
 import type { Translate } from '../../i18n';
 import { DETAIL_BACK_LINK_CLASS, DETAIL_TITLE_CLASS } from './itemDetailStyles';
 import type { DetailLoadState } from './useItemDetail';
@@ -13,7 +14,7 @@ export function ItemDetailLoadStates({ state, t, onRetry, onOverview }: {
   state: DetailLoadState; t: Translate; onRetry: () => void; onOverview: (() => void) | null;
 }) {
   if (state === 'loading') {
-    return <p role="status" className="mt-4 text-lg text-ink">{t('items.loading')}</p>;
+    return <LoadingLine className="mt-4">{t('items.loading')}</LoadingLine>;
   }
   if (state === 'error') {
     return <div className="mt-4">

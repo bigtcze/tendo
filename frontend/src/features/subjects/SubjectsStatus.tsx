@@ -1,5 +1,5 @@
-import { Button } from '../../components/ui/button';
-import { Notice } from '../../components/ui/notice';
+import { LoadError } from '../../components/ui/load-error';
+import { LoadingLine } from '../../components/ui/loading-line';
 import type { ListState } from './subjectsModel';
 import type { MessageKey } from '../../i18n';
 
@@ -10,15 +10,12 @@ export function SubjectsStatus({ list, t, onRetry }: { list: ListState; t: (key:
     <p aria-live="polite" aria-atomic="true" className="sr-only">
       {list.kind === 'error' ? `${t('app.error.title')} ${t('app.error.body')}` : ''}
     </p>
-    {list.kind === 'loading' ? <p role="status" className="mt-6 text-muted">{t('subjects.loading')}</p> : null}
-    {list.kind === 'error' ? <Notice tone="error" role={null} className="mt-6 space-y-3">
-      <p className="text-lg font-semibold">{t('app.error.title')}</p>
-      <p>{t('app.error.body')}</p>
-      <Button type="button" onClick={onRetry}>{t('app.error.retry')}</Button>
-    </Notice> : null}
-    {list.kind === 'noHousehold' ? <div className="mt-6 w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">
-      <h2 className="text-h2 font-bold text-ink">{t('home.noHousehold.title')}</h2>
-      <p className="mt-2 text-muted">{t('home.noHousehold.body')}</p>
+    {list.kind === 'loading' ? <LoadingLine className="mt-6">{t('subjects.loading')}</LoadingLine> : null}
+    {list.kind === 'error' ? <LoadError role={null} className="mt-6" message={t('app.error.body')}
+      retryLabel={t('app.error.retry')} onRetry={onRetry} /> : null}
+    {list.kind === 'noHousehold' ? <div className="mt-6 w-full">
+      <h2 className="text-h2 text-ink">{t('home.noHousehold.title')}</h2>
+      <p className="mt-1 max-w-prose text-body text-muted">{t('home.noHousehold.body')}</p>
     </div> : null}
   </>;
 }
