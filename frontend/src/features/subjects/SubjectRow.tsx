@@ -14,7 +14,8 @@ import type { MemberPersonTransferApi } from './useMemberPersonTransfer';
 
 /** The row is its own line: a name, one quiet metadata line, then the actions on the same line where width allows. */
 const NAME = 'text-row-title font-semibold leading-snug text-ink [overflow-wrap:anywhere]';
-const META = 'mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-meta leading-snug text-muted';
+// Inline flow like Home's row meta: the separator stays with the text it joins and every part shares one baseline.
+const META = 'mt-0.5 block text-meta leading-snug text-muted';
 const SEPARATOR = 'select-none';
 const ACTION_LINK = 'inline-flex min-h-11 items-center rounded-lg px-2.5 text-small font-semibold text-accent '
   + 'transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
@@ -46,7 +47,7 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
       <div className="min-w-0 grow basis-40">
         <p data-subject-name className={NAME}>{subject.name}</p>
         <p className={META}>
-          <span className="inline-flex min-w-0 items-center gap-1">
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1 align-[-0.15em]">
             <span aria-hidden="true" data-subject-icon={subject.type} className="inline-flex shrink-0">
               <SubjectTypeIcon type={subject.type} className="size-3.5" />
             </span>
