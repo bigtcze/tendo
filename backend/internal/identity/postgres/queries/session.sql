@@ -20,12 +20,12 @@ FROM user_accounts u WHERE u.id = ANY($1::uuid[]);
 DELETE FROM user_sessions WHERE user_id=$1 AND expires_at <= $2;
 
 -- name: CreateSession :one
-INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,$3,$4) RETURNING id::text AS id;
+INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,$3,$4,$5) RETURNING id::text AS id;
 
 -- name: FindActiveSession :one
 SELECT s.id::text AS id, u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
   EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
-  s.expires_at
+  s.expires_at, s.sign_in_method
 FROM user_sessions s JOIN user_accounts u ON u.id=s.user_id
 WHERE s.token_hash=$1 AND s.expires_at>$2;
 

@@ -42,7 +42,7 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 		t.Fatal(err)
 	}
 	oldHash := bytes32(210)
-	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,now(),now()+interval '1 day') RETURNING id::text`, user, oldHash).Scan(&session); err != nil {
+	if err := admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,now(),now()+interval '1 day','password') RETURNING id::text`, user, oldHash).Scan(&session); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := admin.Exec(ctx, `CREATE OR REPLACE FUNCTION tendo_oidc_test_delay_session_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(10); RETURN NEW; END $$; CREATE TRIGGER tendo_oidc_test_delay_session_insert BEFORE INSERT ON user_sessions FOR EACH ROW EXECUTE FUNCTION tendo_oidc_test_delay_session_insert()`); err != nil {
@@ -70,7 +70,7 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 	defer workerCancel()
 	workerRepo := New(worker, nil)
 	go func() {
-		_, e := workerRepo.LinkAndCreateSession(workerCtx, identity.OIDCFlow{UserID: user, SessionID: session}, identity.OIDCVerifiedIdentity{Issuer: "https://issuer.test", Subject: "cancelled-subject"}, identity.NewSession{UserID: user, TokenHash: bytes32(211), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, oldHash)
+		_, e := workerRepo.LinkAndCreateSession(workerCtx, identity.OIDCFlow{UserID: user, SessionID: session}, identity.OIDCVerifiedIdentity{Issuer: "https://issuer.test", Subject: "cancelled-subject"}, identity.NewSession{Method: identity.SignInOIDC, UserID: user, TokenHash: bytes32(211), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, oldHash)
 		done <- e
 	}()
 	deadline := time.Now().Add(8 * time.Second)
@@ -153,7 +153,7 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 	}
 	initialTokenHash := bytes32(201)
 	var initialSession string
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,now(),now()+interval '1 day') RETURNING id::text`, user, initialTokenHash).Scan(&initialSession); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,now(),now()+interval '1 day','password') RETURNING id::text`, user, initialTokenHash).Scan(&initialSession); err != nil {
 		t.Fatal(err)
 	}
 	fake, err := testoidc.New()
@@ -295,7 +295,7 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 	linkToken := base64.RawURLEncoding.EncodeToString(linkRaw)
 	linkHash := sha256.Sum256([]byte(linkToken))
 	var linkSessionID string
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,now(),now()+interval '1 day') RETURNING id::text`, user, linkHash[:]).Scan(&linkSessionID); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,now(),now()+interval '1 day','password') RETURNING id::text`, user, linkHash[:]).Scan(&linkSessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = admin.Exec(ctx, `DELETE FROM oidc_identities WHERE issuer=$1 AND subject='known-subject' AND user_id=$2`, fake.Issuer(), user); err != nil {

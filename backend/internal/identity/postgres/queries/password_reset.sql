@@ -1,5 +1,9 @@
 -- name: LockPasswordResetTarget :one
-SELECT id::text AS id, login FROM user_accounts WHERE id=$1 FOR UPDATE;
+-- FOR NO KEY UPDATE serializes concurrent issuances for one target without
+-- conflicting with the foreign-key KEY SHARE that inserting a session takes on
+-- the same row. A plain FOR UPDATE would let reset issuance and a password
+-- change deadlock (ADR 0018).
+SELECT id::text AS id, login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE;
 
 -- name: FindUserLogin :one
 SELECT login FROM user_accounts WHERE id=$1;
@@ -32,14 +36,8 @@ FROM password_reset_tokens WHERE token_hash=$1 FOR UPDATE;
 UPDATE password_reset_tokens SET used_at=$2
 WHERE id=$1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $2;
 
--- name: UpdateLocalCredential :execrows
-UPDATE local_credentials SET password_hash=$2, credential_version=credential_version+1 WHERE user_id=$1;
-
 -- name: LockLocalCredential :one
-SELECT credential_version FROM local_credentials WHERE user_id=$1 FOR UPDATE;
-
--- name: DeleteUserSessions :exec
-DELETE FROM user_sessions WHERE user_id=$1;
+SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1 FOR UPDATE;
 
 -- name: OutstandingPasswordResetsByUserIDs :many
 SELECT target_user_id::text AS user_id, created_at, expires_at

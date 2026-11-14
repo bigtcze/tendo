@@ -65,7 +65,9 @@ func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (stri
 		return "", identity.ErrNotFound
 	}
 	var login string
-	err = o.tx.QueryRow(ctx, `SELECT login FROM user_accounts WHERE id=$1 FOR UPDATE`, id).Scan(&login)
+	// Same account-row mode as LockUserForInvitation: the accept path only
+	// serializes writes to the row and never needs to exclude a key share.
+	err = o.tx.QueryRow(ctx, `SELECT login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE`, id).Scan(&login)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", identity.ErrNotFound
 	}

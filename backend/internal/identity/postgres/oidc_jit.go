@@ -236,13 +236,17 @@ func (r *Repository) recordClaimedEmail(ctx context.Context, tx pgx.Tx, userID s
 }
 
 func createSessionTx(ctx context.Context, tx pgx.Tx, session identity.NewSession, userID string) error {
+	method, err := signInMethodParam(session.Method)
+	if err != nil {
+		return err
+	}
 	id, err := uuidOrNull(userID)
 	if err != nil {
 		return err
 	}
 	var sessionID string
-	err = tx.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,$3,$4) RETURNING id::text`,
-		id, session.TokenHash, timestamptz(session.CreatedAt), timestamptz(session.ExpiresAt)).Scan(&sessionID)
+	err = tx.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES($1,$2,$3,$4,$5) RETURNING id::text`,
+		id, session.TokenHash, timestamptz(session.CreatedAt), timestamptz(session.ExpiresAt), method).Scan(&sessionID)
 	return err
 }
 

@@ -242,6 +242,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the local password
+         * @description Replaces the caller's local password. Requires a session established by a local password sign-in; an OIDC session is refused with 403 local_session_required even when the account also has a local password. The current password is verified before any write and a wrong value returns 422 without ending the session.
+         *     Success revokes outstanding admin-issued reset links, deletes every session of the account, and sets a fresh session cookie carrying the only copy of the new session secret. Requires the canonical Origin header. Rate limited per account (5 per minute, 20 per hour) and per client address.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households/{householdId}/invitations": {
         parameters: {
             query?: never;
@@ -788,12 +809,29 @@ export interface components {
             expiresAt: string;
             /** @description Whether the account currently holds the installation-wide administrator capability. Resolved on every request; a display hint only, never an authorization input for clients. The GET /api/v1/session ETag identifies the session row and does not change when this value changes. */
             instanceAdmin: boolean;
+            /**
+             * @description How this session was established. A client offers the local password change only for password; legacy marks a session that predates the recording of the kind, whose flows are restricted to those that need no local credential.
+             * @enum {string}
+             */
+            signInMethod: "password" | "oidc" | "legacy";
         };
         SessionValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             field: "defaultHouseholdId";
             /** @enum {string} */
             code: "invalid_reference";
+        };
+        ChangePasswordRequest: {
+            /** @description Maximum 512 UTF-8 bytes. */
+            currentPassword: string;
+            /** @description Maximum 512 UTF-8 bytes. */
+            newPassword: string;
+        };
+        ChangePasswordValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "currentPassword" | "newPassword";
+            /** @enum {string} */
+            code: "incorrect" | "invalid_length";
         };
         Household: {
             /** Format: uuid */
@@ -1252,7 +1290,7 @@ export interface components {
          */
         ClearStaleSessionCookie: string;
         /**
-         * @description Session cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. Login sets Max-Age=2592000, logout sets Max-Age=0. HTTPS public URL uses the name __Host-tendo_session with Secure; HTTP public URL uses tendo_session.
+         * @description Session cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. Login and a password change set Max-Age=2592000, logout sets Max-Age=0. HTTPS public URL uses the name __Host-tendo_session with Secure; HTTP public URL uses tendo_session.
          * @example __Host-tendo_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax
          */
         SetSessionCookie: string;
@@ -2471,7 +2509,8 @@ export interface operations {
                      *         "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *         "login": "member-4f2a9c1b",
                      *         "expiresAt": "2026-12-10T12:30:00Z",
-                     *         "instanceAdmin": false
+                     *         "instanceAdmin": false,
+                     *         "signInMethod": "oidc"
                      *       },
                      *       "invitation": "none"
                      *     }
@@ -2647,7 +2686,8 @@ export interface operations {
                      *         "login": "anna",
                      *         "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
                      *         "expiresAt": "2026-12-10T12:30:00Z",
-                     *         "instanceAdmin": false
+                     *         "instanceAdmin": false,
+                     *         "signInMethod": "oidc"
                      *       },
                      *       "invitation": "none",
                      *       "emailSaved": true
@@ -3063,7 +3103,8 @@ export interface operations {
                      *       "login": "owner",
                      *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
                      *       "expiresAt": "2026-11-05T10:00:00Z",
-                     *       "instanceAdmin": true
+                     *       "instanceAdmin": true,
+                     *       "signInMethod": "password"
                      *     }
                      */
                     "application/json": components["schemas"]["Session"];
@@ -3212,7 +3253,8 @@ export interface operations {
                      *       "login": "owner",
                      *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
                      *       "expiresAt": "2026-11-05T10:00:00Z",
-                     *       "instanceAdmin": true
+                     *       "instanceAdmin": true,
+                     *       "signInMethod": "password"
                      *     }
                      */
                     "application/json": components["schemas"]["Session"];
@@ -3517,7 +3559,8 @@ export interface operations {
                      *       "login": "owner",
                      *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
                      *       "expiresAt": "2026-11-05T10:00:00Z",
-                     *       "instanceAdmin": true
+                     *       "instanceAdmin": true,
+                     *       "signInMethod": "password"
                      *     }
                      */
                     "application/json": components["schemas"]["Session"];
@@ -3858,6 +3901,233 @@ export interface operations {
                 };
             };
             /** @description Redemption rate limit or password-work limit exceeded. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable; no password or session change was committed. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "currentPassword": "an-old-long-unique-passphrase",
+                 *       "newPassword": "a-new-long-unique-passphrase"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password replaced. Every other session of the account is deleted and the caller receives a new session. */
+            200: {
+                headers: {
+                    "Set-Cookie": components["headers"]["SetSessionCookie"];
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "login": "owner",
+                     *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *       "expiresAt": "2026-11-05T10:00:00Z",
+                     *       "instanceAdmin": true,
+                     *       "signInMethod": "password"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description Malformed JSON, unknown or duplicate keys, missing or wrong-typed fields, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request Origin is missing or foreign (code-less Forbidden problem), or the authenticated session was not established by a local password sign-in (local_session_required). */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "local_session_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The current password is wrong (currentPassword/incorrect) or the new password violates the 15-128 character policy (newPassword/invalid_length). Nothing changed and the session stays valid. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "incorrect",
+                     *       "field": "currentPassword"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["ChangePasswordValidationProblem"];
+                };
+            };
+            /** @description Per-account, per-address, or password-work limit exceeded. */
             429: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -24,7 +24,33 @@ var (
 	// ErrNotFound is returned by a SessionRepository when no matching row exists.
 	// Every other repository error is an infrastructure failure.
 	ErrNotFound = errors.New("not found")
+	// ErrInvalidSignInMethod refuses a session insert whose kind was not set.
+	// It is a programming fault guard: a zero value must never be stored, so an
+	// unclassified session cannot exist and every read sees a real kind.
+	ErrInvalidSignInMethod = errors.New("invalid sign-in method")
 )
+
+// SignInMethod records how a session was established. The kind is authoritative
+// for flows that depend on the credential the browser actually proved: a local
+// password change is allowed only from SignInPassword (SECURITY "Sessions").
+// SignInLegacy marks a session that predates the column and is therefore
+// unknown; new code never writes it.
+type SignInMethod string
+
+const (
+	SignInPassword SignInMethod = "password"
+	SignInOIDC     SignInMethod = "oidc"
+	SignInLegacy   SignInMethod = "legacy"
+)
+
+// Valid reports whether m is one of the values the database accepts.
+func (m SignInMethod) Valid() bool {
+	switch m {
+	case SignInPassword, SignInOIDC, SignInLegacy:
+		return true
+	}
+	return false
+}
 
 // SessionLifetime is the fixed absolute lifetime of a session. It is also the
 // cookie Max-Age; there is no sliding renewal.
@@ -53,17 +79,19 @@ type Principal struct {
 // Session is the result of a successful login. Token is the only copy of the
 // secret and is carried to the client in the cookie.
 type Session struct {
-	Token     string
-	ID        string
-	Principal Principal
-	ExpiresAt time.Time
+	Token        string
+	ID           string
+	Principal    Principal
+	ExpiresAt    time.Time
+	SignInMethod SignInMethod
 }
 
 // SessionInfo describes an active stored session.
 type SessionInfo struct {
-	ID        string
-	Principal Principal
-	ExpiresAt time.Time
+	ID           string
+	Principal    Principal
+	ExpiresAt    time.Time
+	SignInMethod SignInMethod
 }
 
 type LoginRecord struct {
@@ -76,7 +104,10 @@ type LoginRecord struct {
 }
 
 type NewSession struct {
-	UserID               string
+	UserID string
+	// Method is mandatory: a session without a recorded kind would be usable by
+	// flows that must only accept a specific one. See SignInMethod.
+	Method               SignInMethod
 	TokenHash            []byte
 	CreatedAt, ExpiresAt time.Time
 }
@@ -144,7 +175,7 @@ func tokenDigest(token string) []byte {
 
 // VerifyCurrentPassword verifies a known local credential without performing login or creating a session.
 func (s *SessionService) VerifyCurrentPassword(hash, password string) error {
-	if !utf8.ValidString(password) || len(password) == 0 || len(password) > maxPasswordBytes {
+	if !validPasswordInput(password) {
 		return ErrInvalidCredentials
 	}
 	valid, err := s.verifyPassword(hash, password)
@@ -203,7 +234,7 @@ func (s *SessionService) Login(ctx context.Context, login, password string) (Ses
 		return Session{}, errors.New("session persistence failed")
 	}
 	id, err := s.repository.CreateVerifiedSession(ctx, VerifiedSession{
-		Session:           NewSession{UserID: record.Principal.UserID, TokenHash: tokenDigest(token), CreatedAt: now, ExpiresAt: expires},
+		Session:           NewSession{UserID: record.Principal.UserID, Method: SignInPassword, TokenHash: tokenDigest(token), CreatedAt: now, ExpiresAt: expires},
 		PasswordHash:      record.PasswordHash,
 		CredentialVersion: record.CredentialVersion,
 	})
@@ -213,7 +244,7 @@ func (s *SessionService) Login(ctx context.Context, login, password string) (Ses
 	if err != nil {
 		return Session{}, errors.New("session persistence failed")
 	}
-	return Session{Token: token, ID: id, Principal: record.Principal, ExpiresAt: expires}, nil
+	return Session{Token: token, ID: id, Principal: record.Principal, ExpiresAt: expires, SignInMethod: SignInPassword}, nil
 }
 
 // Lookup returns the active session for a cookie token. It returns

@@ -20,10 +20,10 @@ type Querier interface {
 	CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (CreatePasswordResetRow, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateUser(ctx context.Context, login string) (string, error)
+	DeleteAllUserSessions(ctx context.Context, userID pgtype.UUID) ([]DeleteAllUserSessionsRow, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
 	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
-	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
 	FindInvitationByCreationKey(ctx context.Context, arg FindInvitationByCreationKeyParams) (FindInvitationByCreationKeyRow, error)
 	FindInvitationByToken(ctx context.Context, tokenHash []byte) (FindInvitationByTokenRow, error)
@@ -33,6 +33,10 @@ type Querier interface {
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
 	FindPasswordResetByToken(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenRow, error)
 	FindPasswordResetByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenForUpdateRow, error)
+	// Shared local-credential replacement protocol (ADR 0018). One implementation
+	// of "a password changed, sign the account out everywhere" is used by
+	// self-service change, admin reset redemption and the operator CLI.
+	FindUserAccountByLogin(ctx context.Context, login string) (string, error)
 	FindUserLogin(ctx context.Context, id pgtype.UUID) (string, error)
 	GrantInstanceAdmin(ctx context.Context, userID pgtype.UUID) error
 	HasLocalCredential(ctx context.Context, userID pgtype.UUID) (bool, error)
@@ -41,9 +45,18 @@ type Querier interface {
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error)
-	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (int64, error)
+	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
+	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
+	// conflicting with the foreign-key KEY SHARE that inserting a session takes on
+	// the same row. A plain FOR UPDATE would let reset issuance and a password
+	// change deadlock (ADR 0018).
 	LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (LockPasswordResetTargetRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
+	// The accept path only serializes writes to this account row (joining, default
+	// household) and never touches its credential or reset links, so it needs no
+	// exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
+	// UPDATE keeps concurrent acceptances and account deletion serialized without
+	// that conflict (ADR 0018).
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	OutstandingPasswordResetsByUserIDs(ctx context.Context, arg OutstandingPasswordResetsByUserIDsParams) ([]OutstandingPasswordResetsByUserIDsRow, error)
@@ -53,13 +66,15 @@ type Querier interface {
 	PasswordResetPermitted(ctx context.Context, arg PasswordResetPermittedParams) (pgtype.Bool, error)
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.Timestamptz) error
+	ReadLocalCredential(ctx context.Context, userID pgtype.UUID) (ReadLocalCredentialRow, error)
+	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	RevokeOutstandingPasswordResetsForTarget(ctx context.Context, arg RevokeOutstandingPasswordResetsForTargetParams) (int64, error)
 	RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, arg RevokeOutstandingPasswordResetsInHouseholdParams) (int64, error)
 	SetAccountDefaultHousehold(ctx context.Context, arg SetAccountDefaultHouseholdParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
-	UpdateLocalCredential(ctx context.Context, arg UpdateLocalCredentialParams) (int64, error)
+	UserSessionActive(ctx context.Context, arg UserSessionActiveParams) (bool, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -27,6 +27,7 @@ Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../.
 | `github.com/jackc/pgx/v5` | v5.11.0 | direct |
 | `golang.org/x/crypto` | v0.58.0 | direct |
 | `golang.org/x/oauth2` | v0.37.0 | direct |
+| `golang.org/x/term` | v0.47.0 | direct; reads the new password without echo in `tendo users set-password` |
 | `github.com/go-jose/go-jose/v4` | v4.1.5 | indirect |
 | `github.com/jackc/puddle/v2` | v2.2.3 | indirect |
 | `golang.org/x/sync` | v0.24.0 | indirect |

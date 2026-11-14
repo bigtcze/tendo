@@ -59,8 +59,13 @@ type CreatePasswordResetInput struct {
 
 // PasswordResetTransaction is the transaction-scoped surface. Authorization
 // goes through the shared household admin lock protocol, exactly like
-// invitations, so reads and writes share one transaction.
+// invitations, so reads and writes share one transaction. Credential
+// replacement is the shared password-change protocol: redemption locks the
+// credential row before writing and never revokes the reset links itself,
+// because the link it is redeeming must stay usable until the transaction
+// commits.
 type PasswordResetTransaction interface {
+	CredentialReplacementTransaction
 	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
 	FindUserLogin(context.Context, string) (string, error)
@@ -71,20 +76,10 @@ type PasswordResetTransaction interface {
 	// the target is one.
 	PasswordResetPermitted(context.Context, string, string) (bool, error)
 	HasLocalCredential(context.Context, string) (bool, error)
-	RevokeOutstandingPasswordResetsForTarget(context.Context, string, time.Time) error
 	RevokeOutstandingPasswordResetsInHousehold(context.Context, string, string, time.Time) error
 	CreatePasswordReset(context.Context, CreatePasswordResetInput) (PasswordResetRecord, error)
 	FindPasswordReset(context.Context, []byte, bool) (PasswordResetRecord, error)
 	CompletePasswordReset(context.Context, string, time.Time) (int64, error)
-	// LockLocalCredential takes the credential row FOR UPDATE and reports its
-	// current version; ErrNotFound means the target no longer has a local
-	// password. The lock is held until the transaction ends so a concurrent
-	// sign-in cannot insert a session for the password being replaced.
-	LockLocalCredential(context.Context, string) (int64, error)
-	// UpdateLocalCredential replaces the hash, increments credential_version and
-	// reports the affected row count.
-	UpdateLocalCredential(context.Context, string, string) (int64, error)
-	DeleteUserSessions(context.Context, string) error
 }
 
 type PasswordResetRepository interface {
@@ -157,7 +152,7 @@ func (s *PasswordResetService) IssuePasswordReset(ctx context.Context, actorID, 
 			return errors.New("password reset token generation failed")
 		}
 		token := base64.RawURLEncoding.EncodeToString(raw)
-		if e := tx.RevokeOutstandingPasswordResetsForTarget(ctx, targetUserID, now); e != nil {
+		if e := tx.RevokeOutstandingPasswordResets(ctx, targetUserID, now); e != nil {
 			return e
 		}
 		record, e := tx.CreatePasswordReset(ctx, CreatePasswordResetInput{
@@ -326,14 +321,11 @@ func (s *PasswordResetService) applyPasswordReset(ctx context.Context, tx Passwo
 	if rows != 1 {
 		return "", ErrInvalidPasswordReset
 	}
-	rows, err = tx.UpdateLocalCredential(ctx, locked.TargetUserID, hash)
-	if err != nil {
-		return "", err
-	}
-	if rows != 1 {
+	// ReplaceLocalPassword writes the hash and deletes every session in one
+	// step, so a reset can never leave a session that outlives the new password.
+	if _, err = tx.ReplaceLocalPassword(ctx, locked.TargetUserID, hash, lockedNow); errors.Is(err, ErrNotFound) {
 		return "", ErrInvalidPasswordReset
-	}
-	if err = tx.DeleteUserSessions(ctx, locked.TargetUserID); err != nil {
+	} else if err != nil {
 		return "", err
 	}
 	return login, nil

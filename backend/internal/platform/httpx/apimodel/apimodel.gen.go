@@ -27,6 +27,42 @@ func (e AccountRole) Valid() bool {
 	}
 }
 
+// Defines values for ChangePasswordValidationProblemCode.
+const (
+	ChangePasswordValidationProblemCodeIncorrect     ChangePasswordValidationProblemCode = "incorrect"
+	ChangePasswordValidationProblemCodeInvalidLength ChangePasswordValidationProblemCode = "invalid_length"
+)
+
+// Valid indicates whether the value is a known member of the ChangePasswordValidationProblemCode enum.
+func (e ChangePasswordValidationProblemCode) Valid() bool {
+	switch e {
+	case ChangePasswordValidationProblemCodeIncorrect:
+		return true
+	case ChangePasswordValidationProblemCodeInvalidLength:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChangePasswordValidationProblemField.
+const (
+	ChangePasswordValidationProblemFieldCurrentPassword ChangePasswordValidationProblemField = "currentPassword"
+	ChangePasswordValidationProblemFieldNewPassword     ChangePasswordValidationProblemField = "newPassword"
+)
+
+// Valid indicates whether the value is a known member of the ChangePasswordValidationProblemField enum.
+func (e ChangePasswordValidationProblemField) Valid() bool {
+	switch e {
+	case ChangePasswordValidationProblemFieldCurrentPassword:
+		return true
+	case ChangePasswordValidationProblemFieldNewPassword:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompletionProblemField.
 const (
 	CompletionProblemFieldCompletedOn CompletionProblemField = "completedOn"
@@ -458,19 +494,19 @@ func (e OIDCValidationProblemCode) Valid() bool {
 
 // Defines values for OIDCValidationProblemField.
 const (
-	CurrentPassword OIDCValidationProblemField = "currentPassword"
-	InvitationToken OIDCValidationProblemField = "invitationToken"
-	Purpose         OIDCValidationProblemField = "purpose"
+	OIDCValidationProblemFieldCurrentPassword OIDCValidationProblemField = "currentPassword"
+	OIDCValidationProblemFieldInvitationToken OIDCValidationProblemField = "invitationToken"
+	OIDCValidationProblemFieldPurpose         OIDCValidationProblemField = "purpose"
 )
 
 // Valid indicates whether the value is a known member of the OIDCValidationProblemField enum.
 func (e OIDCValidationProblemField) Valid() bool {
 	switch e {
-	case CurrentPassword:
+	case OIDCValidationProblemFieldCurrentPassword:
 		return true
-	case InvitationToken:
+	case OIDCValidationProblemFieldInvitationToken:
 		return true
-	case Purpose:
+	case OIDCValidationProblemFieldPurpose:
 		return true
 	default:
 		return false
@@ -582,6 +618,27 @@ func (e RecurrenceMode) Valid() bool {
 	case AfterCompletion:
 		return true
 	case Fixed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionSignInMethod.
+const (
+	SessionSignInMethodLegacy   SessionSignInMethod = "legacy"
+	SessionSignInMethodOidc     SessionSignInMethod = "oidc"
+	SessionSignInMethodPassword SessionSignInMethod = "password"
+)
+
+// Valid indicates whether the value is a known member of the SessionSignInMethod enum.
+func (e SessionSignInMethod) Valid() bool {
+	switch e {
+	case SessionSignInMethodLegacy:
+		return true
+	case SessionSignInMethodOidc:
+		return true
+	case SessionSignInMethodPassword:
 		return true
 	default:
 		return false
@@ -947,6 +1004,33 @@ type AccountSignInMethods struct {
 	Oidc     bool `json:"oidc"`
 	Password bool `json:"password"`
 }
+
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	// CurrentPassword Maximum 512 UTF-8 bytes.
+	CurrentPassword string `json:"currentPassword"`
+
+	// NewPassword Maximum 512 UTF-8 bytes.
+	NewPassword string `json:"newPassword"`
+}
+
+// ChangePasswordValidationProblem defines model for ChangePasswordValidationProblem.
+type ChangePasswordValidationProblem struct {
+	Code                 ChangePasswordValidationProblemCode  `json:"code"`
+	Detail               *string                              `json:"detail,omitempty"`
+	Field                ChangePasswordValidationProblemField `json:"field"`
+	Instance             *string                              `json:"instance,omitempty"`
+	Status               int                                  `json:"status"`
+	Title                string                               `json:"title"`
+	Type                 string                               `json:"type"`
+	AdditionalProperties map[string]interface{}               `json:"-"`
+}
+
+// ChangePasswordValidationProblemCode defines model for ChangePasswordValidationProblem.Code.
+type ChangePasswordValidationProblemCode string
+
+// ChangePasswordValidationProblemField defines model for ChangePasswordValidationProblem.Field.
+type ChangePasswordValidationProblemField string
 
 // Completion defines model for Completion.
 type Completion struct {
@@ -1426,8 +1510,14 @@ type Session struct {
 	// InstanceAdmin Whether the account currently holds the installation-wide administrator capability. Resolved on every request; a display hint only, never an authorization input for clients. The GET /api/v1/session ETag identifies the session row and does not change when this value changes.
 	InstanceAdmin bool   `json:"instanceAdmin"`
 	Login         string `json:"login"`
-	UserId        string `json:"userId"`
+
+	// SignInMethod How this session was established. A client offers the local password change only for password; legacy marks a session that predates the recording of the kind, whose flows are restricted to those that need no local credential.
+	SignInMethod SessionSignInMethod `json:"signInMethod"`
+	UserId       string              `json:"userId"`
 }
+
+// SessionSignInMethod How this session was established. A client offers the local password change only for password; legacy marks a session that predates the recording of the kind, whose flows are restricted to those that need no local credential.
+type SessionSignInMethod string
 
 // SessionValidationProblem defines model for SessionValidationProblem.
 type SessionValidationProblem struct {
@@ -1734,6 +1824,15 @@ type StartOidcParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 	Origin     string     `json:"Origin"`
+}
+
+// ChangePasswordParams defines parameters for ChangePassword.
+type ChangePasswordParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
 }
 
 // RedeemPasswordResetParams defines parameters for RedeemPasswordReset.
@@ -2109,6 +2208,9 @@ type ConfirmOidcPendingLinkJSONRequestBody = OIDCPendingLinkRequest
 // StartOidcJSONRequestBody defines body for StartOidc for application/json ContentType.
 type StartOidcJSONRequestBody = OIDCStartRequest
 
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = ChangePasswordRequest
+
 // RedeemPasswordResetJSONRequestBody defines body for RedeemPasswordReset for application/json ContentType.
 type RedeemPasswordResetJSONRequestBody = PasswordResetRedeemRequest
 
@@ -2153,6 +2255,154 @@ type UpdateSessionJSONRequestBody = UpdateSessionRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// Getter for additional properties for ChangePasswordValidationProblem. Returns the specified
+// element and whether it was found
+func (a ChangePasswordValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for ChangePasswordValidationProblem
+func (a *ChangePasswordValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for ChangePasswordValidationProblem to handle AdditionalProperties
+func (a *ChangePasswordValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for ChangePasswordValidationProblem to handle AdditionalProperties
+func (a ChangePasswordValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for CompletionProblem. Returns the specified
 // element and whether it was found

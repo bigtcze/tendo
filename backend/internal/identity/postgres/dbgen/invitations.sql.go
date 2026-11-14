@@ -277,9 +277,14 @@ func (q *Queries) ListInvitations(ctx context.Context, arg ListInvitationsParams
 }
 
 const lockUserForInvitation = `-- name: LockUserForInvitation :one
-SELECT login FROM user_accounts WHERE id=$1 FOR UPDATE
+SELECT login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE
 `
 
+// The accept path only serializes writes to this account row (joining, default
+// household) and never touches its credential or reset links, so it needs no
+// exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
+// UPDATE keeps concurrent acceptances and account deletion serialized without
+// that conflict (ADR 0018).
 func (q *Queries) LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, lockUserForInvitation, id)
 	var login string

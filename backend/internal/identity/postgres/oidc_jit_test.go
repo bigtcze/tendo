@@ -32,7 +32,7 @@ func jitHandle(seed byte) (string, []byte) {
 func jitSession(seed byte, now time.Time) (string, identity.NewSession) {
 	token := "session-" + fmt.Sprintf("%d", seed)
 	hash := sha256.Sum256([]byte(token))
-	return token, identity.NewSession{TokenHash: hash[:], CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	return token, identity.NewSession{Method: identity.SignInOIDC, TokenHash: hash[:], CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 }
 
 func jitResolve(t *testing.T, repo *Repository, verified identity.OIDCVerifiedIdentity, handleHash []byte, now time.Time, invite []byte) identity.OIDCLoginOutcome {

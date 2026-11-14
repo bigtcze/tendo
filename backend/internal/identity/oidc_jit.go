@@ -171,7 +171,7 @@ func (s *OIDCService) CreatePendingAccount(ctx context.Context, token string) (O
 					UserID: outcome.UserID, Login: outcome.Login, DefaultHouseholdID: outcome.DefaultHouseholdID,
 					InstanceAdmin: outcome.InstanceAdmin,
 				},
-				ExpiresAt: session.ExpiresAt,
+				ExpiresAt: session.ExpiresAt, SignInMethod: session.Method,
 			},
 			Invitation: outcome.Invitation,
 		}, nil
@@ -223,7 +223,7 @@ func (s *OIDCService) LinkPendingAccount(ctx context.Context, token, login, pass
 				UserID: outcome.UserID, Login: outcome.Login, DefaultHouseholdID: outcome.DefaultHouseholdID,
 				InstanceAdmin: outcome.InstanceAdmin,
 			},
-			ExpiresAt: session.ExpiresAt,
+			ExpiresAt: session.ExpiresAt, SignInMethod: session.Method,
 		},
 		Invitation: outcome.Invitation,
 		EmailSaved: outcome.EmailSaved,
@@ -311,7 +311,7 @@ func (s *OIDCService) newSession(now time.Time) (string, NewSession, error) {
 	if err != nil {
 		return "", NewSession{}, err
 	}
-	return token, NewSession{TokenHash: digest([]byte(token)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}, nil
+	return token, NewSession{Method: SignInOIDC, TokenHash: digest([]byte(token)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}, nil
 }
 
 func (s *OIDCService) randomToken() (string, []byte, error) {

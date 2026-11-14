@@ -9,37 +9,50 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/identity"
 )
 
-// TestPasswordResetPostgresCredentialUpdateReportsAffectedRows covers the
-// execrows contract behind the reset write: one row means the password moved to
-// the next credential version, and zero rows must stay visible so the service
-// can roll back without consuming the link.
-func TestPasswordResetPostgresCredentialUpdateReportsAffectedRows(t *testing.T) {
+// TestPasswordResetPostgresCredentialReplacementAdvancesVersion covers the
+// shared replacement write behind reset redemption: it advances the credential
+// version, deletes every session and reports only the unexpired ones as
+// revoked. A vanished credential row returns ErrNotFound so the service can
+// roll back without consuming the link.
+func TestPasswordResetPostgresCredentialReplacementAdvancesVersion(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	_, target, _ := passwordResetFixture(t, ctx, admin)
 	repository := NewPasswordResetRepository(app, passwordResetFactory)
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 
 	var before int64
 	if err := admin.QueryRow(ctx, `SELECT credential_version FROM local_credentials WHERE user_id=$1::uuid`, target).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	var rows int64
+	live, expired := sha256Sum("live-session-token"), sha256Sum("expired-session-token")
+	if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES
+		($1::uuid,$2,$3,$4,'password'), ($1::uuid,$5,$3,$6,'password')`,
+		target, live, now.Add(-time.Hour), now.Add(time.Hour), expired, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	var revoked identity.Revocation
 	if err := repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
 		var e error
-		rows, e = tx.UpdateLocalCredential(ctx, target, "hash:replacement")
+		revoked, e = tx.ReplaceLocalPassword(ctx, target, "hash:replacement", now)
 		return e
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 {
-		t.Fatalf("credential update rows=%d", rows)
+	if revoked.Sessions() != 1 || !revoked.Includes(live) || revoked.Includes(expired) {
+		t.Fatalf("revocation sessions=%d includesLive=%v includesExpired=%v", revoked.Sessions(), revoked.Includes(live), revoked.Includes(expired))
 	}
 	var after int64
 	var hash string
+	var sessions int
 	if err := admin.QueryRow(ctx, `SELECT credential_version, password_hash FROM local_credentials WHERE user_id=$1::uuid`, target).Scan(&after, &hash); err != nil {
 		t.Fatal(err)
 	}
-	if after != before+1 || hash != "hash:replacement" {
-		t.Fatalf("version %d=>%d hash=%q", before, after, hash)
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE user_id=$1::uuid`, target).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 || hash != "hash:replacement" || sessions != 0 {
+		t.Fatalf("version %d=>%d hash=%q remaining sessions=%d", before, after, hash, sessions)
 	}
 
 	var withoutCredential string
@@ -47,14 +60,10 @@ func TestPasswordResetPostgresCredentialUpdateReportsAffectedRows(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
-		var e error
-		rows, e = tx.UpdateLocalCredential(ctx, withoutCredential, "hash:ignored")
+		_, e := tx.ReplaceLocalPassword(ctx, withoutCredential, "hash:ignored", now)
 		return e
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if rows != 0 {
-		t.Fatalf("missing credential update rows=%d", rows)
+	}); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("missing credential error=%v", err)
 	}
 }
 

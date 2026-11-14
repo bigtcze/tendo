@@ -76,8 +76,8 @@ func (h *OIDCHandler) pendingGuard(w http.ResponseWriter, r *http.Request, limit
 	return true
 }
 
-func pendingSession(p identity.Principal, expires time.Time) apimodel.Session {
-	session := apimodel.Session{UserId: p.UserID, Login: p.Login, ExpiresAt: expires.UTC(), InstanceAdmin: p.InstanceAdmin}
+func pendingSession(p identity.Principal, expires time.Time, method identity.SignInMethod) apimodel.Session {
+	session := apimodel.Session{UserId: p.UserID, Login: p.Login, ExpiresAt: expires.UTC(), InstanceAdmin: p.InstanceAdmin, SignInMethod: apimodel.SessionSignInMethod(method)}
 	if p.DefaultHouseholdID != "" {
 		household := p.DefaultHouseholdID
 		session.DefaultHouseholdId = &household
@@ -123,7 +123,7 @@ func (h *OIDCHandler) createPendingAccount(w http.ResponseWriter, r *http.Reques
 	h.sessions.setCookie(w, result.Session.Token, int(identity.SessionLifetime/time.Second))
 	w.Header().Set("Location", "/api/v1/session")
 	writeJSON(w, 201, apimodel.OIDCPendingResult{
-		Session: pendingSession(result.Session.Principal, result.Session.ExpiresAt), Invitation: apimodel.OIDCInvitationOutcome(result.Invitation),
+		Session: pendingSession(result.Session.Principal, result.Session.ExpiresAt, result.Session.SignInMethod), Invitation: apimodel.OIDCInvitationOutcome(result.Invitation),
 	})
 }
 
@@ -157,7 +157,7 @@ func (h *OIDCHandler) linkPendingAccount(w http.ResponseWriter, r *http.Request)
 	h.sessions.setCookie(w, result.Session.Token, int(identity.SessionLifetime/time.Second))
 	w.Header().Set("Location", "/api/v1/session")
 	writeJSON(w, 201, apimodel.OIDCPendingLinkResult{
-		Session:    pendingSession(result.Session.Principal, result.Session.ExpiresAt),
+		Session:    pendingSession(result.Session.Principal, result.Session.ExpiresAt, result.Session.SignInMethod),
 		Invitation: apimodel.OIDCInvitationOutcome(result.Invitation), EmailSaved: result.EmailSaved,
 	})
 }

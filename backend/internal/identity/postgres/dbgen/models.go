@@ -137,9 +137,10 @@ type UserAccount struct {
 }
 
 type UserSession struct {
-	ID        pgtype.UUID
-	UserID    pgtype.UUID
-	TokenHash []byte
-	CreatedAt pgtype.Timestamptz
-	ExpiresAt pgtype.Timestamptz
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	TokenHash    []byte
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+	SignInMethod string
 }

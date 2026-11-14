@@ -190,7 +190,7 @@ func (s *OIDCService) issueCallbackSession(ctx context.Context, flow OIDCFlow, v
 	}
 	sessionToken := base64.RawURLEncoding.EncodeToString(raw[:])
 	now := s.clock().UTC().Truncate(time.Second)
-	ns := NewSession{UserID: userID, TokenHash: digest([]byte(sessionToken)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}
+	ns := NewSession{UserID: userID, Method: SignInOIDC, TokenHash: digest([]byte(sessionToken)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}
 	if _, err := s.repo.LinkAndCreateSession(ctx, flow, v, ns, digest([]byte(token))); err != nil {
 		code := OIDCUnavailable
 		if errors.Is(err, ErrOIDCConflict) {

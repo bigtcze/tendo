@@ -130,6 +130,9 @@ func TestOIDCPendingAccountCreation(t *testing.T) {
 	if created.Session.Token == "" || len(f.repo.identities) != 1 || len(f.repo.sessions) != 1 {
 		t.Fatalf("session=%+v identities=%d sessions=%d", created.Session, len(f.repo.identities), len(f.repo.sessions))
 	}
+	if created.Session.SignInMethod != SignInOIDC {
+		t.Fatalf("pending account session method=%q, want %q", created.Session.SignInMethod, SignInOIDC)
+	}
 	if created.Invitation != OIDCInvitationNone {
 		t.Fatalf("invitation=%q", created.Invitation)
 	}
@@ -170,6 +173,11 @@ func TestOIDCPendingLink(t *testing.T) {
 		}
 		if !linked.EmailSaved || linked.Session.Token == "" || linked.Session.Principal.UserID != "user-1" {
 			t.Fatalf("%+v", linked)
+		}
+		// Linking proves the local password, but the session is established
+		// through OIDC and must never authorize a local password change.
+		if linked.Session.SignInMethod != SignInOIDC {
+			t.Fatalf("pending link session method=%q, want %q", linked.Session.SignInMethod, SignInOIDC)
 		}
 		if f.repo.emails["user-1"] != "anna@example.test" {
 			t.Fatalf("email=%q", f.repo.emails["user-1"])

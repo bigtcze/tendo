@@ -114,6 +114,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash []byte, now time
 		info.Principal.Login = row.Login
 		info.Principal.DefaultHouseholdID = row.DefaultHouseholdID
 		info.Principal.InstanceAdmin = row.InstanceAdmin
+		info.SignInMethod = identity.SignInMethod(row.SignInMethod)
 		expires = row.ExpiresAt
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -128,6 +129,10 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash []byte, now time
 func (r *Repository) LinkAndCreateSession(ctx context.Context, f identity.OIDCFlow, v identity.OIDCVerifiedIdentity, s identity.NewSession, revoke []byte) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, identity.OIDCOperationBudget)
 	defer cancel()
+	method, err := signInMethodParam(s.Method)
+	if err != nil {
+		return "", err
+	}
 	var user, session pgtype.UUID
 	if err := user.Scan(f.UserID); err != nil {
 		return "", err
@@ -154,24 +159,11 @@ func (r *Repository) LinkAndCreateSession(ctx context.Context, f identity.OIDCFl
 		return "", identity.ErrOIDCSessionChanged
 	}
 	// The (issuer, subject) primary key and the (user_id, issuer) unique key decide
-	// conflicts atomically, including concurrent links. Re-linking the same identity
-	// to the same account is an idempotent no-op.
-	var linkedUser string
-	err = tx.QueryRow(ctx, `SELECT user_id::text FROM oidc_identities WHERE issuer=$1 AND subject=$2`, v.Issuer, v.Subject).Scan(&linkedUser)
-	switch {
-	case err == nil && linkedUser != f.UserID:
-		return "", identity.ErrOIDCConflict
-	case errors.Is(err, pgx.ErrNoRows):
-		if _, err = tx.Exec(ctx, `INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES($1,$2,$3,$4)`, v.Issuer, v.Subject, user, timestamptz(s.CreatedAt)); err != nil {
-			if isOIDCUniqueViolation(err) {
-				return "", identity.ErrOIDCConflict
-			}
-			return "", err
-		}
-	case err != nil:
+	// conflicts atomically, including concurrent links.
+	if err = linkOIDCIdentity(ctx, tx, user, f.UserID, v.Issuer, v.Subject, s.CreatedAt); err != nil {
 		return "", err
 	}
-	id, err := db.New(tx).CreateSession(ctx, db.CreateSessionParams{UserID: newUser, TokenHash: s.TokenHash, CreatedAt: timestamptz(s.CreatedAt), ExpiresAt: timestamptz(s.ExpiresAt)})
+	id, err := db.New(tx).CreateSession(ctx, db.CreateSessionParams{UserID: newUser, TokenHash: s.TokenHash, CreatedAt: timestamptz(s.CreatedAt), ExpiresAt: timestamptz(s.ExpiresAt), SignInMethod: method})
 	if err != nil {
 		return "", err
 	}
@@ -179,6 +171,28 @@ func (r *Repository) LinkAndCreateSession(ctx context.Context, f identity.OIDCFl
 		return "", err
 	}
 	return id, nil
+}
+
+// linkOIDCIdentity binds (issuer, subject) to the account. Re-linking the same
+// identity to the same account is an idempotent no-op; any other holder or a
+// concurrent insert of the same identity is a conflict.
+func linkOIDCIdentity(ctx context.Context, tx pgx.Tx, user pgtype.UUID, userID, issuer, subject string, now time.Time) error {
+	var linkedUser string
+	err := tx.QueryRow(ctx, `SELECT user_id::text FROM oidc_identities WHERE issuer=$1 AND subject=$2`, issuer, subject).Scan(&linkedUser)
+	switch {
+	case err == nil && linkedUser != userID:
+		return identity.ErrOIDCConflict
+	case errors.Is(err, pgx.ErrNoRows):
+		if _, err = tx.Exec(ctx, `INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES($1,$2,$3,$4)`, issuer, subject, user, timestamptz(now)); err != nil {
+			if isOIDCUniqueViolation(err) {
+				return identity.ErrOIDCConflict
+			}
+			return err
+		}
+	case err != nil:
+		return err
+	}
+	return nil
 }
 func isOIDCUniqueViolation(err error) bool {
 	var pg *pgconn.PgError
