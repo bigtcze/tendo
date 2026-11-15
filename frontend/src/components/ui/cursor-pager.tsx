@@ -2,9 +2,19 @@ import type { MouseEvent } from 'react';
 import { Button } from './button';
 import type { Translate } from '../../i18n';
 
-/** Previous/next pager shared by the member, invitation and account lists; `kind` selects its data attribute. */
+type PagerKind = 'member' | 'invitation' | 'account' | 'household';
+
+/** The list a pager belongs to; its own name heads the navigation landmark. */
+const LABEL: Record<PagerKind, 'members.list.title' | 'members.invitations.title' | 'admin.list.title' | 'install.title'> = {
+  member: 'members.list.title',
+  invitation: 'members.invitations.title',
+  account: 'admin.list.title',
+  household: 'install.title',
+};
+
+/** Previous/next pager shared by the member, invitation, account and household lists; `kind` selects its data attribute. */
 export function CursorPager({ kind, stack, cursor, busy, onPrevious, onNext, t }: {
-  kind: 'member' | 'invitation' | 'account';
+  kind: PagerKind;
   stack: string[];
   cursor: string | null;
   busy: boolean;
@@ -13,7 +23,7 @@ export function CursorPager({ kind, stack, cursor, busy, onPrevious, onNext, t }
   t: Translate;
 }) {
   const marker = { [`data-${kind}-page`]: true };
-  const label = kind === 'invitation' ? t('members.invitations.title') : kind === 'account' ? t('admin.list.title') : t('members.list.title');
+  const label = t(LABEL[kind]);
   return <nav aria-label={label} className="mt-3 flex flex-wrap items-center justify-between gap-2">
     {stack.length
       ? <Button {...marker} variant="quiet" disabled={busy} onClick={onPrevious}>

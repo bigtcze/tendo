@@ -166,7 +166,8 @@ export async function cancelPasswordReset(householdId: string, userId: string): 
   return { kind: 'unavailable' };
 }
 
-export function signInMethod(account: Account): 'password' | 'oidc' | 'both' | 'none' {
+/** The one sign-in word a row states; both the household and the installation account shapes carry the facts. */
+export function signInMethod(account: Pick<Account, 'signInMethods'>): 'password' | 'oidc' | 'both' | 'none' {
   const { password, oidc } = account.signInMethods;
   if (password && oidc) return 'both';
   if (password) return 'password';

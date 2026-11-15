@@ -197,6 +197,7 @@ test.describe('Tendo production journey', () => {
   let vehicleId = '';
   let lastAdminRefusal = '';
   let memberAdminRefusal = '';
+  const instanceAdminRefusals: string[] = [];
   let passwordResetFailures: string[] = [];
   let passwordChangeFailures: string[] = [];
 
@@ -1639,6 +1640,20 @@ test.describe('Tendo production journey', () => {
         expect((await refusedList.json()).code).toBe('admin_required');
         // Only a refusal the test has just proven joins the response ledger.
         memberAdminRefusal = `GET ${accountsPath} 403`;
+
+        // V5-10 B2a: the installation-wide list is refused the same way, and the navigation never offers it. A member
+        // session already exists here, so this proof costs no local sign-in attempt (the sign-in throttle is shared).
+        expectedFailedStatuses.add('/api/v1/admin/households 403');
+        await memberPage.goto('/admin/households');
+        await expect(memberPage.getByRole('heading', { name: en['install.onlyAdmins.title'] })).toBeVisible();
+        await expect(memberPage.getByRole('main').getByRole('list', { name: en['install.title'] })).toHaveCount(0);
+        await expect(memberPage.getByRole('navigation', { name: en['admin.sections.label'] })).toHaveCount(0);
+        await expect(memberNav.locator('a[href="/admin/households"]')).toHaveCount(0);
+        // The navigation hint is only a hint: the refusal above is the server's own answer.
+        const refusedHouseholds = await memberPage.request.get('/api/v1/admin/households');
+        expect(refusedHouseholds.status()).toBe(403);
+        expect((await refusedHouseholds.json()).code).toBe('instance_admin_required');
+        instanceAdminRefusals.push('GET /api/v1/admin/households 403');
       } finally {
         await memberContext.close();
       }
@@ -1799,6 +1814,99 @@ test.describe('Tendo production journey', () => {
     const memberAccount = ((await accounts.json()) as { items: Array<{ login: string; passwordReset: unknown }> })
       .items.find((item) => item.login === memberLogin);
     expect(memberAccount?.passwordReset).toBeNull();
+  });
+
+  // V5-10 B2a: the installation-wide side of the Admin center. The first-run owner holds the installation grant,
+  // so the household Admin center grows a two-section switcher; a member's refusal at the same address is proven
+  // in n7b, where a member session already exists and costs no local sign-in attempt (the sign-in throttle is a
+  // shared per-minute budget the journey must not overspend).
+  test('n7d. the installation administrator lists every household and opens one household’s accounts read-only', async () => {
+    test.setTimeout(120_000);
+    // This step drives a phone viewport; the one it inherited is restored even when an assertion fails.
+    const originalViewport = page.viewportSize();
+    const adminHouseholdsPath = '/api/v1/admin/households';
+    const unknownHouseholdId = '6d1f0b7a-0000-4000-8000-000000000000';
+    const unknownAccountsPath = `${adminHouseholdsPath}/${unknownHouseholdId}/accounts`;
+    const memberLogin = 'member_e2e';
+    try {
+      // The switcher is the only way from the household Admin center to the installation list.
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
+      const householdNav = page.getByRole('navigation', { name: en['nav.label'] });
+      await householdNav.getByRole('link', { name: en['nav.admin'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin$/);
+      const switcher = page.getByRole('navigation', { name: en['admin.sections.label'] });
+      await expect(switcher.getByRole('link', { name: en['admin.sections.household'], exact: true })).toHaveAttribute('aria-current', 'page');
+      await switcher.getByRole('link', { name: en['admin.sections.households'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\/households$/);
+      await expect(page.getByRole('heading', { level: 1, name: en['install.account.title'] })).toBeVisible();
+      await expect(switcher.getByRole('link', { name: en['admin.sections.households'], exact: true })).toHaveAttribute('aria-current', 'page');
+
+      // The rendered list is the real installation: the owner's own household plus every other seeded household,
+      // and no row the server did not report.
+      const listedResponse = await page.request.get(`${adminHouseholdsPath}?limit=50`);
+      expect(listedResponse.status()).toBe(200);
+      const listed = (await listedResponse.json() as { items: Array<{ id: string; name: string }> }).items;
+      expect(listed.some((entry) => entry.id === householdId && entry.name === householdName), 'own household is listed').toBe(true);
+      expect(listed.length, 'the seeded installation holds more than one household').toBeGreaterThanOrEqual(2);
+      const main = page.getByRole('main');
+      const householdList = main.getByRole('list', { name: en['install.title'] });
+      await expect(householdList.getByRole('listitem')).toHaveCount(listed.length);
+      for (const entry of listed) {
+        await expect(householdList.getByRole('listitem').filter({ hasText: entry.name }).getByRole('link', { name: entry.name, exact: true })).toBeVisible();
+      }
+      await expectNoAxeViolations(page, 'admin-installation-households');
+
+      // The owner's own row opens the read-only account list of that household.
+      await householdList.getByRole('listitem').filter({ hasText: householdName }).getByRole('link', { name: householdName, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/admin/households/${householdId}$`));
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const accounts = main.getByRole('list', { name: en['admin.list.title'] });
+      const ownerRow = accounts.getByRole('listitem').filter({ hasText: ownerLogin });
+      const memberRow = accounts.getByRole('listitem').filter({ hasText: memberLogin });
+      await expect(ownerRow).toContainText(en['members.role.admin']);
+      await expect(ownerRow).toContainText(en['admin.signIn.password']);
+      await expect(memberRow).toContainText(en['members.role.member']);
+      await expect(memberRow).toContainText(en['admin.signIn.password']);
+      // Read-only: an account row offers no control at all, and the screen's only action is the way back.
+      await expect(accounts.getByRole('button')).toHaveCount(0);
+      await expect(accounts.getByRole('link')).toHaveCount(0);
+      await expect(main.getByRole('button')).toHaveCount(0);
+      await expectNoAxeViolations(page, 'admin-installation-household');
+
+      await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\/households$/);
+      await expect(page.getByRole('heading', { level: 1, name: en['install.account.title'] })).toBeVisible();
+      await expect(householdList.getByRole('listitem')).toHaveCount(listed.length);
+
+      // 320 CSS px: neither the list nor the detail scrolls sideways.
+      await page.setViewportSize({ width: 320, height: 640 });
+      await expect(householdList.getByRole('listitem').first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px household list overflow').toBeLessThanOrEqual(0);
+      await page.goto(`/admin/households/${householdId}`);
+      // A direct load carries no name from the list, so the generic heading stands in for it.
+      await expect(page.getByRole('heading', { level: 1, name: en['install.household.title'] })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px household detail overflow').toBeLessThanOrEqual(0);
+
+      // An address that is not a household page is simply not a page: no request is made for it.
+      await page.goto('/admin/households/not-a-uuid');
+      await expect(page.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+
+      // A well-formed household that is gone is answered by the server and reported as such, with the way back.
+      expectedFailedStatuses.add(`${unknownAccountsPath} 404`);
+      await page.goto(`/admin/households/${unknownHouseholdId}`);
+      await expect(page.getByRole('heading', { level: 1, name: en['install.household.title'] })).toBeVisible();
+      await expect(page.getByRole('heading', { name: en['install.gone.title'] })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: en['install.household.back'], exact: true })).toBeVisible();
+      expect((await page.request.get(unknownAccountsPath)).status()).toBe(404);
+      // The one refusal this step adds to the journey ledger; a member's refusal is proven in n7b,
+      // whose already signed-in member session costs no local sign-in attempt.
+      instanceAdminRefusals.push(`GET ${unknownAccountsPath} 404`);
+    } finally {
+      if (originalViewport) await page.setViewportSize(originalViewport);
+    }
   });
 
   test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
@@ -3426,6 +3534,8 @@ test.describe('Tendo production journey', () => {
           { path: '/people', heading: en['subjects.title'] },
           { path: '/members', heading: en['members.title'] },
           { path: '/account', heading: en['account.title'] },
+          // The installation list of the Admin center is a signed-in route too (n7d holds its behavior).
+          { path: '/admin/households', heading: en['install.account.title'] },
         ];
         for (const route of routeChecks) {
           await page.goto(route.path);
@@ -6418,7 +6528,7 @@ test.describe('Tendo production journey', () => {
     // The two refusals are only ledgered by the tests that proved them, so a skipped proof cannot pass here.
     // The ledger is a set, so two independent proofs of the same refusal (a reset and a password change each end a
     // session, and both prove it with the same refused household read) collapse into one expected entry.
-    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, ...passwordResetFailures, ...passwordChangeFailures])].sort());
+    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, ...instanceAdminRefusals, ...passwordResetFailures, ...passwordChangeFailures])].sort());
     expect(problems).toEqual([]);
   });
 });

@@ -37,7 +37,7 @@ export function AccountScreen({ session, onSessionChanged, onSignedOut, onSelfLe
             </p>
           </section>
           <AccountPasswordSection session={session} onChanged={onSessionChanged} onSignedOut={onSignedOut} />
-          <AccountAdminLink />
+          <AccountAdminLink instanceAdmin={session.instanceAdmin} />
           <AccountPreferences />
           <AccountHouseholdSection session={session} onSignedOut={onSignedOut} onSelfLeft={onSelfLeft} />
         </div>

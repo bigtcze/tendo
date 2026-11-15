@@ -12,6 +12,9 @@ import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
+import { InstallationHouseholdsScreen } from '../features/installation/InstallationHouseholdsScreen';
+import { InstallationHouseholdScreen } from '../features/installation/InstallationHouseholdScreen';
+import { rereadInstanceAdminSession } from '../features/installation/installationSession';
 import { ScreenTransitionContext } from './Heading';
 import { HouseholdSwitchProvider } from './HouseholdSwitchProvider';
 import { Layout } from './Layout';
@@ -51,6 +54,7 @@ export function SignedInApp(props: Props) {
     members: navigation.openMembers,
     account: navigation.openAccount,
     admin: navigation.openAdmin,
+    adminHouseholds: navigation.openAdminHouseholds,
   };
   // Adopting a household chosen in the top bar is the same transition as signing in: Home at '/', a new session
   // generation so callbacks from the previous household are ignored, and the returned session as the live one.
@@ -95,7 +99,7 @@ function renderNotFound(props: Props, householdId: string | null, navigationActi
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdDataProvider key={householdId ?? 'none'} householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
       <HouseholdNavigationContext value={{
-        route: 'home', actions: navigationActions, household: Boolean(householdId),
+        route: 'home', actions: navigationActions, household: Boolean(householdId), instanceAdmin: session.instanceAdmin,
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
       }}>
         <ScreenTransitionContext value={props.transitioned}>
@@ -170,6 +174,8 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
       onSelfLeft={onSelfLeft}
     />;
   }
+  const installation = renderInstallation(props);
+  if (installation) return installation;
   if (route.kind === 'admin' && householdId) {
     return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login}
       onSignedOut={sessionActions.sessionEnded} onSelfLeft={onSelfLeft} />;
@@ -189,6 +195,47 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
 }
 
 /**
+ * The installation-wide side of the Admin center. It belongs to the account, not to a household, so it renders
+ * without one; the household list is also what a household-less /admin really means on its first render, before the
+ * canonical correction replaces the route with the list's own.
+ */
+function renderInstallation(props: Props) {
+  const { route, session, navigation, sessionActions } = props;
+  const shared = {
+    login: session.login,
+    onSignedOut: sessionActions.sessionEnded,
+    // A refused installation read means the grant hint is stale; the re-read follows whatever the account really is.
+    onForbidden: () => {
+      void rereadInstanceAdminSession({
+        viewerId: session.userId,
+        onSession: sessionActions.updateSession,
+        onSignedOut: sessionActions.sessionEnded,
+        onReboot: sessionActions.retry,
+      });
+    },
+  };
+  const householdList = () => <InstallationHouseholdsScreen
+    {...shared}
+    onOpenHousehold={navigation.openAdminHousehold}
+  />;
+  if (route.kind === 'adminHouseholds') return householdList();
+  if (route.kind === 'admin') {
+    return session.instanceAdmin && !session.defaultHouseholdId ? householdList() : null;
+  }
+  if (route.kind !== 'adminHousehold') return null;
+  // The name is only ever the one this visit carried in; it is dropped when it belongs to another account or page.
+  const remembered = navigation.adminHouseholdName;
+  const name = remembered?.userId === session.userId && remembered.householdId === route.householdId ? remembered.name : null;
+  return <InstallationHouseholdScreen
+    key={route.householdId}
+    householdId={route.householdId}
+    name={name}
+    {...shared}
+    onBack={navigation.openAdminHouseholds}
+  />;
+}
+
+/**
  * The household subtree (and its data) is keyed by the household it shows: after a switch it mounts again with the
  * new household's own requests, and nothing keeps reading the household that was left behind.
  */
@@ -203,7 +250,7 @@ function renderHouseholdScreens(
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdDataProvider key={householdId ?? 'none'} householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
       <HouseholdNavigationContext value={{
-        route: navRoute, actions: navigationActions, household: Boolean(householdId),
+        route: navRoute, actions: navigationActions, household: Boolean(householdId), instanceAdmin: props.session.instanceAdmin,
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
       }}>
         <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId, onSelfLeft)}</ScreenTransitionContext>

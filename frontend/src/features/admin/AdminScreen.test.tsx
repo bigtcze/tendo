@@ -652,7 +652,7 @@ describe('Admin center', () => {
     app('/admin');
     expect(await screen.findByRole('heading', { level: 1, name: 'Správa domácnosti' })).toBeVisible();
     const navCs = screen.getByRole('navigation', { name: 'Navigace domácnosti' });
-    await waitFor(() => expect(within(navCs).getByRole('link', { name: 'Správa domácnosti' })).toHaveAttribute('href', '/admin'));
+    await waitFor(() => expect(within(navCs).getByRole('link', { name: 'Správa' })).toHaveAttribute('href', '/admin'));
     await waitFor(() => expect(rowOf('petr')).toHaveTextContent('Člen'));
     expect(screen.getByRole('button', { name: 'Jmenovat správcem: petr' })).toHaveTextContent('Jmenovat správcem');
     // Membership actions speak Czech too: removal for someone else, leaving for the viewer's own row.

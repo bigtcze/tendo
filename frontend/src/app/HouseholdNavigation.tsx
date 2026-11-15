@@ -14,25 +14,30 @@ export type NavigationActions = {
   people: () => void;
   members: () => void;
   account: () => void;
+  /** The household Admin center. */
   admin: () => void;
+  /** The installation-wide household list of the Admin center; the target of an account without the household role. */
+  adminHouseholds: () => void;
 };
 /**
  * `archivedView` and `itemOrigin` are what the active highlight needs beyond the route itself: the archived
  * filter lives in the All items address, and a detail page belongs to the list or the screen it was opened from.
+ * `instanceAdmin` is the session's installation-wide grant: a navigation hint only, never an authorization input.
  */
 export const HouseholdNavigationContext = createContext<{
   route: HouseholdRoute;
   actions: NavigationActions;
   household: boolean;
+  instanceAdmin: boolean;
   archivedView: boolean;
   itemOrigin: ItemOrigin;
 } | null>(null);
 
-type Destination = Exclude<HouseholdRoute, 'item'>;
-type DestinationKey = Destination | 'archive';
+type DestinationKey = Exclude<HouseholdRoute, 'item'> | 'archive';
 type LinkSpec = {
   key: DestinationKey;
-  route: Destination;
+  /** The action a plain click runs; the highlight follows `key` instead. */
+  run: keyof NavigationActions;
   href: string;
   icon: NavIconRoute;
   label: MessageKey;
@@ -41,14 +46,27 @@ type LinkSpec = {
   name: MessageKey;
 };
 
-const HOME: LinkSpec = { key: 'home', route: 'home', href: '/', icon: 'home', label: 'nav.home', name: 'nav.home' };
-const ALL_ITEMS: LinkSpec = { key: 'allItems', route: 'allItems', href: '/items', icon: 'allItems', label: 'nav.allItems', compactLabel: 'nav.compact.allItems', name: 'home.allItems' };
+const HOME: LinkSpec = { key: 'home', run: 'home', href: '/', icon: 'home', label: 'nav.home', name: 'nav.home' };
+const ALL_ITEMS: LinkSpec = { key: 'allItems', run: 'allItems', href: '/items', icon: 'allItems', label: 'nav.allItems', compactLabel: 'nav.compact.allItems', name: 'home.allItems' };
 /** Archive is the All items list with the archived filter on; it keeps its own entry so it is never buried. */
-const ARCHIVE: LinkSpec = { key: 'archive', route: 'allItems', href: '/items?status=archived', icon: 'archive', label: 'nav.archive', name: 'nav.archive' };
-const PEOPLE: LinkSpec = { key: 'people', route: 'people', href: '/people', icon: 'people', label: 'nav.people', compactLabel: 'nav.compact.people', name: 'home.people' };
-const MEMBERS: LinkSpec = { key: 'members', route: 'members', href: '/members', icon: 'members', label: 'nav.members', name: 'home.members' };
-const ACCOUNT: LinkSpec = { key: 'account', route: 'account', href: '/account', icon: 'account', label: 'nav.account', name: 'home.account' };
-const ADMIN: LinkSpec = { key: 'admin', route: 'admin', href: '/admin', icon: 'admin', label: 'nav.admin', name: 'nav.admin' };
+const ARCHIVE: LinkSpec = { key: 'archive', run: 'archive', href: '/items?status=archived', icon: 'archive', label: 'nav.archive', name: 'nav.archive' };
+const PEOPLE: LinkSpec = { key: 'people', run: 'people', href: '/people', icon: 'people', label: 'nav.people', compactLabel: 'nav.compact.people', name: 'home.people' };
+const MEMBERS: LinkSpec = { key: 'members', run: 'members', href: '/members', icon: 'members', label: 'nav.members', name: 'home.members' };
+const ACCOUNT: LinkSpec = { key: 'account', run: 'account', href: '/account', icon: 'account', label: 'nav.account', name: 'home.account' };
+const ADMIN: LinkSpec = { key: 'admin', run: 'admin', href: '/admin', icon: 'admin', label: 'nav.admin', name: 'nav.admin' };
+/**
+ * One Admin center entry, one highlight: an administrator of this household opens its accounts, while the
+ * installation grant (alone or besides a member role) opens the installation-wide household list.
+ */
+const ADMIN_HOUSEHOLDS: LinkSpec = {
+  key: 'admin', run: 'adminHouseholds', href: '/admin/households', icon: 'admin',
+  label: 'nav.adminInstallation', name: 'nav.adminInstallation',
+};
+
+function adminEntry(role: 'admin' | 'member' | null, instanceAdmin: boolean): LinkSpec[] {
+  if (role === 'admin') return [ADMIN];
+  return instanceAdmin ? [ADMIN_HOUSEHOLDS] : [];
+}
 
 type NavContext = NonNullable<React.ContextType<typeof HouseholdNavigationContext>>;
 
@@ -63,9 +81,7 @@ function activeKey({ route, archivedView, itemOrigin }: NavContext): Destination
 }
 
 function navigate(spec: LinkSpec, { actions }: NavContext) {
-  if (spec.key === 'archive') actions.archive();
-  else if (spec.route === 'allItems') actions.allItems();
-  else actions[spec.route]();
+  actions[spec.run]();
 }
 
 function NavItem({ spec, className, context, onSelect }: {
@@ -115,7 +131,8 @@ function MoreButton({ open, panelId, onToggle, buttonRef }: {
  * The phone bar keeps the five everyday destinations (Home, Items, People, Account and More); Archive,
  * Members and the Admin center live in the More sheet, so Archive has a phone entry without cramping the bar.
  * Every tab, row and sheet link is a full 44 px target.
- * The viewer's own role only decides whether the Admin center entry is offered; every admin request is re-authorized.
+ * The viewer's own role and installation grant only decide whether the Admin center entry is offered, and which
+ * center it opens; every admin request is re-authorized.
  */
 export function HouseholdNavigation({ rail }: { rail: boolean }) {
   const navigation = useContext(HouseholdNavigationContext);
@@ -127,17 +144,17 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   useDismiss(moreOpen, () => setMoreOpen(false), rootRef, moreButtonRef);
   if (!navigation) return null;
+  const admin = adminEntry(role, navigation.instanceAdmin);
 
   if (!navigation.household) {
     return <nav aria-label={t('nav.label')} className={NAV_BAR}>
       <ul className={LIST_INLINE}>
-        {[HOME, ACCOUNT].map((spec) => <li key={spec.key} className="min-w-0 flex-1 sm:flex-none">
+        {[HOME, ACCOUNT, ...admin].map((spec) => <li key={spec.run} className="min-w-0 flex-1 sm:flex-none">
           <NavItem spec={spec} className={INLINE_LINK} context={navigation} />
         </li>)}
       </ul>
     </nav>;
   }
-  const admin = role === 'admin' ? [ADMIN] : [];
   const sheet = [ARCHIVE, MEMBERS, ...admin];
   return <nav ref={rootRef} aria-label={t('nav.label')} className={rail ? NAV_RAIL : NAV_BAR}>
     <ul className={LIST_PRIMARY}>

@@ -81,6 +81,21 @@ export const ownerPassword = OWNER_PASSWORD;
 const INVITATION_CREATED_AT = '2026-05-14T08:00:00Z';
 const INVITATION_EXPIRES_AT = '2026-05-21T08:00:00Z';
 
+// The same holds for the installation household list, whose rows state when each household was created: the value
+// comes from the server's real clock, so a reviewed baseline would go stale the next day.
+const HOUSEHOLD_CREATED_AT = '2026-05-14T08:00:00Z';
+
+export async function pinHouseholdCreatedDates(context: BrowserContext) {
+  await context.route((url) => /^\/api\/v1\/admin\/households$/.test(url.pathname), async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 200) return route.fulfill({ response });
+    const page = await response.json() as components['schemas']['AdminHouseholdList'];
+    const items = page.items.map((household) => ({ ...household, createdAt: HOUSEHOLD_CREATED_AT }));
+    await route.fulfill({ response, json: { ...page, items } });
+  });
+}
+
 export async function pinInvitationDates(context: BrowserContext) {
   await context.route((url) => /^\/api\/v1\/households\/[^/]+\/invitations$/.test(url.pathname), async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();

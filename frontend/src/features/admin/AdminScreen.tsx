@@ -5,6 +5,7 @@ import { useHouseholdData } from '../../app/HouseholdData';
 import { useI18n } from '../../i18n';
 import { AdminAccountList } from './AdminAccountList';
 import { AdminIntro, AdminLoadError, AdminListSkeleton, AdminOnlyAdmins, formatResetExpiry } from './AdminStates';
+import { AdminSectionSwitcher } from './AdminSectionSwitcher';
 import { PasswordResetDialog } from './PasswordResetDialog';
 import { RemoveAccountDialog } from './RemoveAccountDialog';
 import { RoleChangeDialog } from './RoleChangeDialog';
@@ -48,6 +49,7 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut, onSelfL
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
       <AdminIntro notice={notice} t={t} />
+      <AdminSectionSwitcher current="household" />
       {list.state === 'loading' ? <AdminListSkeleton label={t('admin.loading')} /> : null}
       {list.state === 'error' ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retry} t={t} /> : null}
       {list.state === 'forbidden' ? <AdminOnlyAdmins t={t} /> : null}
