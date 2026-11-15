@@ -61,10 +61,29 @@ type Account struct {
 	PasswordReset *PasswordReset
 }
 
+// Actor authorities recorded on membership audit rows. They name the grant the
+// actor used, so an instance administrator acting outside their own households
+// stays distinguishable from a household admin (ADR 0020).
+const (
+	AuthorityHouseholdAdmin  = "household_admin"
+	AuthorityHouseholdMember = "household_member"
+	AuthorityInstanceAdmin   = "instance_admin"
+)
+
 // RoleChange is one audited membership role transition.
 type RoleChange struct {
-	HouseholdID, TargetUserID, ActorUserID, PreviousRole, NewRole string
-	ChangedAt                                                     time.Time
+	HouseholdID, TargetUserID, ActorUserID, PreviousRole, NewRole, ActorAuthority string
+	ChangedAt                                                                     time.Time
+}
+
+// RoleChangeTransaction is the transaction-scoped surface a role change needs
+// after the household row is locked. Household-admin and instance-admin role
+// changes share it through changeRoleLocked.
+type RoleChangeTransaction interface {
+	GetAccount(context.Context, string, string) (AccountRecord, error)
+	UpdateAccountRole(context.Context, string, string, string) (int64, error)
+	CountAdmins(context.Context, string) (int, error)
+	RecordRoleChange(context.Context, RoleChange) error
 }
 
 // AccountTransaction is the transaction-scoped surface for admin account
@@ -72,11 +91,8 @@ type RoleChange struct {
 // uses the same lock protocol and keeps its reads inside the same transaction.
 type AccountTransaction interface {
 	AdminGate
-	GetAccount(context.Context, string, string) (AccountRecord, error)
+	RoleChangeTransaction
 	ListAccounts(context.Context, string, string, int) ([]AccountRecord, string, error)
-	UpdateAccountRole(context.Context, string, string, string) (int64, error)
-	CountAdmins(context.Context, string) (int, error)
-	RecordRoleChange(context.Context, RoleChange) error
 }
 
 type AccountRepository interface {
@@ -194,36 +210,9 @@ func (s *AccountService) ChangeRole(ctx context.Context, actorID, householdID, t
 		if e := RequireAdmin(bounded, tx, actorID, householdID); e != nil {
 			return e
 		}
-		current, e := tx.GetAccount(bounded, householdID, targetUserID)
-		if e != nil {
-			return e
-		}
-		if current.Version != expectedVersion {
-			return ErrPreconditionFailed
-		}
-		if current.Role == role {
-			record = current
-			return nil
-		}
-		version, e := tx.UpdateAccountRole(bounded, householdID, targetUserID, role)
-		if e != nil {
-			return e
-		}
-		admins, e := tx.CountAdmins(bounded, householdID)
-		if e != nil {
-			return e
-		}
-		if admins == 0 {
-			return ErrLastAdmin
-		}
-		if e = tx.RecordRoleChange(bounded, RoleChange{
-			HouseholdID: householdID, TargetUserID: targetUserID, ActorUserID: actorID,
-			PreviousRole: current.Role, NewRole: role, ChangedAt: s.clock().UTC(),
-		}); e != nil {
-			return e
-		}
-		record = AccountRecord{UserID: targetUserID, Role: role, Version: version}
-		return nil
+		var e error
+		record, e = changeRoleLocked(bounded, tx, householdID, targetUserID, actorID, AuthorityHouseholdAdmin, role, expectedVersion, s.clock)
+		return e
 	})
 	if err != nil {
 		return Account{}, err
@@ -233,6 +222,42 @@ func (s *AccountService) ChangeRole(ctx context.Context, actorID, householdID, t
 		return Account{}, err
 	}
 	return accounts[0], nil
+}
+
+// changeRoleLocked performs one role change after the caller locked the
+// household row and authorized the actor. The order is shared by every role
+// change path and must not be reordered: read the membership, check the
+// expected version, short-circuit an unchanged role without a version bump or
+// audit row, update, refuse a household left without an admin, then audit.
+func changeRoleLocked(ctx context.Context, tx RoleChangeTransaction, householdID, targetUserID, actorID, authority, role string, expectedVersion int64, clock func() time.Time) (AccountRecord, error) {
+	current, err := tx.GetAccount(ctx, householdID, targetUserID)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if current.Version != expectedVersion {
+		return AccountRecord{}, ErrPreconditionFailed
+	}
+	if current.Role == role {
+		return current, nil
+	}
+	version, err := tx.UpdateAccountRole(ctx, householdID, targetUserID, role)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	admins, err := tx.CountAdmins(ctx, householdID)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if admins == 0 {
+		return AccountRecord{}, ErrLastAdmin
+	}
+	if err = tx.RecordRoleChange(ctx, RoleChange{
+		HouseholdID: householdID, TargetUserID: targetUserID, ActorUserID: actorID,
+		PreviousRole: current.Role, NewRole: role, ActorAuthority: authority, ChangedAt: clock().UTC(),
+	}); err != nil {
+		return AccountRecord{}, err
+	}
+	return AccountRecord{UserID: targetUserID, Role: role, Version: version}, nil
 }
 
 // decorate joins identity-owned login, sign-in and outstanding-reset facts.

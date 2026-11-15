@@ -1005,6 +1005,40 @@ type AccountSignInMethods struct {
 	Password bool `json:"password"`
 }
 
+// AdminAccount defines model for AdminAccount.
+type AdminAccount struct {
+	Login         string               `json:"login"`
+	Role          MemberRole           `json:"role"`
+	SignInMethods AccountSignInMethods `json:"signInMethods"`
+	UserId        string               `json:"userId"`
+}
+
+// AdminAccountList defines model for AdminAccountList.
+type AdminAccountList struct {
+	Items []AdminAccount `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// AdminHousehold defines model for AdminHousehold.
+type AdminHousehold struct {
+	CreatedAt time.Time `json:"createdAt"`
+	Id        string    `json:"id"`
+	Name      string    `json:"name"`
+
+	// Timezone Named IANA timezone.
+	Timezone string `json:"timezone"`
+}
+
+// AdminHouseholdList defines model for AdminHouseholdList.
+type AdminHouseholdList struct {
+	Items []AdminHousehold `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
 // ChangePasswordRequest defines model for ChangePasswordRequest.
 type ChangePasswordRequest struct {
 	// CurrentPassword Maximum 512 UTF-8 bytes.
@@ -1106,6 +1140,20 @@ type CreateSubjectRequest struct {
 	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
 	Name string      `json:"name"`
 	Type SubjectType `json:"type"`
+}
+
+// DirectoryAccount defines model for DirectoryAccount.
+type DirectoryAccount struct {
+	Login  string `json:"login"`
+	UserId string `json:"userId"`
+}
+
+// DirectoryAccountList defines model for DirectoryAccountList.
+type DirectoryAccountList struct {
+	Items []DirectoryAccount `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
 }
 
 // EmptyObject defines model for EmptyObject.
@@ -1728,6 +1776,12 @@ type WorkflowState string
 // AccountUserId defines model for AccountUserId.
 type AccountUserId = string
 
+// AdminAccountUserId defines model for AdminAccountUserId.
+type AdminAccountUserId = string
+
+// AdminHouseholdId defines model for AdminHouseholdId.
+type AdminHouseholdId = string
+
 // Archived defines model for Archived.
 type Archived = bool
 
@@ -1757,6 +1811,75 @@ type RequestId = string
 
 // SubjectId defines model for SubjectId.
 type SubjectId = string
+
+// ListAdminAccountsParams defines parameters for ListAdminAccounts.
+type ListAdminAccountsParams struct {
+	// Q Login substring, 0 to 64 characters after trimming surrounding white space; control, format and line or paragraph separator characters are rejected with invalid_query parameter q. Repeating q is invalid_query.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// ListAdminHouseholdsParams defines parameters for ListAdminHouseholds.
+type ListAdminHouseholdsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// ListAdminHouseholdAccountsParams defines parameters for ListAdminHouseholdAccounts.
+type ListAdminHouseholdAccountsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// RemoveAdminHouseholdAccountParams defines parameters for RemoveAdminHouseholdAccount.
+type RemoveAdminHouseholdAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+	IfMatch string `json:"If-Match"`
+}
+
+// GetAdminHouseholdAccountParams defines parameters for GetAdminHouseholdAccount.
+type GetAdminHouseholdAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateAdminHouseholdAccountRoleParams defines parameters for UpdateAdminHouseholdAccountRole.
+type UpdateAdminHouseholdAccountRoleParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+	IfMatch string `json:"If-Match"`
+}
+
+// AssignAdminHouseholdAccountParams defines parameters for AssignAdminHouseholdAccount.
+type AssignAdminHouseholdAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
 
 // AcceptInvitationWithNewAccountParams defines parameters for AcceptInvitationWithNewAccount.
 type AcceptInvitationWithNewAccountParams struct {
@@ -2210,6 +2333,12 @@ type GetReadinessParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
+
+// UpdateAdminHouseholdAccountRoleJSONRequestBody defines body for UpdateAdminHouseholdAccountRole for application/json ContentType.
+type UpdateAdminHouseholdAccountRoleJSONRequestBody = UpdateAccountRoleRequest
+
+// AssignAdminHouseholdAccountJSONRequestBody defines body for AssignAdminHouseholdAccount for application/json ContentType.
+type AssignAdminHouseholdAccountJSONRequestBody = UpdateAccountRoleRequest
 
 // AcceptInvitationWithNewAccountJSONRequestBody defines body for AcceptInvitationWithNewAccount for application/json ContentType.
 type AcceptInvitationWithNewAccountJSONRequestBody = AcceptInvitationNewAccountRequest

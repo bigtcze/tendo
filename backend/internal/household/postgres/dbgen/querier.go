@@ -21,12 +21,25 @@ type Querier interface {
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
 	GetMembershipAccount(ctx context.Context, arg GetMembershipAccountParams) (GetMembershipAccountRow, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
+	HouseholdExists(ctx context.Context, id pgtype.UUID) (bool, error)
+	InsertAssignedMembership(ctx context.Context, arg InsertAssignedMembershipParams) (int64, error)
+	InsertHouseholdMemberAssignment(ctx context.Context, arg InsertHouseholdMemberAssignmentParams) error
 	InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHouseholdMemberRemovalParams) error
 	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error
+	IsInstanceAdmin(ctx context.Context, userID pgtype.UUID) (bool, error)
+	ListAllHouseholds(ctx context.Context, arg ListAllHouseholdsParams) ([]ListAllHouseholdsRow, error)
 	ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error)
 	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
 	ListMembershipAccounts(ctx context.Context, arg ListMembershipAccountsParams) ([]ListMembershipAccountsRow, error)
+	// The instance-admin grant replaces the membership gate, so the household row
+	// is locked by its ID alone, in the same mode as LockHouseholdForMembership.
+	LockHouseholdByID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	LockHouseholdForMembership(ctx context.Context, arg LockHouseholdForMembershipParams) (pgtype.UUID, error)
+	// FOR SHARE: every instance-admin command takes the installation row in share
+	// mode so a future grant revoke, which must take it FOR UPDATE, serializes with
+	// in-flight commands (ADR 0020). Concurrent instance-admin commands do not
+	// block each other.
+	LockInstallationForInstanceAdmin(ctx context.Context) (bool, error)
 	// FOR NO KEY UPDATE serializes account-level writes without conflicting with
 	// the snapshot/key-share locks a session insert or foreign key takes on the
 	// same row (ADR 0018, ADR 0019).

@@ -43,7 +43,14 @@ type Querier interface {
 	InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) error
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
+	// Keyset on (lower(login), id), served by user_accounts_lower_login_id_idx.
+	// The search pattern arrives already escaped for LIKE with backslash.
+	ListDirectoryAccounts(ctx context.Context, arg ListDirectoryAccountsParams) ([]ListDirectoryAccountsRow, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
+	// Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
+	// assignment and an acceptance or removal of the same account serialize on the
+	// account row without conflicting with session foreign-key key shares.
+	LockAssignableAccount(ctx context.Context, id pgtype.UUID) (string, error)
 	LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error)
 	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
 	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
@@ -90,6 +97,8 @@ type Querier interface {
 	RevokePendingInvitationsCreatedBy(ctx context.Context, arg RevokePendingInvitationsCreatedByParams) error
 	SetAccountDefaultHousehold(ctx context.Context, arg SetAccountDefaultHouseholdParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
+	// An instance-admin assignment never moves an existing navigation hint.
+	SetDefaultHouseholdIfUnset(ctx context.Context, arg SetDefaultHouseholdIfUnsetParams) error
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
 	UserSessionActive(ctx context.Context, arg UserSessionActiveParams) (bool, error)
 }

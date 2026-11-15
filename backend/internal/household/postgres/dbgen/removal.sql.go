@@ -43,16 +43,17 @@ func (q *Queries) DeleteMembership(ctx context.Context, arg DeleteMembershipPara
 }
 
 const insertHouseholdMemberRemoval = `-- name: InsertHouseholdMemberRemoval :exec
-INSERT INTO household_member_removals(household_id,target_user_id,actor_user_id,previous_role,removed_at)
-VALUES($1,$2,$3,$4,$5)
+INSERT INTO household_member_removals(household_id,target_user_id,actor_user_id,previous_role,removed_at,actor_authority)
+VALUES($1,$2,$3,$4,$5,$6)
 `
 
 type InsertHouseholdMemberRemovalParams struct {
-	HouseholdID  pgtype.UUID
-	TargetUserID pgtype.UUID
-	ActorUserID  pgtype.UUID
-	PreviousRole string
-	RemovedAt    pgtype.Timestamptz
+	HouseholdID    pgtype.UUID
+	TargetUserID   pgtype.UUID
+	ActorUserID    pgtype.UUID
+	PreviousRole   string
+	RemovedAt      pgtype.Timestamptz
+	ActorAuthority string
 }
 
 func (q *Queries) InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHouseholdMemberRemovalParams) error {
@@ -62,6 +63,7 @@ func (q *Queries) InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHo
 		arg.ActorUserID,
 		arg.PreviousRole,
 		arg.RemovedAt,
+		arg.ActorAuthority,
 	)
 	return err
 }

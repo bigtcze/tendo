@@ -28,13 +28,24 @@ type HouseholdInvitation struct {
 	RevokedAt       pgtype.Timestamptz
 }
 
+type HouseholdMemberAssignment struct {
+	ID             pgtype.UUID
+	HouseholdID    pgtype.UUID
+	TargetUserID   pgtype.UUID
+	ActorUserID    pgtype.UUID
+	Role           string
+	ActorAuthority string
+	AssignedAt     pgtype.Timestamptz
+}
+
 type HouseholdMemberRemoval struct {
-	ID           pgtype.UUID
-	HouseholdID  pgtype.UUID
-	TargetUserID pgtype.UUID
-	ActorUserID  pgtype.UUID
-	PreviousRole string
-	RemovedAt    pgtype.Timestamptz
+	ID             pgtype.UUID
+	HouseholdID    pgtype.UUID
+	TargetUserID   pgtype.UUID
+	ActorUserID    pgtype.UUID
+	PreviousRole   string
+	RemovedAt      pgtype.Timestamptz
+	ActorAuthority string
 }
 
 type HouseholdMembership struct {
@@ -45,18 +56,25 @@ type HouseholdMembership struct {
 }
 
 type HouseholdRoleChange struct {
-	ID           pgtype.UUID
-	HouseholdID  pgtype.UUID
-	TargetUserID pgtype.UUID
-	ActorUserID  pgtype.UUID
-	PreviousRole string
-	NewRole      string
-	ChangedAt    pgtype.Timestamptz
+	ID             pgtype.UUID
+	HouseholdID    pgtype.UUID
+	TargetUserID   pgtype.UUID
+	ActorUserID    pgtype.UUID
+	PreviousRole   string
+	NewRole        string
+	ChangedAt      pgtype.Timestamptz
+	ActorAuthority string
 }
 
 type InstallationState struct {
 	Singleton     bool
 	SetupRequired bool
+}
+
+type InstanceAdmin struct {
+	UserID      pgtype.UUID
+	GrantedAt   pgtype.Timestamptz
+	GrantSource string
 }
 
 type Item struct {

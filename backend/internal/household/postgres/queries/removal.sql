@@ -21,5 +21,5 @@ WHERE household_id=$1 AND role='admin' AND user_id<>$2;
 DELETE FROM household_memberships WHERE household_id=$1 AND user_id=$2;
 
 -- name: InsertHouseholdMemberRemoval :exec
-INSERT INTO household_member_removals(household_id,target_user_id,actor_user_id,previous_role,removed_at)
-VALUES($1,$2,$3,$4,$5);
+INSERT INTO household_member_removals(household_id,target_user_id,actor_user_id,previous_role,removed_at,actor_authority)
+VALUES($1,$2,$3,$4,$5,$6);

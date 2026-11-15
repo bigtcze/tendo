@@ -1543,6 +1543,298 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+  /api/v1/admin/households:
+    get:
+      operationId: listAdminHouseholds
+      summary: List every household of the installation
+      description: 'Instance administrator only (ADR 0020). Returns every household in household identifier order, whether or not the caller belongs to it. Items carry no household content (no items, subjects or viewer role). Cursors are opaque.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: One page of households.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHouseholdList' }
+              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, name: Veselí, timezone: Europe/Prague, createdAt: '2026-10-06T10:00:00Z' }], nextCursor: null }
+        '400': { description: 'Invalid query (invalid_query naming limit, cursor), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/accounts:
+    get:
+      operationId: listAdminAccounts
+      summary: Search the installation account directory
+      description: 'Instance administrator only (ADR 0020). Returns accounts ordered by case-folded login, then identifier, optionally filtered by q: a case-insensitive literal substring of the login (wildcards have no special meaning). Only the identifier and login are returned, so an existing account can be assigned to a household.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - name: q
+          in: query
+          required: false
+          description: 'Login substring, 0 to 64 characters after trimming surrounding white space; control, format and line or paragraph separator characters are rejected with invalid_query parameter q. Repeating q is invalid_query.'
+          schema: { type: string, maxLength: 256 }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: One page of accounts.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DirectoryAccountList' }
+              example: { items: [{ userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob }], nextCursor: null }
+        '400': { description: 'Invalid query (invalid_query naming limit, cursor or q), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/households/{householdId}/accounts:
+    get:
+      operationId: listAdminHouseholdAccounts
+      summary: List the member accounts of any household
+      description: 'Instance administrator only (ADR 0020); membership of the household is not required. Returns each member with its role and identity-owned sign-in methods, without password-reset facts.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminHouseholdId' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: One page of member accounts.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAccountList' }
+              example: { items: [{ userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: true, oidc: false } }], nextCursor: null }
+        '400': { description: 'Invalid query (invalid_query naming limit, cursor), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404': { description: 'Household is unknown or the identifier is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/households/{householdId}/accounts/{userId}:
+    get:
+      operationId: getAdminHouseholdAccount
+      summary: Read one membership of any household
+      description: 'Instance administrator only (ADR 0020). The ETag is the strong, quoted decimal membership version used by PATCH and DELETE If-Match.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminHouseholdId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+      responses:
+        '200':
+          description: Membership.
+          headers:
+            ETag: { schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Strong membership version entity tag. }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAccount' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: true, oidc: false } }
+        '400': { description: 'Malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404': { description: 'Household or target account is unknown or malformed, or the account is not a member of this household.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    put:
+      operationId: assignAdminHouseholdAccount
+      summary: Assign an existing account to a household
+      description: 'Instance administrator only (ADR 0020). Puts an existing account into the household with the given role: 201 when a new membership is created, 200 when the account already has exactly this role (an idempotent replay without a version bump or audit row). An existing membership with another role is 409 already_member; change it with PATCH. A plain-member assignment into a household that has no admin is 409 household_requires_admin. The caller may assign themselves; the assignment is audited with the instance-administrator authority. The account gets its member person in the household, and the household becomes its default only when it has none. No account is created and no secret is returned.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminHouseholdId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAccountRoleRequest' }
+            example: { role: member }
+      responses:
+        '200':
+          description: The account already has this role in the household.
+          headers:
+            ETag: { schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Strong membership version entity tag. }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAccount' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: true, oidc: false } }
+        '201':
+          description: Membership created.
+          headers:
+            ETag: { schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Strong membership version entity tag. }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAccount' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: true, oidc: false } }
+        '400': { description: 'Invalid body (invalid_request), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404': { description: 'Household or account is unknown, or an identifier is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '409':
+          description: The account already belongs to the household with another role, or a plain member would join a household without an admin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                alreadyMember: { value: { type: 'about:blank', title: Conflict, status: 409, code: already_member } }
+                householdRequiresAdmin: { value: { type: 'about:blank', title: Conflict, status: 409, code: household_requires_admin } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'role is missing a valid admin or member value.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_value, field: role } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    patch:
+      operationId: updateAdminHouseholdAccountRole
+      summary: Change a membership role in any household
+      description: 'Instance administrator only (ADR 0020), with required If-Match against the membership version. Same rules as the household-admin role change: an unchanged role is a no-op without a version bump or audit row, and leaving the household without an admin is 409 last_admin and changes nothing, also when a household admin demotes concurrently.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminHouseholdId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+        - name: If-Match
+          in: header
+          required: true
+          description: Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          example: '"1"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAccountRoleRequest' }
+            example: { role: member }
+      responses:
+        '200':
+          description: Updated membership, or the current one for an unchanged role.
+          headers:
+            ETag: { schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Strong membership version entity tag. }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAccount' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: true, oidc: false } }
+        '400': { description: 'Invalid body (invalid_request), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404': { description: 'Household or target account is unknown or malformed, or the account is not a member of this household.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '409': { description: 'The change would remove the household''s last admin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: last_admin } } } }
+        '412': { description: 'If-Match is malformed, weak, a list, or stale.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'role is missing a valid admin or member value.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_value, field: role } } } }
+        '428': { description: 'If-Match is required.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    delete:
+      operationId: removeAdminHouseholdAccount
+      summary: Remove a membership from any household
+      description: 'Instance administrator only (ADR 0020). Removes one membership through the same transaction and effects as the household-admin removal (ADR 0019): outstanding invitations and reset links the member is party to in this household are revoked, item responsibility is released, the member person is unlinked without archiving, and the account default moves or is cleared. The account itself is never deleted and its sessions are not revoked. Removing the last admin is 409 last_admin and changes nothing.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminHouseholdId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+        - name: If-Match
+          in: header
+          required: true
+          description: Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          example: '"1"'
+      responses:
+        '204':
+          description: Membership removed. No response body.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+        '400': { description: 'Malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404': { description: 'Household or target account is unknown or malformed, or the account is not a member of this household.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '409': { description: 'The removal would leave the household without an admin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: last_admin } } } }
+        '412': { description: 'If-Match is malformed, weak, a list, or stale.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '428': { description: 'If-Match is required.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
+        '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/households:
     get:
       operationId: listHouseholds
@@ -2271,6 +2563,20 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid, x-go-type: string }
+    AdminHouseholdId:
+      name: householdId
+      in: path
+      required: true
+      description: Household identifier. The instance-administrator grant authorizes access; membership is not required.
+      schema: { type: string, format: uuid, x-go-type: string }
+      example: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+    AdminAccountUserId:
+      name: userId
+      in: path
+      required: true
+      description: Account identifier.
+      schema: { type: string, format: uuid, x-go-type: string }
+      example: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62
     AccountUserId:
       name: userId
       in: path
@@ -2577,6 +2883,52 @@ components:
       required: [items, nextCursor]
       properties:
         items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/Account' } }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
+    AdminHousehold:
+      type: object
+      additionalProperties: false
+      required: [id, name, timezone, createdAt]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { type: string, description: Named IANA timezone. }
+        createdAt: { type: string, format: date-time }
+    AdminHouseholdList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/AdminHousehold' } }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
+    DirectoryAccount:
+      type: object
+      additionalProperties: false
+      required: [userId, login]
+      properties:
+        userId: { type: string, format: uuid, x-go-type: string }
+        login: { type: string }
+    DirectoryAccountList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/DirectoryAccount' } }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
+    AdminAccount:
+      type: object
+      additionalProperties: false
+      required: [userId, login, role, signInMethods]
+      properties:
+        userId: { type: string, format: uuid, x-go-type: string }
+        login: { type: string }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        signInMethods: { $ref: '#/components/schemas/AccountSignInMethods' }
+    AdminAccountList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/AdminAccount' } }
         nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
     UpdateAccountRoleRequest:
       type: object

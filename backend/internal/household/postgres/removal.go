@@ -153,7 +153,8 @@ func (t *removalTx) RecordMemberRemoval(ctx context.Context, removal household.M
 	}
 	return t.q.InsertHouseholdMemberRemoval(ctx, dbgen.InsertHouseholdMemberRemovalParams{
 		HouseholdID: house, TargetUserID: target, ActorUserID: actor,
-		PreviousRole: removal.PreviousRole,
-		RemovedAt:    pgtype.Timestamptz{Time: removal.RemovedAt, Valid: true},
+		PreviousRole:   removal.PreviousRole,
+		RemovedAt:      pgtype.Timestamptz{Time: removal.RemovedAt, Valid: true},
+		ActorAuthority: removal.ActorAuthority,
 	})
 }
