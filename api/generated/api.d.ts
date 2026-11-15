@@ -576,6 +576,27 @@ export interface paths {
         patch: operations["updateAdminHouseholdAccountRole"];
         trace?: never;
     };
+    "/api/v1/admin/account-deletions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete an installation account
+         * @description Instance administrator only (ADR 0022). Anonymizes the target account in place: the login is replaced by a tombstone that can never sign in again, and the email and default household are cleared. Every history row keeps its stable identifier, and the member person keeps its name but is unlinked. The same transaction deletes the local credential, every session and every OIDC link, revokes the outstanding password-reset links and the pending invitations the target created, removes every membership with the ADR 0019 effects, and revokes an instance-administrator grant together with its audit row. Nothing of the account's content is returned.
+         *     Evaluation order: the instance-administrator grant (403 before the body), the userId shape (422 invalid_reference), deleting oneself (409 cannot_delete_self), an unknown or already deleted account (404), the exact login confirmation (422 mismatch), leaving a household without an admin (409 last_admin), and leaving the installation without a live instance administrator (409 last_instance_admin). A refusal changes nothing. Repeated deletion of the same account is 404. A target that keeps joining households while the deletion locks them is answered 503 unavailable after bounded retries.
+         */
+        post: operations["createAdminAccountDeletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households": {
         parameters: {
             query?: never;
@@ -887,7 +908,7 @@ export interface components {
             detail?: string;
             /** Format: uri-reference */
             instance?: string;
-            /** @description Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable. */
+            /** @description Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable. */
             code?: string;
         } & {
             [key: string]: unknown;
@@ -1097,6 +1118,15 @@ export interface components {
         UpdateAccountRoleRequest: {
             role: components["schemas"]["AccountRole"];
         };
+        AdminAccountDeletionRequest: {
+            /**
+             * Format: uuid
+             * @description Account to delete. A malformed identifier is 422 invalid_reference with field userId; an unknown or already deleted account is 404.
+             */
+            userId: string;
+            /** @description The account's current login, repeated exactly. The comparison is case-sensitive and never trims surrounding white space; any other value is 422 mismatch with field confirmLogin and changes nothing. */
+            confirmLogin: string;
+        };
         InvitedAccount: {
             /** Format: uuid */
             userId: string;
@@ -1237,6 +1267,13 @@ export interface components {
             field?: "name" | "type" | "linkedUserId";
             /** @enum {string} */
             code: "invalid_characters" | "invalid_length" | "invalid_type" | "invalid_reference" | "requires_person" | "idempotency_key_reused";
+        };
+        /** @description Account deletion 422. Field validation problems carry field. */
+        AdminAccountDeletionProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "userId" | "confirmLogin";
+            /** @enum {string} */
+            code: "invalid_reference" | "mismatch";
         };
         /** @description Admin household creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
         AdminHouseholdCreateProblem: components["schemas"]["Problem"] & {
@@ -8816,6 +8853,208 @@ export interface operations {
                 };
             };
             /** @description Persistence or identity lookup unavailable, including a missing sign-in-method fact. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createAdminAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                 *       "confirmLogin": "bob"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AdminAccountDeletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Account deleted (anonymized in place). No response body. */
+            204: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed JSON, unknown or duplicate keys, null values for required fields, wrong value types, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller does not currently hold the instance-administrator grant (checked before the body or any lookup), or Origin is missing, malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account is unknown or already deleted. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller would delete their own account, the deletion would leave a household without an admin, or it would leave the installation without a live instance administrator. Nothing is changed. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description userId is not a canonical identifier, or confirmLogin does not match the current login exactly. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["AdminAccountDeletionProblem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable, or the account kept joining households while the deletion locked them. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
