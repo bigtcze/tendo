@@ -101,7 +101,9 @@ func TestInstanceAdminGrantAgainstPostgres(t *testing.T) {
 }
 
 // TestInstanceAdminRuntimeRolePrivileges covers case (f): the runtime role may
-// read and insert grants, but can never rewrite or delete one.
+// read and insert grants, and since migration 027 also delete one (the revoke
+// path records an append-only instance_admin_revocations audit row), but can
+// never rewrite or truncate a grant.
 func TestInstanceAdminRuntimeRolePrivileges(t *testing.T) {
 	ctx, admin, app := instanceAdminFixture(t)
 	service := household.NewInstanceAdmins(NewInstanceAdminRepository(app))
@@ -116,7 +118,6 @@ func TestInstanceAdminRuntimeRolePrivileges(t *testing.T) {
 	}
 	for _, statement := range []string{
 		`UPDATE instance_admins SET grant_source = grant_source`,
-		`DELETE FROM instance_admins`,
 		`TRUNCATE instance_admins`,
 	} {
 		_, err := app.Exec(ctx, statement)
@@ -124,6 +125,17 @@ func TestInstanceAdminRuntimeRolePrivileges(t *testing.T) {
 		if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
 			t.Fatalf("%q error=%v, want 42501", statement, err)
 		}
+	}
+	// The revoke path needs DELETE; the audit table is the grant history.
+	var canDelete bool
+	if err := app.QueryRow(ctx, `SELECT has_table_privilege(current_user,'instance_admins','DELETE')`).Scan(&canDelete); err != nil || !canDelete {
+		t.Fatalf("runtime DELETE instance_admins=%v err=%v, want true", canDelete, err)
+	}
+	if _, err := app.Exec(ctx, `DELETE FROM instance_admins`); err != nil {
+		t.Fatalf("runtime delete grant: %v", err)
+	}
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM instance_admins`).Scan(&grants); err != nil || grants != 0 {
+		t.Fatalf("grants after runtime delete=%d err=%v, want 0", grants, err)
 	}
 	var publicPrivileges int
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM information_schema.role_table_grants WHERE table_name='instance_admins' AND grantee='PUBLIC'`).Scan(&publicPrivileges); err != nil || publicPrivileges != 0 {

@@ -124,12 +124,17 @@ func TestOIDCPostgresRepositoryAndConstraints(t *testing.T) {
 	}
 
 	// Runtime permissions are intentionally asymmetric for identities and flows.
-	for _, stmt := range []string{`UPDATE oidc_identities SET subject=subject`, `TRUNCATE oidc_identities`, `DELETE FROM oidc_identities`, `UPDATE oidc_flows SET nonce=nonce`, `TRUNCATE oidc_flows`} {
+	// Migration 027 grants DELETE on oidc_identities because account deletion
+	// unlinks the provider identity; rewrites and truncation stay forbidden.
+	for _, stmt := range []string{`UPDATE oidc_identities SET subject=subject`, `TRUNCATE oidc_identities`, `UPDATE oidc_flows SET nonce=nonce`, `TRUNCATE oidc_flows`} {
 		_, err = app.Exec(ctx, stmt)
 		var pg *pgconn.PgError
 		if !errors.As(err, &pg) || pg.Code != "42501" {
 			t.Fatalf("runtime statement %q err=%v", stmt, err)
 		}
+	}
+	if _, err = app.Exec(ctx, `DELETE FROM oidc_identities`); err != nil {
+		t.Fatalf("runtime identity delete: %v", err)
 	}
 	if _, err = app.Exec(ctx, `DELETE FROM oidc_flows`); err != nil {
 		t.Fatalf("runtime flow delete: %v", err)
@@ -404,7 +409,7 @@ func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 26 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 27 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	for _, table := range []string{"oidc_identities", "oidc_flows"} {

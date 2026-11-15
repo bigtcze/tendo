@@ -8,6 +8,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AccountDeletion struct {
+	UserID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	DeletedAt   pgtype.Timestamptz
+}
+
 type Household struct {
 	ID        pgtype.UUID
 	Name      string
@@ -85,6 +91,16 @@ type InstanceAdmin struct {
 	GrantSource string
 }
 
+type InstanceAdminRevocation struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	GrantSource string
+	GrantedAt   pgtype.Timestamptz
+	RevokedAt   pgtype.Timestamptz
+	Reason      string
+}
+
 type Item struct {
 	ID                pgtype.UUID
 	HouseholdID       pgtype.UUID
@@ -122,6 +138,7 @@ type UserAccount struct {
 	Login              string
 	DefaultHouseholdID pgtype.UUID
 	CreatedAt          pgtype.Timestamptz
+	DeletedAt          pgtype.Timestamptz
 }
 
 type UserSession struct {
