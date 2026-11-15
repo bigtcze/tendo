@@ -2019,6 +2019,160 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  // V5-10 B2b-2: the add dialog assigns an account that already exists. It searches the installation directory and
+  // writes the installation's household-account route, so the household is never opened from here. The round trip
+  // restores the seeded membership set — the add provisions member_e2e's person in the conflict household and the
+  // removal only unlinks it (ADR 0019), so that one active person stays behind — and ADR 0020 keeps member_e2e's
+  // existing default household where it was, so later steps see the memberships exactly as before.
+  test('n7e. the installation administrator adds an existing account to a household without opening it', async () => {
+    test.setTimeout(120_000);
+    // This step drives a phone width for the dialog; the inherited viewport is restored even when an assertion fails.
+    const originalViewport = page.viewportSize();
+    const householdsPath = '/api/v1/admin/households';
+    const accountsPath = (id: string) => `${householdsPath}/${id}/accounts`;
+    const directoryPath = '/api/v1/admin/accounts';
+    const addedLogin = 'member_e2e';
+    const removeLabel = (login: string) => en['admin.action.removeLabel'].replace('{login}', login);
+    /** The role the installation's own account route reports, or undefined when the household has no such membership. */
+    const roleOf = async (id: string, login: string) => {
+      const response = await page.request.get(`${accountsPath(id)}?limit=50`);
+      expect(response.status()).toBe(200);
+      const items = (await response.json() as { items: Array<{ login: string; role: string }> }).items;
+      return items.find((item) => item.login === login)?.role;
+    };
+    const observed: Array<{ method: string; pathname: string; search: string }> = [];
+    const recordRequest = (request: Request) => {
+      const url = new URL(request.url());
+      observed.push({ method: request.method(), pathname: url.pathname, search: url.search });
+    };
+    page.on('request', recordRequest);
+    try {
+      // 1a. The generic foreign household is seeded with no membership at all, so every role is refused until one
+      // administrator exists; the dialog has to say so without adding anything.
+      await page.goto('/admin/households');
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+      const main = page.getByRole('main');
+      const householdList = main.getByRole('list', { name: en['install.title'] });
+      await householdList.getByRole('listitem').filter({ hasText: 'Foreign household' }).getByRole('link', { name: 'Foreign household', exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/admin/households/${foreignHouseholdId}$`));
+      await expect(page.getByRole('heading', { level: 1, name: 'Foreign household' })).toBeVisible();
+      await expect(main.getByText(en['admin.list.empty'])).toBeVisible();
+
+      const addDialog = page.getByRole('dialog');
+      // 320 CSS px: the dialog is opened at phone width, and neither the page nor the dialog scrolls sideways with it.
+      const viewportBeforePhoneCheck = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 640 });
+      try {
+        await main.getByRole('button', { name: en['install.add.action'], exact: true }).click();
+        await expect(addDialog.getByRole('heading', { name: en['install.add.titleNamed'].replace('{household}', 'Foreign household') })).toBeVisible();
+        await expect(addDialog.locator('[aria-live="polite"][aria-atomic="true"]')).toHaveText(/^\d+ accounts? on this page$/);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px add dialog page overflow').toBeLessThanOrEqual(0);
+        expect(await addDialog.evaluate((element) => element.scrollWidth - element.clientWidth), '320px add dialog content overflow').toBeLessThanOrEqual(0);
+        await addDialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+      } finally {
+        if (viewportBeforePhoneCheck) await page.setViewportSize(viewportBeforePhoneCheck);
+      }
+
+      await main.getByRole('button', { name: en['install.add.action'], exact: true }).click();
+      await expect(addDialog.getByRole('heading', { name: en['install.add.titleNamed'].replace('{household}', 'Foreign household') })).toBeVisible();
+      const foreignLoginField = addDialog.getByLabel(en['install.add.query'], { exact: true });
+      await expect(foreignLoginField).toBeFocused();
+      // Opening the dialog searches with an empty needle, so the choices are there before anything is typed.
+      const countLine = addDialog.locator('[aria-live="polite"][aria-atomic="true"]');
+      await expect(countLine).toHaveText(/^\d+ accounts? on this page$/);
+      await expect(addDialog.getByText(en['install.add.results'], { exact: true })).toBeVisible();
+      await expect(addDialog.getByRole('radio').first()).toBeVisible();
+
+      await foreignLoginField.fill(addedLogin);
+      await foreignLoginField.press('Enter');
+      const foreignChoice = addDialog.getByRole('radio', { name: addedLogin, exact: true });
+      await expect(foreignChoice).toBeVisible();
+      // The needle also matches logins that merely contain `member_e2e`, so the page count is not pinned here; the
+      // exact radio this step needs is, and checking it is what the add quotes.
+      await expect(countLine).toHaveText(/^\d+ accounts? on this page$/);
+      await foreignChoice.check();
+      await expect(foreignChoice).toBeChecked();
+      await expect(addDialog.getByRole('radio', { name: en['members.role.member'], exact: true })).toBeChecked();
+      await expectNoAxeViolations(page, 'admin-installation-add-dialog');
+
+      const addedUserId = await foreignChoice.getAttribute('value');
+      if (!addedUserId) throw new Error('the chosen directory account carries no user id');
+      const refusalPath = `${accountsPath(foreignHouseholdId)}/${addedUserId}`;
+      // Chromium logs a console error for the refused add; expectation is the exact path and status.
+      expectedFailedStatuses.add(`${refusalPath} 409`);
+      await addDialog.getByRole('button', { name: en['install.add.submit'], exact: true }).click();
+      await expect(addDialog).toBeVisible();
+      await expect(addDialog.getByRole('alert')).toHaveText(en['install.add.error.requiresAdmin']);
+      // Only a refusal the test has just proven joins the response ledger.
+      instanceAdminRefusals.push(`PUT ${refusalPath} 409`);
+      expect(await roleOf(foreignHouseholdId, addedLogin), 'the refused add left the household empty').toBeUndefined();
+      await expect(main.getByText(en['admin.list.empty'])).toBeVisible();
+      await addDialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+
+      // 1b. The conflict household is seeded with one account, its own administrator, so a member add can succeed
+      // there. The membership is undone the same way; ADR 0019's removal only unlinks the person the add provisioned
+      // (it stays active in the household, never archived), so the membership set is restored but that unlinked person
+      // remains — no later step and no scripts/e2e_db_fixtures.py post-suite assertion reads this household's subjects
+      // or its person count (assert_existing_invitation_accounts checks the membership set only, and that returns to 1).
+      await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\/households$/);
+      await householdList.getByRole('listitem').filter({ hasText: 'Conflict household' }).getByRole('link', { name: 'Conflict household', exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/admin/households/${conflictHouseholdId}$`));
+      await expect(page.getByRole('heading', { level: 1, name: 'Conflict household' })).toBeVisible();
+      const conflictAccounts = main.getByRole('list', { name: en['admin.list.title'] });
+      await expect(conflictAccounts.getByRole('listitem')).toHaveCount(1);
+      await expect(conflictAccounts.getByRole('listitem').filter({ hasText: addedLogin })).toHaveCount(0);
+
+      const conflictDialog = page.getByRole('dialog');
+      await main.getByRole('button', { name: en['install.add.action'], exact: true }).click();
+      const conflictLogin = conflictDialog.getByLabel(en['install.add.query'], { exact: true });
+      await expect(conflictLogin).toBeFocused();
+      await conflictLogin.fill(addedLogin);
+      await conflictLogin.press('Enter');
+      const conflictChoice = conflictDialog.getByRole('radio', { name: addedLogin, exact: true });
+      await expect(conflictChoice).toBeVisible();
+      await conflictChoice.check();
+      await expect(conflictDialog.getByRole('radio', { name: en['members.role.member'], exact: true })).toBeChecked();
+      await conflictDialog.getByRole('button', { name: en['install.add.submit'], exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByText(en['install.notice.added'].replace('{login}', addedLogin))).toBeVisible();
+      // The dialog hands the focus back to the control that opened it, so the reader stays in place and can add again.
+      await expect(main.getByRole('button', { name: en['install.add.action'], exact: true })).toBeFocused();
+      const addedRow = conflictAccounts.getByRole('listitem').filter({ hasText: addedLogin });
+      await expect(addedRow).toContainText(en['members.role.member']);
+      expect(await roleOf(conflictHouseholdId, addedLogin), 'the add is persisted').toBe('member');
+
+      await addedRow.getByRole('button', { name: removeLabel(addedLogin), exact: true }).click();
+      const removeDialog = page.getByRole('dialog');
+      await expect(removeDialog.getByRole('heading', {
+        name: en['admin.remove.dialog.title'].replace('{login}', addedLogin).replace('{household}', 'Conflict household'),
+      })).toBeVisible();
+      await removeDialog.getByRole('button', { name: en['admin.remove.confirm'], exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByText(en['admin.notice.removed'].replace('{login}', addedLogin))).toBeVisible();
+      await expect(conflictAccounts.getByRole('listitem').filter({ hasText: addedLogin })).toHaveCount(0);
+      expect(await roleOf(conflictHouseholdId, addedLogin), 'the removal is persisted').toBeUndefined();
+      expect(await roleOf(conflictHouseholdId, 'existing_conflict_e2e'), 'the seeded administrator is untouched').toBe('admin');
+      // The membership set is exactly the seed's again; only the unlinked person described above stays behind.
+      await expect(conflictAccounts.getByRole('listitem')).toHaveCount(1);
+
+      // 1c. Both foreign households were managed without ever being opened, and the dialog really searched the
+      // installation's directory, empty needle included.
+      const foreignHouseholdPaths = [`/api/v1/households/${foreignHouseholdId}`, `/api/v1/households/${conflictHouseholdId}`];
+      const touchedForeignHouseholds = observed.filter((entry) => foreignHouseholdPaths
+        .some((path) => entry.pathname === path || entry.pathname.startsWith(`${path}/`)));
+      expect(touchedForeignHouseholds, 'the add dialog never opens either household').toEqual([]);
+      const directoryReads = observed.filter((entry) => entry.pathname === directoryPath);
+      expect(directoryReads.some((entry) => !entry.search.includes('q=')), 'opening the dialog listed every account').toBe(true);
+      expect(directoryReads.some((entry) => entry.search.includes(`q=${addedLogin}`)), 'the login search reached the directory').toBe(true);
+    } finally {
+      page.off('request', recordRequest);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+    }
+  });
+
   test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
     await page.goto('/');
     await waitForSettledHome(page, householdName);

@@ -132,8 +132,9 @@ describe('installation household detail', () => {
     expect(within(first!).queryByRole('button', { name: 'Remove from household: anna' })).not.toBeInTheDocument();
     expect(within(second!).getByRole('button', { name: 'Make administrator: petr' })).toBeVisible();
     expect(within(second!).getByRole('button', { name: 'Remove from household: petr' })).toBeVisible();
-    // No password help on this screen, and no row leads anywhere.
-    expect(within(main).queryAllByRole('button')).toHaveLength(4);
+    // The screen's one primary action, then the two row actions per account: no password help, no row links.
+    expect(within(main).getByRole('button', { name: 'Add an account' })).toBeVisible();
+    expect(within(main).queryAllByRole('button')).toHaveLength(5);
     expect(within(first!).queryAllByRole('link')).toHaveLength(0);
     expect(within(second!).queryAllByRole('link')).toHaveLength(0);
     expectNoHouseholdReads(fake);

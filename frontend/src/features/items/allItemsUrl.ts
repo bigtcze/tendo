@@ -1,4 +1,5 @@
 import type { MessageKey } from '../../i18n';
+import { pluralKey } from '../../lib/pluralKey';
 import type { AllItemsFilters, AllItemsStatus, ItemSummary } from './itemsApi';
 
 /** The All items view state that lives in the URL: filters, status and the current page cursor. */
@@ -70,9 +71,7 @@ export function hasFilters(context: Context): boolean {
 }
 
 export function countKey(count: number, locale: string): MessageKey {
-  const category = new Intl.PluralRules(locale).select(count);
-  const supported: Record<string, string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
-  return `items.group.count.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
+  return pluralKey('items.group.count', count, locale);
 }
 
 const statusCounts: Record<AllItemsStatus, (summary: ItemSummary) => number> = {

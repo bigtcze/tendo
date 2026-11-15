@@ -51,14 +51,25 @@ export async function listAdminHouseholds(cursor?: string): Promise<InstancePage
   return { kind: 'error' };
 }
 
+/**
+ * One page of the account directory. `invalidQuery` is the server refusing the search text itself — a login substring
+ * longer than 64 characters, for example — which the add dialog answers on its own field instead of offering a retry
+ * that could never succeed.
+ */
+export type DirectoryPage =
+  | { kind: 'ok'; items: DirectoryAccount[]; nextCursor: string | null }
+  | { kind: 'invalidQuery' }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
 /** The account directory an assignment picks from: identifier and login only, filtered by a login substring. */
-export async function listAdminDirectory(q: string, cursor?: string): Promise<InstancePage<DirectoryAccount>> {
+export async function listAdminDirectory(q: string, cursor?: string): Promise<DirectoryPage> {
   const needle = q.trim();
   try {
     const { data, error, response } = await api.GET(directoryPath, {
       params: { query: { limit: DIRECTORY_PAGE_SIZE, ...(needle ? { q: needle } : {}), ...(cursor ? { cursor } : {}) } },
     });
     if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor };
+    if (response.status === 400 && problemCode(error) === 'invalid_query') return { kind: 'invalidQuery' };
     return refusal(response.status, problemCode(error)) ?? { kind: 'error' };
   } catch { /* the common unavailable state */ }
   return { kind: 'error' };

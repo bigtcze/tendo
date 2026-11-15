@@ -101,6 +101,16 @@ describe('installation account directory', () => {
     installFakeServer({ [directoryPath]: problem(401) });
     await expect(listAdminDirectory('')).resolves.toEqual({ kind: 'unauthenticated' });
   });
+
+  it('separates a refused search text from a search that simply failed', async () => {
+    installFakeServer({ [directoryPath]: problem(400, 'invalid_query') });
+    await expect(listAdminDirectory('x'.repeat(65))).resolves.toEqual({ kind: 'invalidQuery' });
+    // A bad request that is not about the search text stays the common failure the dialog offers a retry for.
+    installFakeServer({ [directoryPath]: problem(400, 'invalid_forwarded_request') });
+    await expect(listAdminDirectory('')).resolves.toEqual({ kind: 'error' });
+    installFakeServer({ [directoryPath]: problem(503) });
+    await expect(listAdminDirectory('')).resolves.toEqual({ kind: 'error' });
+  });
 });
 
 describe('installation household account actions', () => {

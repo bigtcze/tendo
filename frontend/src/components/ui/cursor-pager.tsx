@@ -2,17 +2,18 @@ import type { MouseEvent } from 'react';
 import { Button } from './button';
 import type { Translate } from '../../i18n';
 
-type PagerKind = 'member' | 'invitation' | 'account' | 'household';
+type PagerKind = 'member' | 'invitation' | 'account' | 'household' | 'directory';
 
 /** The list a pager belongs to; its own name heads the navigation landmark. */
-const LABEL: Record<PagerKind, 'members.list.title' | 'members.invitations.title' | 'admin.list.title' | 'install.title'> = {
+const LABEL: Record<PagerKind, 'members.list.title' | 'members.invitations.title' | 'admin.list.title' | 'install.title' | 'install.add.resultsLabel'> = {
   member: 'members.list.title',
   invitation: 'members.invitations.title',
   account: 'admin.list.title',
   household: 'install.title',
+  directory: 'install.add.resultsLabel',
 };
 
-/** Previous/next pager shared by the member, invitation, account and household lists; `kind` selects its data attribute. */
+/** Previous/next pager shared by the member, invitation, account, household and directory lists; `kind` names it. */
 export function CursorPager({ kind, stack, cursor, busy, onPrevious, onNext, t }: {
   kind: PagerKind;
   stack: string[];

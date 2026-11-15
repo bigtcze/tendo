@@ -16,23 +16,29 @@ import { RemoveAccountDialog } from '../admin/RemoveAccountDialog';
 import { RoleChangeDialog } from '../admin/RoleChangeDialog';
 import { useAccountRemoval, type RemovalTarget } from '../admin/useAccountRemoval';
 import { useRoleChange, type NoticeSpec } from '../admin/useRoleChange';
+import { AddAccountDialog } from './AddAccountDialog';
 import {
   changeAdminHouseholdAccountRole, readAdminHouseholdAccount, removeAdminHouseholdAccount,
   type AdminHouseholdAccount,
 } from './instanceAdminApi';
 import { InstallationGone, InstallationOnlyAdmins, BACK_LINK } from './InstallationStates';
+import { useAccountAssignment, type Assignment } from './useAccountAssignment';
 import { useAdminHouseholdAccounts, type InstanceList } from './useInstanceAdminList';
 
+/** Why the viewer's own membership in this household changed, which decides what the shell must assume about it. */
+export type SelfChangeKind = 'role' | 'removal' | 'assignment';
+
 /**
- * One household of the installation: who belongs to it, which role they hold and how they sign in, with the two
- * membership actions an installation administrator has here — change a role, or remove someone from this household.
- * Every read and every change uses the installation's own account routes, the viewer's own row included, so this
- * screen never reaches into the household itself and never opens it.
+ * One household of the installation: who belongs to it, which role they hold and how they sign in, with the three
+ * membership actions an installation administrator has here — add an existing account, change a role, or remove
+ * someone from this household. Every read and every change uses the installation's own account routes, the viewer's
+ * own row included, so this screen never reaches into the household itself and never opens it.
  *
  * A change to the viewer's own membership keeps this screen where it is: demoting themselves, or even removing
  * themselves from this household, costs no access to the Admin center, so it is not treated as leaving. The shell
- * still reads the session, because the server may have moved the viewer's default household; only when it did does
- * this screen come back through a remount, and then `selfNotice` carries the notice and the heading the focus.
+ * still reads the session, because the server may have moved the viewer's default household — adding the viewer
+ * themselves included; only when it did does this screen come back through a remount, and then `selfNotice` carries
+ * the notice and the heading the focus.
  *
  * `name` is only what the list already showed on the way in; a direct load or a reload shows the generic heading
  * instead of reading the list again to find it.
@@ -49,8 +55,8 @@ export function InstallationHouseholdScreen({
   login: string;
   /** A notice handed back by the shell because a self change remounted this screen; spoken once, then cleared. */
   selfNotice: NoticeSpec | null;
-  /** A self change was accepted: the shell reads the session again, so it follows the households really left. */
-  onSelfChange: (notice: NoticeSpec, kind: 'role' | 'removal') => void;
+  /** A self change was accepted: the shell reads the session again, so it follows the households really held. */
+  onSelfChange: (notice: NoticeSpec, kind: SelfChangeKind) => void;
   onSelfNoticeDone: () => void;
   onSignedOut: () => void;
   onForbidden: () => void;
@@ -62,6 +68,15 @@ export function InstallationHouseholdScreen({
   const list = useAdminHouseholdAccounts(householdId, { onSignedOut, onForbidden });
   const { change, removal, busy } = useMembershipActions({
     householdId, defaultHouseholdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden,
+  });
+  const assignment = useAccountAssignment(householdId, {
+    viewerId,
+    onSignedOut,
+    onNotice: announce,
+    onReload: list.reload,
+    // The viewer added themselves: whether this became their household is the session's answer, not this screen's.
+    onSelfAssigned: (next) => { announce(next); onSelfChange(next, 'assignment'); },
+    onForbidden: () => { list.markForbidden(); onForbidden(); },
   });
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
@@ -87,9 +102,11 @@ export function InstallationHouseholdScreen({
         stack={list.stack}
         nextCursor={list.nextCursor}
         busy={busy}
+        addBusy={change.busy || removal.busy}
         headingRef={list.headingRef}
         onPrevious={list.previous}
         onNext={list.next}
+        onAdd={assignment.start}
         onChange={change.request}
         onRemove={removal.request}
         pageFailure={list.pageFailure !== null}
@@ -97,7 +114,7 @@ export function InstallationHouseholdScreen({
         t={t}
       /> : null}
     </section>
-    <ScreenDialogs viewerId={viewerId} householdName={name} change={change} removal={removal} />
+    <ScreenDialogs viewerId={viewerId} householdName={name} change={change} removal={removal} assignment={assignment} />
   </Layout>;
 }
 
@@ -183,14 +200,16 @@ function useMembershipActions({ householdId, defaultHouseholdId, viewerId, list,
 type ChangeState = Pick<ReturnType<typeof useRoleChange<AdminHouseholdAccount>>, 'pending' | 'busy' | 'triggerRef' | 'confirm' | 'cancel'>;
 type RemovalState = Pick<ReturnType<typeof useAccountRemoval>, 'pending' | 'busy' | 'triggerRef' | 'confirm' | 'cancel'>;
 
-/** The two dialogs this screen can open; the hooks above own every outcome they can announce. */
-function ScreenDialogs({ viewerId, householdName, change, removal }: {
+/** The dialogs this screen can open; the hooks above own every outcome they can announce. */
+function ScreenDialogs({ viewerId, householdName, change, removal, assignment }: {
   viewerId: string;
   householdName: string | null;
   change: ChangeState;
   removal: RemovalState;
+  assignment: Assignment;
 }) {
   return <>
+    <AddAccountDialog assignment={assignment} householdName={householdName} />
     <RoleChangeDialog
       pending={change.pending}
       viewerId={viewerId}
@@ -213,16 +232,24 @@ function ScreenDialogs({ viewerId, householdName, change, removal }: {
   </>;
 }
 
-/** The member list: the same flat divided rows and pager the household Admin center uses, with its two actions. */
-function Accounts({ accounts, viewerId, stack, nextCursor, busy, headingRef, onPrevious, onNext, onChange, onRemove, pageFailure, onRetryPage, t }: {
+/** The member list: the same flat divided rows and pager the household Admin center uses, with its three actions. */
+function Accounts({ accounts, viewerId, stack, nextCursor, busy, addBusy, headingRef, onPrevious, onNext, onAdd, onChange, onRemove, pageFailure, onRetryPage, t }: {
   accounts: AdminHouseholdAccount[];
   viewerId: string;
   stack: string[];
   nextCursor: string | null;
+  /** A row's action or the list itself is working: the rows wait for it. */
   busy: boolean;
+  /**
+   * The other two dialogs are working. The Add trigger waits only for them and never for the list's own reload: the
+   * add dialog hands the focus back to it on success, and a control that is disabled at that instant drops the
+   * reader on the document instead.
+   */
+  addBusy: boolean;
   headingRef: RefObject<HTMLHeadingElement | null>;
   onPrevious: (event: MouseEvent<HTMLButtonElement>) => void;
   onNext: (event: MouseEvent<HTMLButtonElement>) => void;
+  onAdd: (trigger: HTMLElement) => void;
   onChange: (account: AdminHouseholdAccount, trigger: HTMLElement) => void;
   onRemove: (target: RemovalTarget, trigger: HTMLElement) => void;
   pageFailure: boolean;
@@ -231,9 +258,13 @@ function Accounts({ accounts, viewerId, stack, nextCursor, busy, headingRef, onP
 }) {
   return <>
     <section aria-labelledby="install-accounts-heading" className="mt-6 sm:mt-8">
-      <h2 id="install-accounts-heading" ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">
-        {t('admin.list.title')}
-      </h2>
+      {/* One primary action, on the heading's line; a phone wraps it under the title rather than squeezing both. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 id="install-accounts-heading" ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">
+          {t('admin.list.title')}
+        </h2>
+        <Button disabled={addBusy} onClick={(event) => onAdd(event.currentTarget)}>{t('install.add.action')}</Button>
+      </div>
       <p className="mt-1 max-w-prose text-small text-muted">{t('install.household.explained')}</p>
       {accounts.length
         ? <ul aria-labelledby="install-accounts-heading" className="mt-3 divide-y divide-line border-t border-line">

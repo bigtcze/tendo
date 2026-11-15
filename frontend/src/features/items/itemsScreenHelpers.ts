@@ -1,12 +1,9 @@
 import type { MessageKey } from '../../i18n';
+import { pluralKey } from '../../lib/pluralKey';
 
+/** A group heading's count ("3 items"), in the plural form the reader's language needs. */
 export function countPluralKey(count: number, locale: string): MessageKey {
-  const category = new Intl.PluralRules(locale).select(count);
-  const supported: Record<string, readonly string[]> = {
-    en: ['one', 'other'],
-    cs: ['one', 'few', 'other'],
-  };
-  return `items.group.count.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
+  return pluralKey('items.group.count', count, locale);
 }
 
 // True while focus is still where an asynchronous action left it: on body (its control unmounted), on the
