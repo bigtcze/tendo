@@ -144,6 +144,11 @@ func TestMigrationSeventeenDownReversesPopulatedSchema(t *testing.T) {
 	if !strings.HasPrefix(testpostgres.RevertVersion17SQL, down) || !strings.HasSuffix(testpostgres.RevertVersion17SQL, "DELETE FROM tendo_schema_migrations WHERE version=17") {
 		t.Fatalf("RevertVersion17SQL does not derive from migration 017 Down section")
 	}
+	// Migration 025 alters household_role_changes, which 017 Down drops, so
+	// 025 is reversed first and skipped in the round trip below.
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion25SQL); err != nil {
+		t.Fatalf("revert 25 before 017 Down: %v", err)
+	}
 	if _, err := admin.Exec(ctx, down); err != nil {
 		t.Fatalf("execute migration 017 Down on populated schema: %v", err)
 	}
@@ -171,7 +176,7 @@ func TestMigrationSeventeenDownReversesPopulatedSchema(t *testing.T) {
 
 	// Round trip: reverse 18 as well so the highest applied version allows 17
 	// to run again, then migrate forward over the populated version 16 schema.
-	if _, err := admin.Exec(ctx, testpostgres.RevertVersion20SQL+" ; "+testpostgres.RevertVersion19SQL+" ; "+testpostgres.RevertVersion18SQL); err != nil {
+	if _, err := admin.Exec(ctx, strings.TrimPrefix(testpostgres.RevertVersion20SQL, testpostgres.RevertVersion25SQL+" ; ")+" ; "+testpostgres.RevertVersion19SQL+" ; "+testpostgres.RevertVersion18SQL); err != nil {
 		t.Fatalf("revert 18 for round trip: %v", err)
 	}
 	if _, err := admin.Exec(ctx, `DELETE FROM tendo_schema_migrations WHERE version=17`); err != nil {
