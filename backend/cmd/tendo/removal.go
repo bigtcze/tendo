@@ -17,7 +17,9 @@ import (
 // and subject modules, all on the instance-admin transaction.
 func newInstanceAdminCenter(pool *pgxpool.Pool, logins household.LoginLookup, signIn household.SignInMethodsLookup) *household.InstanceAdminCenter {
 	repository := householdpostgres.NewInstanceAdminCenterRepository(pool, memberRemovalEffectFactories(), householdpostgres.AssignmentEffectFactories{
-		Accounts: func(tx householddb.DBTX) household.AssignableAccountLocker { return identitypostgres.NewAssignmentEffects(tx) },
+		Accounts: func(tx householddb.DBTX) household.AssignableAccountLocker {
+			return identitypostgres.NewAssignmentEffects(tx)
+		},
 		Defaults: func(tx householddb.DBTX) household.AssignmentDefaultSetter {
 			return identitypostgres.NewAssignmentEffects(tx)
 		},
