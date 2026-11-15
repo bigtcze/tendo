@@ -2173,6 +2173,117 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  // V5-10 B3b: the installation administrator starts a household from the list — a name, the timezone its dates
+  // follow, and the existing account that becomes its first administrator. The chosen account comes from the
+  // installation directory, so the create writes the installation's own route and the household it makes is never
+  // opened. The first administrator is the ordinary invited member: multi-household membership is ordinary (ADR 0020
+  // keeps its default household), no post-suite fixture check counts its memberships, and no later step signs in as it.
+  // The seeded fixtures are ruled out: cleanup deletes the large-paging accounts, and the person the create provisions
+  // for one of them would block that delete, while the existing-account fixtures are asserted to hold exactly theirs.
+  test('n7f. the installation administrator creates a household with an existing account as its first administrator', async () => {
+    test.setTimeout(120_000);
+    const originalViewport = page.viewportSize();
+    const householdsPath = '/api/v1/admin/households';
+    const directoryPath = '/api/v1/admin/accounts';
+    const createdName = 'Created household';
+    const firstAdminLogin = 'member_e2e';
+    const observed: Array<{ method: string; pathname: string; search: string }> = [];
+    let createKey = '';
+    const recordRequest = (request: Request) => {
+      const url = new URL(request.url());
+      if (!url.pathname.startsWith('/api/')) return;
+      observed.push({ method: request.method(), pathname: url.pathname, search: url.search });
+      if (request.method() === 'POST' && url.pathname === householdsPath) createKey = request.headers()['idempotency-key'] ?? '';
+    };
+    page.on('request', recordRequest);
+    try {
+      await page.goto('/admin/households');
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+      const main = page.getByRole('main');
+      const householdList = main.getByRole('list', { name: en['install.title'] });
+      const createTrigger = main.getByRole('button', { name: en['install.create.action'], exact: true });
+      await expect(createTrigger).toBeEnabled();
+
+      // 1a. At phone width the dialog is opened, named and searched with its choices showing: neither the page nor
+      // the dialog scrolls sideways, and the open dialog is axe-clean.
+      const viewportBeforePhoneCheck = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 640 });
+      const dialog = page.getByRole('dialog');
+      try {
+        await createTrigger.click();
+        await expect(dialog.getByRole('heading', { name: en['install.create.title'] })).toBeVisible();
+        const nameField = dialog.getByLabel(en['install.create.name'], { exact: true });
+        await expect(nameField).toBeFocused();
+        // The zone is the browser's own, offered before the reader touches anything.
+        await expect(dialog.getByLabel(en['onboarding.timezone'], { exact: true })).toHaveValue('America/New_York');
+        const submit = dialog.getByRole('button', { name: en['install.create.submit'], exact: true });
+        await expect(submit).toBeDisabled();
+
+        await nameField.fill(createdName);
+        await expect(submit).toBeDisabled();
+        const searchField = dialog.getByLabel(en['install.add.query'], { exact: true });
+        await searchField.fill(firstAdminLogin);
+        // Enter only ever searches: it never creates on a half-filled form.
+        await searchField.press('Enter');
+        const firstAdminChoice = dialog.getByRole('radio', { name: firstAdminLogin, exact: true });
+        await expect(firstAdminChoice).toBeVisible();
+        await firstAdminChoice.check();
+        await expect(firstAdminChoice).toBeChecked();
+        // The name and the account are both there now; the zone was already answered.
+        await expect(submit).toBeEnabled();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px create dialog page overflow').toBeLessThanOrEqual(0);
+        expect(await dialog.evaluate((element) => element.scrollWidth - element.clientWidth), '320px create dialog content overflow').toBeLessThanOrEqual(0);
+        await expectNoAxeViolations(page, 'admin-installation-create-dialog');
+      } finally {
+        if (viewportBeforePhoneCheck) await page.setViewportSize(viewportBeforePhoneCheck);
+      }
+
+      // 1b. One press sends one intent with one idempotency key. The dialog closes, the shell opens the new
+      // household and says what happened, and the heading takes the focus the dialog left on the document.
+      const submit = dialog.getByRole('button', { name: en['install.create.submit'], exact: true });
+      await submit.click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page).toHaveURL(/\/admin\/households\/[0-9a-f-]{36}$/);
+      const createdId = new URL(page.url()).pathname.split('/').pop() ?? '';
+      expect(createdId).toMatch(/^[0-9a-f-]{36}$/);
+      await expect(page.getByRole('heading', { level: 1, name: createdName })).toBeFocused();
+      await expect(page.getByText(en['install.notice.created'].replace('{household}', createdName))).toBeVisible();
+      const accounts = main.getByRole('list', { name: en['admin.list.title'] });
+      await expect(accounts.getByRole('listitem')).toHaveCount(1);
+      await expect(accounts.getByRole('listitem').first()).toContainText(firstAdminLogin);
+      await expect(accounts.getByRole('listitem').first()).toContainText(en['members.role.admin']);
+      expect(createKey, 'the create carried one idempotency key').toMatch(/^[0-9a-f]{32}$/);
+      expect(observed.filter((entry) => entry.method === 'POST' && entry.pathname === householdsPath), 'one create was sent').toHaveLength(1);
+
+      // 1c. The installation's own read agrees with the screen: the household exists, follows the zone the dialog
+      // offered, and holds exactly the chosen account as its administrator.
+      const listedResponse = await page.request.get(`${householdsPath}?limit=50`);
+      expect(listedResponse.status()).toBe(200);
+      const listed = (await listedResponse.json() as { items: Array<{ id: string; name: string; timezone: string }> }).items;
+      const created = listed.find((entry) => entry.id === createdId);
+      expect(created?.name, 'the installation lists the created household').toBe(createdName);
+      expect(created?.timezone, 'the browser zone was what was sent').toBe('America/New_York');
+      const createdAccountsResponse = await page.request.get(`${householdsPath}/${createdId}/accounts?limit=50`);
+      expect(createdAccountsResponse.status()).toBe(200);
+      const createdAccounts = (await createdAccountsResponse.json() as { items: Array<{ login: string; role: string }> }).items;
+      expect(createdAccounts.map((entry) => `${entry.login} ${entry.role}`), 'the chosen account is the first administrator').toEqual([`${firstAdminLogin} admin`]);
+      const directoryReads = observed.filter((entry) => entry.pathname === directoryPath);
+      expect(directoryReads.some((entry) => entry.search.includes(`q=${firstAdminLogin}`)), 'the account search reached the installation directory').toBe(true);
+      expect(observed.filter((entry) => entry.pathname === `/api/v1/households/${createdId}` || entry.pathname.startsWith(`/api/v1/households/${createdId}/`)), 'creating never opens the household it made').toEqual([]);
+
+      // 1d. The list behind the dialog was read again: the new household is there without a reload.
+      await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\/households$/);
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+      const createdRow = householdList.getByRole('listitem').filter({ hasText: createdName });
+      await expect(createdRow.getByRole('link', { name: createdName, exact: true })).toBeVisible();
+      await expect(createdRow).toContainText('America/New_York');
+    } finally {
+      page.off('request', recordRequest);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+    }
+  });
+
   test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
     await page.goto('/');
     await waitForSettledHome(page, householdName);
