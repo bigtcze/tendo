@@ -15,17 +15,28 @@ type Querier interface {
 	AddInvitedMember(ctx context.Context, arg AddInvitedMemberParams) error
 	CountHouseholdAdmins(ctx context.Context, householdID pgtype.UUID) (int64, error)
 	CountHouseholdAdminsExcluding(ctx context.Context, arg CountHouseholdAdminsExcludingParams) (int64, error)
+	// Only grants of live accounts count: a tombstoned account confers no
+	// authority (ADR 0019, defense in depth against a left-behind grant row).
+	CountLiveInstanceAdminsExcluding(ctx context.Context, userID pgtype.UUID) (int64, error)
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (string, error)
+	// Exactly one grant row must disappear; the adapter refuses any other count.
+	DeleteInstanceAdminGrant(ctx context.Context, userID pgtype.UUID) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) error
 	// Replay lookup: returns the household and stored fingerprint for the actor's
 	// key. A different fingerprint means the key was reused for another intent.
 	FindHouseholdCreation(ctx context.Context, arg FindHouseholdCreationParams) (FindHouseholdCreationRow, error)
+	// The target's live grant, read after installation_state is locked, so the
+	// last-instance-administrator decision cannot race a grant or revoke.
+	FindInstanceAdminGrant(ctx context.Context, userID pgtype.UUID) (FindInstanceAdminGrantRow, error)
 	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
 	GetHousehold(ctx context.Context, id pgtype.UUID) (GetHouseholdRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
 	GetMembershipAccount(ctx context.Context, arg GetMembershipAccountParams) (GetMembershipAccountRow, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
 	HouseholdExists(ctx context.Context, id pgtype.UUID) (bool, error)
+	// Who deleted which account and when. No login, email or household content is
+	// copied (migration 027).
+	InsertAccountDeletion(ctx context.Context, arg InsertAccountDeletionParams) error
 	InsertAssignedMembership(ctx context.Context, arg InsertAssignedMembershipParams) (int64, error)
 	// The instance administrator creates the household empty and inserts its first
 	// membership in the same transaction, so the at-least-one-admin invariant holds
@@ -37,6 +48,9 @@ type Querier interface {
 	InsertHouseholdMemberAssignment(ctx context.Context, arg InsertHouseholdMemberAssignmentParams) error
 	InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHouseholdMemberRemovalParams) error
 	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error
+	// Append-only revoke audit (ADR 0016): the grant's source and time move here
+	// before the grant row is deleted, so the history stays complete.
+	InsertInstanceAdminRevocation(ctx context.Context, arg InsertInstanceAdminRevocationParams) error
 	// Only a grant whose account is still live confers authority: a deleted account
 	// must not authorise instance-admin commands even if a grant row were left.
 	IsInstanceAdmin(ctx context.Context, userID pgtype.UUID) (bool, error)
@@ -44,6 +58,10 @@ type Querier interface {
 	ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error)
 	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
 	ListMembershipAccounts(ctx context.Context, arg ListMembershipAccountsParams) ([]ListMembershipAccountsRow, error)
+	// The unlocked pre-read of the target's households, in the ascending order the
+	// household locks are taken in. Membership rows are read without a lock: the
+	// locked re-read after the account lock decides whether the set changed.
+	ListUserHouseholds(ctx context.Context, userID pgtype.UUID) ([]string, error)
 	// The instance-admin grant replaces the membership gate, so the household row
 	// is locked by its ID alone, in the same mode as LockHouseholdForMembership.
 	LockHouseholdByID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
@@ -53,6 +71,15 @@ type Querier interface {
 	// in-flight commands (ADR 0020). Concurrent instance-admin commands do not
 	// block each other.
 	LockInstallationForInstanceAdmin(ctx context.Context) (bool, error)
+	// The global account deletion (ADR 0022). Its statements are household-owned
+	// because the same transaction reuses the membership removal statements of
+	// ADR 0019; the identity-owned eraser has its own file.
+	// FOR UPDATE, not FOR SHARE: a deletion changes the installation-wide
+	// administrator set, so it must serialize with grants and with other deletions
+	// (ADR 0019 global lock order, step 1). The runtime role holds
+	// UPDATE(setup_required) on this table, which is enough to take the row lock
+	// and exactly the column the command must not change.
+	LockInstallationForInstanceAdminExclusive(ctx context.Context) (bool, error)
 	// FOR NO KEY UPDATE serializes account-level writes without conflicting with
 	// the snapshot/key-share locks a session insert or foreign key takes on the
 	// same row (ADR 0018, ADR 0019). A deleted account is not found, so it can
@@ -63,6 +90,10 @@ type Querier interface {
 	// share and must block until the removal commits, so it can no longer succeed
 	// against a membership that is about to disappear (ADR 0019).
 	LockMembershipForRemoval(ctx context.Context, arg LockMembershipForRemovalParams) (LockMembershipForRemovalRow, error)
+	// FOR UPDATE in ascending household order, so the last-admin counts and the
+	// deletion of each membership are answered under the same lock as a concurrent
+	// removal of the same member (ADR 0019 step 5).
+	LockUserMemberships(ctx context.Context, userID pgtype.UUID) ([]LockUserMembershipsRow, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (int64, error)
 }
 

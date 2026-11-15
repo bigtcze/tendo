@@ -183,7 +183,7 @@ func (s *AccountDeletionService) DeleteAccount(ctx context.Context, actorID, tar
 //     the set grew, so the attempt is abandoned and retried;
 //  8. last-admin and last-instance-admin refusals;
 //  9. grant revocation (audit first), then per household: item
-//     responsibility, member person, reset links, membership, removal audit;
+//     responsibility, member person, reset links, removal audit, membership;
 //  10. account-wide reset links, credential, sessions, OIDC links (and, with
 //     #456, MCP tokens), the deletion record and the tombstone.
 func (s *AccountDeletionService) deleteOnce(ctx context.Context, tx AccountDeletionTransaction, effects AccountDeletionEffects, actorID, targetUserID, confirmLogin string) error {
