@@ -1,0 +1,29 @@
+import type { Translate } from '../../i18n';
+
+/** The one quiet secondary action on an installation screen: back to the household list. */
+export const BACK_LINK = [
+  'mt-4 inline-flex min-h-11 items-center rounded-xl border border-control-border bg-raised px-5 text-control font-semibold text-ink',
+  'transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+].join(' ');
+
+/**
+ * The installation grant is gone (or was never there). The server refused before any lookup, so nothing about a
+ * household is shown: a plain section like the household Admin center's member view, not a card.
+ */
+export function InstallationOnlyAdmins({ t }: { t: Translate }) {
+  return <section aria-labelledby="install-restricted-heading" className="mt-6 sm:mt-8">
+    <h2 id="install-restricted-heading" className="text-h2 text-ink">{t('install.onlyAdmins.title')}</h2>
+    <p className="mt-1 max-w-prose text-body text-muted">{t('install.onlyAdmins.body')}</p>
+  </section>;
+}
+
+/**
+ * The household the address names is gone. There is nothing to retry and nothing to show; the page keeps the same
+ * quiet way back it offers in every state.
+ */
+export function InstallationGone({ t }: { t: Translate }) {
+  return <section aria-labelledby="install-gone-heading" className="mt-6 sm:mt-8">
+    <h2 id="install-gone-heading" className="text-h2 text-ink">{t('install.gone.title')}</h2>
+    <p className="mt-1 max-w-prose text-body text-muted">{t('install.gone.body')}</p>
+  </section>;
+}

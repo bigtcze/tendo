@@ -66,6 +66,12 @@ export const session = (withHousehold = true): components['schemas']['Session'] 
   signInMethod: 'password',
 });
 
+/** The same account holding the installation-wide administrator grant. */
+export const instanceAdminSession = (withHousehold = true): components['schemas']['Session'] => ({
+  ...session(withHousehold),
+  instanceAdmin: true,
+});
+
 /**
  * The change-password contract at the network boundary: a provider or pre-upgrade session is refused before anything
  * else, a policy-breaking new password is refused before a wrong current one (like the server), and success replaces

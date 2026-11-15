@@ -1,8 +1,8 @@
 import type { Translate } from '../../i18n';
 import { Heading } from '../../app/Heading';
+import { ListSkeleton } from '../../components/ui/list-skeleton';
 import { LoadError } from '../../components/ui/load-error';
 import { Notice } from '../../components/ui/notice';
-import { Skeleton } from '../../components/ui/skeleton';
 import type { NoticeSpec } from './useRoleChange';
 
 /** Page opening shared by every list state, with the one live host that speaks action outcomes. */
@@ -22,18 +22,7 @@ export function formatResetExpiry(iso: string, locale: string): string {
 
 /** Flat placeholder rows in the list's own rhythm hold its place while roles load, so the screen never jumps empty. */
 export function AdminListSkeleton({ label }: { label: string }) {
-  return <div role="status" className="mt-6 border-t border-line sm:mt-8">
-    <span className="sr-only">{label}</span>
-    {[0, 1, 2].map((row) => (
-      <div key={row} className="flex min-h-16 items-center gap-3 border-b border-line py-3 last:border-b-0">
-        <div className="flex-1 space-y-2">
-          <Skeleton className="h-3.5 w-32 max-w-[45%]" />
-          <Skeleton className="h-3 w-24 max-w-[35%]" />
-        </div>
-        <Skeleton className="h-11 w-28 max-w-[30%]" />
-      </div>
-    ))}
-  </div>;
+  return <ListSkeleton label={label} actions />;
 }
 
 /**

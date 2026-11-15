@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { householdNavRoute, readRoute } from './routes';
 
+const householdId = '0198a2f0-0000-7000-8000-000000000002';
+
 describe('readRoute', () => {
   it.each([
     ['/', { kind: 'home' }],
@@ -17,6 +19,21 @@ describe('readRoute', () => {
     ['/account', { kind: 'account' }],
     ['/admin', { kind: 'admin' }],
     ['/unknown', { kind: 'notFound' }],
+  ] as const)('parses %s', (path, route) => {
+    expect(readRoute(path)).toEqual(route);
+  });
+});
+
+describe('readRoute for the installation Admin center', () => {
+  it.each([
+    ['/admin/households', { kind: 'adminHouseholds' }],
+    [`/admin/households/${householdId}`, { kind: 'adminHousehold', householdId }],
+    [`/admin/households/${householdId.toUpperCase()}`, { kind: 'adminHousehold', householdId: householdId.toUpperCase() }],
+    // A malformed identifier and a deeper address are pages that do not exist, not partial screens.
+    ['/admin/households/not-a-uuid', { kind: 'notFound' }],
+    ['/admin/households/', { kind: 'notFound' }],
+    [`/admin/households/${householdId}/accounts`, { kind: 'notFound' }],
+    ['/admin/household', { kind: 'notFound' }],
   ] as const)('parses %s', (path, route) => {
     expect(readRoute(path)).toEqual(route);
   });
@@ -40,6 +57,15 @@ describe('householdNavRoute', () => {
     [{ kind: 'account' }, false, 'account'],
     [{ kind: 'admin' }, false, 'home'],
   ] as const)('maps route to current navigation page', (route, hasHousehold, expected) => {
+    expect(householdNavRoute(route, hasHousehold)).toBe(expected);
+  });
+
+  it.each([
+    [{ kind: 'adminHouseholds' }, true, 'admin'],
+    [{ kind: 'adminHouseholds' }, false, 'admin'],
+    [{ kind: 'adminHousehold', householdId }, true, 'admin'],
+    [{ kind: 'adminHousehold', householdId }, false, 'admin'],
+  ] as const)('marks the single Admin center entry current for %o', (route, hasHousehold, expected) => {
     expect(householdNavRoute(route, hasHousehold)).toBe(expected);
   });
 });
