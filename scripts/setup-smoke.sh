@@ -736,6 +736,7 @@ assert st==201 and free_accept['role']=='member',('free existing-account accepta
 # plain-member assignment is refused and an admin assignment is audited with the
 # instance-administrator authority. Runs before the member password reset.
 ADM_HOUSEHOLDS='/api/v1/admin/households'
+ADM_HOUSEHOLD='/api/v1/admin/households/{householdId}'
 ADM_DIRECTORY='/api/v1/admin/accounts'
 ADM_ACCOUNTS='/api/v1/admin/households/{householdId}/accounts'
 ADM_ACCOUNT='/api/v1/admin/households/{householdId}/accounts/{userId}'
@@ -777,6 +778,30 @@ st,_,missing_admin_household=aareq('GET',f'/api/v1/admin/households/{random_id}/
 assert st==404 and missing_admin_household['code']=='not_found',('unknown admin household',st,missing_admin_household)
 st,_,missing_admin_account=aareq('GET',f'/api/v1/admin/households/{other_id}/accounts/{random_id}',ADM_ACCOUNT,headers=cookie_header)
 assert st==404 and missing_admin_account['code']=='not_found',('unknown admin account',st,missing_admin_account)
+# Instance-admin household creation with its first admin (ADR 0021). A fresh
+# account becomes the admin of a brand-new household; the create is idempotent
+# per actor and key, and a malformed or unknown administrator account never
+# answers 404. A dedicated account keeps the later whole-account password-reset
+# authority scenario intact.
+created_admin=psql("INSERT INTO user_accounts(login) VALUES ('created_admin_smoke') RETURNING id").splitlines()[0]
+created_body={'name':'Admin Created','timezone':'Europe/Prague','adminUserId':created_admin}
+created_headers={**owner_mut,'Idempotency-Key':'smoke-admin-create'}
+st,ch,created_household=aareq('POST',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,created_body,created_headers)
+assert st==201 and created_household['name']=='Admin Created' and created_household['timezone']=='Europe/Prague' and ch['ETag']=='"1"' and ch['Location']==f"/api/v1/admin/households/{created_household['id']}" and ch['Cache-Control']=='no-store',('create admin household',st,created_household,dict(ch))
+assert psql(f"SELECT count(*)||'|'||COALESCE(min(role),'') FROM household_memberships WHERE household_id='{created_household['id']}' AND user_id='{created_admin}'")=='1|admin','created household must have its first admin'
+assert psql(f"SELECT count(*) FROM household_creations WHERE household_id='{created_household['id']}' AND actor_user_id='{owner_account_id}' AND creation_key='smoke-admin-create' AND octet_length(request_fingerprint)=32")=='1','household creation record'
+st,ch_replay,replayed_household=aareq('POST',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,created_body,created_headers)
+assert st==201 and replayed_household==created_household and ch_replay['ETag']=='"1"' and ch_replay['Location']==ch['Location'],('admin household replay',st,replayed_household,dict(ch_replay))
+assert psql(f"SELECT count(*) FROM household_creations WHERE actor_user_id='{owner_account_id}' AND creation_key='smoke-admin-create'")=='1','replay created a second household'
+st,_,reused_intent=aareq('POST',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,{**created_body,'name':'Different intent'},created_headers)
+assert st==422 and reused_intent['code']=='idempotency_key_reused' and 'field' not in reused_intent,('idempotency key reuse',st,reused_intent)
+st,_,unknown_admin=aareq('POST',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,{'name':'No Admin','timezone':'UTC','adminUserId':random_id},{**owner_mut,'Idempotency-Key':'smoke-admin-create-missing'})
+assert st==503 and unknown_admin['code']=='unavailable',('unknown administrator account is not 404',st,unknown_admin)
+assert psql(f"SELECT count(*) FROM households WHERE name='No Admin'")=='0','unknown administrator created a household'
+st,gh_created,read_household=aareq('GET',f"/api/v1/admin/households/{created_household['id']}",ADM_HOUSEHOLD,headers=cookie_header)
+assert st==200 and read_household==created_household and gh_created['ETag']=='"1"' and gh_created['Cache-Control']=='no-store',('read admin household',st,read_household,dict(gh_created))
+st,_,missing_household=aareq('GET',f'/api/v1/admin/households/{random_id}',ADM_HOUSEHOLD,headers=cookie_header)
+assert st==404 and missing_household['code']=='not_found',('unknown admin household',st,missing_household)
 st,_,other_last_admin=aareq('PATCH',admin_account_path(free_user),ADM_ACCOUNT,{'role':'member'},{**owner_mut,'If-Match':'"1"'})
 assert st==409 and other_last_admin['code']=='last_admin',('sole admin of the other household',st,other_last_admin)
 assert psql(f"SELECT role FROM household_memberships WHERE household_id='{other_id}' AND user_id='{free_user}'")=='admin','last-admin rejection changed the other household role'
@@ -796,6 +821,8 @@ other_roles_before=psql(f"SELECT string_agg(user_id::text||'|'||role||'|'||versi
 other_assignments_before=psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}'")
 member_admin_routes=(
  ('GET',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,None,None),
+ ('POST',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,{'name':'Denied','timezone':'UTC','adminUserId':member_account_id},None),
+ ('GET',f'/api/v1/admin/households/{other_id}',ADM_HOUSEHOLD,None,None),
  ('GET',ADM_DIRECTORY+'?q=free',ADM_DIRECTORY,None,None),
  ('GET',admin_accounts_other,ADM_ACCOUNTS,None,None),
  ('GET',admin_account_path(owner_account_id),ADM_ACCOUNT,None,None),
@@ -806,7 +833,7 @@ member_admin_routes=(
 for method,url,template,body,extra in member_admin_routes:
  st,_,member_admin_problem=aareq(method,url,template,body,{**member_cookie,'Origin':origin,**(extra or {})})
  assert st==403 and member_admin_problem['code']=='instance_admin_required',('member on instance-admin route',method,url,st,member_admin_problem)
-assert len(member_admin_routes)==7 and psql(f"SELECT string_agg(user_id::text||'|'||role||'|'||version,',' ORDER BY user_id) FROM household_memberships WHERE household_id='{other_id}'")==other_roles_before and psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}'")==other_assignments_before,'member requests changed instance-admin state'
+assert len(member_admin_routes)==9 and psql(f"SELECT string_agg(user_id::text||'|'||role||'|'||version,',' ORDER BY user_id) FROM household_memberships WHERE household_id='{other_id}'")==other_roles_before and psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}'")==other_assignments_before,'member requests changed instance-admin state'
 # The owner already belongs to this household; acceptance must be refused without consuming a fresh invitation.
 st,_,own_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-owner-conflict'})
 assert st==201,('owner conflict invitation',st,own_invite)
