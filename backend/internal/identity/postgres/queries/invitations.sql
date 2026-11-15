@@ -36,8 +36,11 @@ SELECT EXISTS(SELECT 1 FROM household_invitations WHERE household_id=$1 AND id=$
 -- household) and never touches its credential or reset links, so it needs no
 -- exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
 -- UPDATE keeps concurrent acceptances and account deletion serialized without
--- that conflict (ADR 0018).
-SELECT login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE;
+-- that conflict (ADR 0018). A deleted account is not found, so an invitation
+-- never revives a tombstone.
+SELECT login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE;
 
 -- name: FindLoginForInvitation :one
-SELECT id::text FROM user_accounts WHERE login=$1;
+-- A deleted account is not found: its tombstone login is never a valid
+-- invitation target.
+SELECT id::text FROM user_accounts WHERE login=$1 AND deleted_at IS NULL;

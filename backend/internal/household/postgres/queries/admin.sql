@@ -6,7 +6,12 @@
 SELECT setup_required FROM installation_state WHERE singleton = true FOR SHARE;
 
 -- name: IsInstanceAdmin :one
-SELECT EXISTS (SELECT 1 FROM instance_admins WHERE user_id=$1) AS granted;
+-- Only a grant whose account is still live confers authority: a deleted account
+-- must not authorise instance-admin commands even if a grant row were left.
+SELECT EXISTS (
+  SELECT 1 FROM instance_admins g JOIN user_accounts u ON u.id = g.user_id
+  WHERE g.user_id = $1 AND u.deleted_at IS NULL
+) AS granted;
 
 -- name: LockHouseholdByID :one
 -- The instance-admin grant replaces the membership gate, so the household row

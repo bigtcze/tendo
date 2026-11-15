@@ -37,6 +37,8 @@ type Querier interface {
 	InsertHouseholdMemberAssignment(ctx context.Context, arg InsertHouseholdMemberAssignmentParams) error
 	InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHouseholdMemberRemovalParams) error
 	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error
+	// Only a grant whose account is still live confers authority: a deleted account
+	// must not authorise instance-admin commands even if a grant row were left.
 	IsInstanceAdmin(ctx context.Context, userID pgtype.UUID) (bool, error)
 	ListAllHouseholds(ctx context.Context, arg ListAllHouseholdsParams) ([]ListAllHouseholdsRow, error)
 	ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error)
@@ -53,7 +55,8 @@ type Querier interface {
 	LockInstallationForInstanceAdmin(ctx context.Context) (bool, error)
 	// FOR NO KEY UPDATE serializes account-level writes without conflicting with
 	// the snapshot/key-share locks a session insert or foreign key takes on the
-	// same row (ADR 0018, ADR 0019).
+	// same row (ADR 0018, ADR 0019). A deleted account is not found, so it can
+	// never be a removal target.
 	LockMemberAccountForRemoval(ctx context.Context, id pgtype.UUID) (string, error)
 	// FOR UPDATE, never FOR NO KEY UPDATE: a concurrent foreign-key insert that
 	// references this membership (item responsible, member person) takes a key

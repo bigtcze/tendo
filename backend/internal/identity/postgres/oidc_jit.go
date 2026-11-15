@@ -125,6 +125,25 @@ func (r *Repository) attachVerifiedOwner(ctx context.Context, tx pgx.Tx, owner s
 	if err != nil {
 		return identity.OIDCLoginOutcome{}, err
 	}
+	// The email owner was read before this branch took any user_accounts lock,
+	// so re-read it live and under its row lock: a concurrent deletion may have
+	// anonymized the account in between. A deleted account is never attached
+	// to; instead the continuation is stored like rows 3 and 5.
+	ownerID, err := uuidOrNull(owner)
+	if err != nil {
+		return identity.OIDCLoginOutcome{}, err
+	}
+	var live int
+	err = tx.QueryRow(ctx, `SELECT 1 FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE`, ownerID).Scan(&live)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if err = insertPendingTx(ctx, tx, req); err != nil {
+			return identity.OIDCLoginOutcome{}, err
+		}
+		return commitLogin(tx, ctx, identity.OIDCLoginOutcome{Resolution: identity.OIDCLoginNeedsPending})
+	}
+	if err != nil {
+		return identity.OIDCLoginOutcome{}, err
+	}
 	if err = insertIdentityTx(ctx, tx, req.Verified.Issuer, req.Verified.Subject, owner, req.Now); err != nil {
 		return identity.OIDCLoginOutcome{}, err
 	}
@@ -151,12 +170,24 @@ func advisoryKey(issuer, subject string) int64 {
 
 func findIdentityTx(ctx context.Context, tx pgx.Tx, issuer, subject string) (string, bool, error) {
 	var user string
-	err := tx.QueryRow(ctx, `SELECT user_id::text FROM oidc_identities WHERE issuer=$1 AND subject=$2`, issuer, subject).Scan(&user)
+	var accountDeleted bool
+	err := tx.QueryRow(ctx, `SELECT i.user_id::text, u.deleted_at IS NOT NULL
+		FROM oidc_identities i JOIN user_accounts u ON u.id = i.user_id
+		WHERE i.issuer=$1 AND i.subject=$2`, issuer, subject).Scan(&user, &accountDeleted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
 	if err != nil {
 		return "", false, err
+	}
+	if accountDeleted {
+		// A link to a tombstoned account is stale: deletion clears the identity
+		// rows, so one that survived a race is dropped here and the sign-in
+		// continues as an unlinked identity instead of reviving the account.
+		if _, err = tx.Exec(ctx, `DELETE FROM oidc_identities WHERE issuer=$1 AND subject=$2`, issuer, subject); err != nil {
+			return "", false, err
+		}
+		return "", false, nil
 	}
 	return user, true, nil
 }
@@ -174,8 +205,10 @@ func accountUsesIssuer(ctx context.Context, tx pgx.Tx, userID, issuer string) (b
 func emailOwners(ctx context.Context, tx pgx.Tx, email, issuer string) (int, string, error) {
 	var count int
 	var owner pgtype.Text
+	// A deleted account owns nothing: its email facts were cleared and it must
+	// never be auto-attached to.
 	err := tx.QueryRow(ctx, `SELECT count(*), min(id::text) FROM user_accounts
-		WHERE email=$1 AND email_issuer=$2 AND $1 <> ''`, email, issuer).Scan(&count, &owner)
+		WHERE email=$1 AND email_issuer=$2 AND $1 <> '' AND deleted_at IS NULL`, email, issuer).Scan(&count, &owner)
 	if err != nil {
 		return 0, "", err
 	}

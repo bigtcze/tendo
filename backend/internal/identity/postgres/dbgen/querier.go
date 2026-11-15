@@ -24,11 +24,15 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
 	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
+	// A session of a deleted account is inert even if a racing insert survived.
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
 	FindInvitationByCreationKey(ctx context.Context, arg FindInvitationByCreationKeyParams) (FindInvitationByCreationKeyRow, error)
 	FindInvitationByToken(ctx context.Context, tokenHash []byte) (FindInvitationByTokenRow, error)
 	FindInvitationByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindInvitationByTokenForUpdateRow, error)
+	// A deleted account cannot sign in: its tombstone login is not found.
 	FindLogin(ctx context.Context, login string) (FindLoginRow, error)
+	// A deleted account is not found: its tombstone login is never a valid
+	// invitation target.
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
 	FindPasswordResetByToken(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenRow, error)
@@ -36,6 +40,7 @@ type Querier interface {
 	// Shared local-credential replacement protocol (ADR 0018). One implementation
 	// of "a password changed, sign the account out everywhere" is used by
 	// self-service change, admin reset redemption and the operator CLI.
+	// A deleted account is not found: its tombstone login cannot change a password.
 	FindUserAccountByLogin(ctx context.Context, login string) (string, error)
 	FindUserLogin(ctx context.Context, id pgtype.UUID) (string, error)
 	GrantInstanceAdmin(ctx context.Context, userID pgtype.UUID) error
@@ -45,25 +50,29 @@ type Querier interface {
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
 	// Keyset on (lower(login), id), served by user_accounts_lower_login_id_idx.
 	// The search pattern arrives already escaped for LIKE with backslash.
+	// Deleted accounts are excluded: the tombstone login is not a directory entry.
 	ListDirectoryAccounts(ctx context.Context, arg ListDirectoryAccountsParams) ([]ListDirectoryAccountsRow, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	// Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
 	// assignment and an acceptance or removal of the same account serialize on the
-	// account row without conflicting with session foreign-key key shares.
+	// account row without conflicting with session foreign-key key shares. A
+	// deleted account is not found, so it is never assignable.
 	LockAssignableAccount(ctx context.Context, id pgtype.UUID) (string, error)
 	LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error)
 	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
 	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
 	// conflicting with the foreign-key KEY SHARE that inserting a session takes on
 	// the same row. A plain FOR UPDATE would let reset issuance and a password
-	// change deadlock (ADR 0018).
+	// change deadlock (ADR 0018). A deleted account is not found: no reset is ever
+	// issued against a tombstone.
 	LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (LockPasswordResetTargetRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
 	// The accept path only serializes writes to this account row (joining, default
 	// household) and never touches its credential or reset links, so it needs no
 	// exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
 	// UPDATE keeps concurrent acceptances and account deletion serialized without
-	// that conflict (ADR 0018).
+	// that conflict (ADR 0018). A deleted account is not found, so an invitation
+	// never revives a tombstone.
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	// A link replaces the account-wide password, so it is reported whichever

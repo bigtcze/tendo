@@ -174,7 +174,7 @@ func readLoginPrincipal(ctx context.Context, tx pgx.Tx, userID string) (login, d
 	}
 	err = tx.QueryRow(ctx, `SELECT login, COALESCE(default_household_id::text,''),
 		EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=user_accounts.id)
-		FROM user_accounts WHERE id=$1`, id).Scan(&login, &defaultHousehold, &instanceAdmin)
+		FROM user_accounts WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&login, &defaultHousehold, &instanceAdmin)
 	return login, defaultHousehold, instanceAdmin, err
 }
 
@@ -405,7 +405,8 @@ func lockDiscardableAccount(ctx context.Context, tx pgx.Tx, userValue, issuer, w
 		return "", false, identity.ErrOIDCAccountNotDiscardable
 	}
 	var email pgtype.Text
-	if err = tx.QueryRow(ctx, `SELECT email FROM user_accounts WHERE id=$1 FOR UPDATE`, id).Scan(&email); err != nil {
+	// Keeps the existing FOR UPDATE; a deleted account is not discardable.
+	if err = tx.QueryRow(ctx, `SELECT email FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, id).Scan(&email); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", false, identity.ErrOIDCAccountNotDiscardable
 		}

@@ -50,7 +50,7 @@ func (r *InstanceAdminRepository) GrantInstanceAdmin(ctx context.Context, login 
 		return household.InstanceAdminGrant{}, household.ErrSetupIncomplete
 	}
 	var userID string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM user_accounts WHERE login=$1`, login).Scan(&userID)
+	err = tx.QueryRow(ctx, `SELECT id::text FROM user_accounts WHERE login=$1 AND deleted_at IS NULL`, login).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return household.InstanceAdminGrant{}, household.ErrAccountNotFound
 	}

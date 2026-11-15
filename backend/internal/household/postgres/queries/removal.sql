@@ -1,8 +1,9 @@
 -- name: LockMemberAccountForRemoval :one
 -- FOR NO KEY UPDATE serializes account-level writes without conflicting with
 -- the snapshot/key-share locks a session insert or foreign key takes on the
--- same row (ADR 0018, ADR 0019).
-SELECT id::text AS id FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE;
+-- same row (ADR 0018, ADR 0019). A deleted account is not found, so it can
+-- never be a removal target.
+SELECT id::text AS id FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE;
 
 -- name: LockMembershipForRemoval :one
 -- FOR UPDATE, never FOR NO KEY UPDATE: a concurrent foreign-key insert that

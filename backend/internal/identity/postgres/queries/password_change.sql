@@ -3,7 +3,8 @@
 -- self-service change, admin reset redemption and the operator CLI.
 
 -- name: FindUserAccountByLogin :one
-SELECT id::text AS user_id FROM user_accounts WHERE login=$1;
+-- A deleted account is not found: its tombstone login cannot change a password.
+SELECT id::text AS user_id FROM user_accounts WHERE login=$1 AND deleted_at IS NULL;
 
 -- name: ReadLocalCredential :one
 SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1;

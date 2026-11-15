@@ -1,8 +1,9 @@
 -- name: FindLogin :one
+-- A deleted account cannot sign in: its tombstone login is not found.
 SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
   EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
   c.password_hash, c.credential_version
-FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1;
+FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1 AND u.deleted_at IS NULL;
 
 -- name: LockCredentialForLogin :one
 SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1 FOR SHARE;
@@ -26,8 +27,9 @@ INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_metho
 SELECT s.id::text AS id, u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
   EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
   s.expires_at, s.sign_in_method
+-- A session of a deleted account is inert even if a racing insert survived.
 FROM user_sessions s JOIN user_accounts u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at>$2;
+WHERE s.token_hash=$1 AND s.expires_at>$2 AND u.deleted_at IS NULL;
 
 -- name: DeleteSession :exec
 DELETE FROM user_sessions WHERE token_hash=$1;

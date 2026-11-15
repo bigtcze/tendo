@@ -66,8 +66,9 @@ func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (stri
 	}
 	var login string
 	// Same account-row mode as LockUserForInvitation: the accept path only
-	// serializes writes to the row and never needs to exclude a key share.
-	err = o.tx.QueryRow(ctx, `SELECT login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE`, id).Scan(&login)
+	// serializes writes to the row and never needs to exclude a key share. A
+	// deleted account is not found, so its invitation is invalid.
+	err = o.tx.QueryRow(ctx, `SELECT login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE`, id).Scan(&login)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", identity.ErrNotFound
 	}
