@@ -374,9 +374,12 @@ describe('account screen', () => {
     await waitFor(() => expect(window.location.hash).toBe(''));
     expect(window.location.pathname).toBe('/account');
     // Both outcome hosts on Account — the password form's and the household section's — stay mounted and empty,
-    // so "no notice" means every one of them is empty.
-    expect(screen.getAllByRole('status')).toHaveLength(2);
-    for (const host of screen.getAllByRole('status')) expect(host).toBeEmptyDOMElement();
+    // so "no notice" means each section's own live region is empty.
+    const main = screen.getByRole('main');
+    const passwordSection = main.querySelector('section[aria-labelledby="account-password-heading"]') as HTMLElement;
+    const householdSection = main.querySelector('section[aria-labelledby="account-household-heading"]') as HTMLElement;
+    expect(within(passwordSection).getByRole('status')).toBeEmptyDOMElement();
+    expect(within(householdSection).getByRole('status')).toBeEmptyDOMElement();
     expect(screen.queryByText(/Connected\./)).not.toBeInTheDocument();
     expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc/identity')).toBe(false);
   });
@@ -388,8 +391,11 @@ describe('account screen', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
     await waitFor(() => expect(window.location.hash).toBe(''));
     expect(screen.queryByText(en['oidc.error.identity_conflict'], { exact: true })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('status')).toHaveLength(2);
-    for (const host of screen.getAllByRole('status')) expect(host).toBeEmptyDOMElement();
+    const main = screen.getByRole('main');
+    for (const id of ['account-password-heading', 'account-household-heading']) {
+      const section = main.querySelector(`section[aria-labelledby="${id}"]`) as HTMLElement;
+      expect(within(section).getByRole('status')).toBeEmptyDOMElement();
+    }
   });
 
   it('renders Czech', async () => {

@@ -106,10 +106,12 @@ describe('Admin center membership removal', () => {
     let current = session();
     const fake = installFakeServer({
       'GET /api/v1/session': () => json(200, current),
-      [`GET ${base}`]: json(200, household),
+      // The viewer's own leave quotes the household's viewerMembershipVersion,
+      // read again right before the DELETE; the account route is not needed.
+      [`GET ${base}`]: json(200, { ...household, viewerMembershipVersion: 5 }),
       ...itemRoutes(base, []),
       [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
-      [accountPath(anna.userId)]: json(200, anna, { ETag: '"3"' }),
+      [accountPath(anna.userId)]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' }),
       [removalPath(anna.userId)]: () => { current = session(false); return json(204); },
     });
     app();
@@ -128,21 +130,24 @@ describe('Admin center membership removal', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Join your household by invitation' })).toBeVisible();
     // The shell decides where Home opens from a fresh session read, not from the household this screen booted with.
     expect(fake.requests.filter((request) => request.method === 'GET' && request.path === '/api/v1/session')).toHaveLength(2);
-    expect(fake.requests.filter((request) => request.method === 'DELETE' && request.path === `${base}/accounts/${anna.userId}`)).toHaveLength(1);
+    const removal = fake.requests.find((request) => request.method === 'DELETE' && request.path === `${base}/accounts/${anna.userId}`);
+    expect(removal?.headers.get('If-Match')).toBe('"5"');
+    expect(fake.requests.some((request) => request.method === 'GET' && request.path === accountPath(anna.userId))).toBe(false);
   });
 
   it('opens the next household when one remains, and says where the menu is', async () => {
     const otherId = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62';
     const otherBase = `/api/v1/households/${otherId}`;
+    const declarationHousehold = { ...household, viewerMembershipVersion: 6 };
     let current = session();
     const fake = installFakeServer({
       'GET /api/v1/session': () => json(200, current),
-      [`GET ${base}`]: json(200, household),
-      [`GET ${otherBase}`]: json(200, { ...household, id: otherId, name: 'Praha' }),
+      [`GET ${base}`]: json(200, declarationHousehold),
+      [`GET ${otherBase}`]: json(200, { ...declarationHousehold, id: otherId, name: 'Praha' }),
       ...itemRoutes(base, []),
       ...itemRoutes(otherBase, []),
       [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
-      [accountPath(anna.userId)]: json(200, anna, { ETag: '"3"' }),
+      [accountPath(anna.userId)]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' }),
       [removalPath(anna.userId)]: () => { current = { ...session(), defaultHouseholdId: otherId }; return json(204); },
     });
     app();
@@ -155,6 +160,8 @@ describe('Admin center membership removal', () => {
     // Home opens in the household the fresh session names, and that household is what the shell reads.
     await waitFor(() => expect(fake.requests.some((request) => request.path === otherBase)).toBe(true));
     expect(window.location.pathname).toBe('/');
+    const removal = fake.requests.find((request) => request.method === 'DELETE' && request.path === `${base}/accounts/${anna.userId}`);
+    expect(removal?.headers.get('If-Match')).toBe('"6"');
   });
 
   it.each([
@@ -190,7 +197,7 @@ describe('Admin center membership removal', () => {
       [`GET ${base}`]: json(200, household),
       ...itemRoutes(base, []),
       [accountsPath]: json(200, { items: [anna], nextCursor: null }),
-      [accountPath(anna.userId)]: json(200, anna, { ETag: '"3"' }),
+      [accountPath(anna.userId)]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' }),
       [removalPath(anna.userId)]: problem(409, 'last_admin'),
     });
     app();

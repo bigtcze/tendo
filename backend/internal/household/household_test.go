@@ -76,7 +76,7 @@ func TestGetRejectsMalformedUserWithoutRepositoryCall(t *testing.T) {
 }
 
 func TestGetAcceptsUppercaseUUID(t *testing.T) {
-	repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: RoleMember}}
+	repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: RoleMember, ViewerMembershipVersion: 3}}
 	upper := "0198A2F0-7C1E-7A53-9B0E-5D3F2C1A4B61"
 	if _, err := NewService(repo).Get(context.Background(), validUser, upper); err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestGetMapsInfrastructureErrorsToGenericError(t *testing.T) {
 }
 
 func TestGetReturnsRepositoryDataWithBoundedContext(t *testing.T) {
-	want := Household{ID: validHousehold, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 7, ViewerRole: RoleAdmin}
+	want := Household{ID: validHousehold, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 7, ViewerRole: RoleAdmin, ViewerMembershipVersion: 4}
 	repo := &fakeRepository{result: want}
 	got, err := NewService(repo).Get(context.Background(), validUser, validHousehold)
 	if err != nil || got != want {
@@ -122,10 +122,33 @@ func TestGetReturnsRepositoryDataWithBoundedContext(t *testing.T) {
 
 func TestGetFailsClosedOnUnknownViewerRole(t *testing.T) {
 	for _, role := range []string{"", "owner", "superuser"} {
-		repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: role}}
+		repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: role, ViewerMembershipVersion: 1}}
 		got, err := NewService(repo).Get(context.Background(), validUser, validHousehold)
 		if err == nil || errors.Is(err, ErrNotFound) || got != (Household{}) {
 			t.Fatalf("role %q: got=%+v err=%v, want unavailable", role, got, err)
+		}
+	}
+}
+
+// A membership version outside the stored contract fails closed like an
+// unknown role: the version authorizes nothing, but a client must never quote
+// a zero or negative tag.
+func TestGetFailsClosedOnMissingViewerMembershipVersion(t *testing.T) {
+	for _, version := range []int64{0, -1} {
+		repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: RoleAdmin, ViewerMembershipVersion: version}}
+		got, err := NewService(repo).Get(context.Background(), validUser, validHousehold)
+		if err == nil || errors.Is(err, ErrNotFound) || got != (Household{}) {
+			t.Fatalf("version %d: got=%+v err=%v, want unavailable", version, got, err)
+		}
+	}
+}
+
+func TestListForMemberFailsClosedOnMissingViewerMembershipVersion(t *testing.T) {
+	for _, version := range []int64{0, -1} {
+		repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, ViewerRole: RoleMember, ViewerMembershipVersion: version}}}
+		got, _, err := NewService(repo).ListForMember(context.Background(), validUser, "", 50)
+		if err == nil || errors.Is(err, ErrNotFound) || got != nil {
+			t.Fatalf("version %d: got=%+v err=%v, want unavailable", version, got, err)
 		}
 	}
 }
@@ -172,7 +195,7 @@ func TestListForMemberLimitDefaultsToFiftyAndClampsToOneHundred(t *testing.T) {
 }
 
 func TestListForMemberDecodesCursorAndBoundsContext(t *testing.T) {
-	repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: RoleMember}}}
+	repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: RoleMember, ViewerMembershipVersion: 2}}}
 	cursor := EncodeHouseholdCursor(validHousehold)
 	got, next, err := NewService(repo).ListForMember(context.Background(), validUser, cursor, 10)
 	if err != nil || len(got) != 1 || next != "" {
@@ -188,7 +211,7 @@ func TestListForMemberDecodesCursorAndBoundsContext(t *testing.T) {
 
 func TestListForMemberFailsClosedOnUnknownRole(t *testing.T) {
 	for _, role := range []string{"", "owner", "superuser"} {
-		repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, ViewerRole: role}}}
+		repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, ViewerRole: role, ViewerMembershipVersion: 1}}}
 		got, _, err := NewService(repo).ListForMember(context.Background(), validUser, "", 50)
 		if err == nil || errors.Is(err, ErrNotFound) || got != nil {
 			t.Fatalf("role %q: got=%+v err=%v, want unavailable", role, got, err)

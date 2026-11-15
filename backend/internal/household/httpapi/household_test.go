@@ -49,7 +49,7 @@ func (f *fakeService) Get(_ context.Context, userID, householdID string) (househ
 	if userID != callerID || householdID != memberID {
 		return household.Household{}, household.ErrNotFound
 	}
-	return household.Household{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 42, ViewerRole: f.role()}, nil
+	return household.Household{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 42, ViewerRole: f.role(), ViewerMembershipVersion: 4}, nil
 }
 
 func (f *fakeService) ListForMember(_ context.Context, userID, cursor string, limit int) ([]household.ListedHousehold, string, error) {
@@ -107,13 +107,16 @@ func TestGetHouseholdReturnsExactBodyAndHeaders(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
-	if got, want := strings.TrimSpace(w.Body.String()), `{"createdAt":"2026-10-06T10:00:00Z","id":"`+memberID+`","name":"Veselí 家族","timezone":"Europe/Prague","viewerRole":"admin"}`; !jsonEqual(t, got, want) {
+	if got, want := strings.TrimSpace(w.Body.String()), `{"createdAt":"2026-10-06T10:00:00Z","id":"`+memberID+`","name":"Veselí 家族","timezone":"Europe/Prague","viewerMembershipVersion":4,"viewerRole":"admin"}`; !jsonEqual(t, got, want) {
 		t.Fatalf("body=%s want=%s", got, want)
 	}
 	var keys map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &keys)
-	if len(keys) != 5 {
-		t.Fatalf("unexpected fields (version must not leak): %v", keys)
+	if len(keys) != 6 {
+		t.Fatalf("unexpected fields (resource version must not leak): %v", keys)
+	}
+	if _, ok := keys["version"]; ok {
+		t.Fatalf("household resource version leaked: %v", keys)
 	}
 	if w.Header().Get("ETag") != `"42"` || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("headers=%v", w.Header())
@@ -125,9 +128,10 @@ func TestGetHouseholdReportsMemberViewerRole(t *testing.T) {
 	f.svc.viewerRole = household.RoleMember
 	w := f.get("/api/v1/households/" + memberID)
 	var body struct {
-		ViewerRole string `json:"viewerRole"`
+		ViewerRole              string `json:"viewerRole"`
+		ViewerMembershipVersion int64  `json:"viewerMembershipVersion"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != 200 || body.ViewerRole != "member" {
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != 200 || body.ViewerRole != "member" || body.ViewerMembershipVersion != 4 {
 		t.Fatalf("status=%d body=%s err=%v", w.Code, w.Body, err)
 	}
 }
@@ -210,8 +214,8 @@ func TestListHouseholdsReturnsMemberItemsWithoutValidators(t *testing.T) {
 	f := newFixture(true)
 	created := time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC)
 	f.svc.listRows = []household.ListedHousehold{
-		{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: created, ViewerRole: household.RoleAdmin},
-		{ID: otherID, Name: "Second", Timezone: "UTC", CreatedAt: created, ViewerRole: household.RoleMember},
+		{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: created, ViewerRole: household.RoleAdmin, ViewerMembershipVersion: 4},
+		{ID: otherID, Name: "Second", Timezone: "UTC", CreatedAt: created, ViewerRole: household.RoleMember, ViewerMembershipVersion: 1},
 	}
 	f.svc.listNext = "h1bmV4dA"
 	w := f.get("/api/v1/households")
@@ -221,7 +225,7 @@ func TestListHouseholdsReturnsMemberItemsWithoutValidators(t *testing.T) {
 	if w.Header().Get("ETag") != "" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("headers=%v", w.Header())
 	}
-	want := `{"items":[{"createdAt":"2026-10-06T10:00:00Z","id":"` + memberID + `","name":"Veselí 家族","timezone":"Europe/Prague","viewerRole":"admin"},{"createdAt":"2026-10-06T10:00:00Z","id":"` + otherID + `","name":"Second","timezone":"UTC","viewerRole":"member"}],"nextCursor":"h1bmV4dA"}`
+	want := `{"items":[{"createdAt":"2026-10-06T10:00:00Z","id":"` + memberID + `","name":"Veselí 家族","timezone":"Europe/Prague","viewerMembershipVersion":4,"viewerRole":"admin"},{"createdAt":"2026-10-06T10:00:00Z","id":"` + otherID + `","name":"Second","timezone":"UTC","viewerMembershipVersion":1,"viewerRole":"member"}],"nextCursor":"h1bmV4dA"}`
 	if !jsonEqual(t, strings.TrimSpace(w.Body.String()), want) {
 		t.Fatalf("body=%s want=%s", w.Body, want)
 	}
@@ -246,7 +250,7 @@ func TestListHouseholdsLastPageHasNullCursor(t *testing.T) {
 
 func TestListHouseholdsForwardsOpaqueCursor(t *testing.T) {
 	f := newFixture(true)
-	f.svc.listRows = []household.ListedHousehold{{ID: memberID, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: household.RoleMember}}
+	f.svc.listRows = []household.ListedHousehold{{ID: memberID, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: household.RoleMember, ViewerMembershipVersion: 2}}
 	w := f.get("/api/v1/households?cursor=h1" + "MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtNWQzZjJjMWE0YjYx")
 	if w.Code != 200 {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)

@@ -71,7 +71,9 @@ const tsInvitedAccount = generated.slice(generated.indexOf('InvitedAccount: {'),
 assert.ok(tsMembership.includes('householdId: string') && tsMembership.includes('role: "member"') && !tsMembership.includes('login:'), 'TS Membership must omit login')
 assert.ok(tsInvitedAccount.includes('login: string') && tsInvitedAccount.includes('householdId: string'), 'TS InvitedAccount must include login')
 assert.ok(/type Household struct \{[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]*Name\s+string[^}]*Timezone\s+string/s.test(goModels), 'Generated Go missing Household model with required fields')
-assert.ok(!/Version/.test(goModels.match(/type Household struct \{[^}]*\}/s)?.[0] ?? ''), 'Household response model must not expose the internal version')
+const householdStruct = goModels.match(/type Household struct \{[^}]*\}/s)?.[0] ?? ''
+assert.ok(!/\bVersion\s+int64/.test(householdStruct), 'Household response model must not expose the internal resource version')
+assert.ok(/ViewerMembershipVersion int64 `json:"viewerMembershipVersion"`/.test(householdStruct), 'Household response model must expose the caller membership version')
 assert.ok(generated.includes('getHousehold:'), 'TypeScript output missing operation getHousehold')
 assert.ok(/Household: \{[^}]*id: string[^}]*name: string[^}]*timezone: string[^}]*createdAt: string/s.test(generated), 'TypeScript Household missing required fields')
 for (const name of ['Subject', 'SubjectList', 'CreateSubjectRequest', 'UpdateSubjectRequest']) if (name !== 'UpdateSubjectRequest') assert.ok(goModels.includes(`type ${name} struct`), `Generated Go missing ${name}`)

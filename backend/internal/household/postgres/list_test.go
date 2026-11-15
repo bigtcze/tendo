@@ -125,8 +125,12 @@ func TestListForMemberAgainstPostgres(t *testing.T) {
 	if err != nil || bobNext != "" || len(bobRows) != 1 {
 		t.Fatalf("bob rows=%+v next=%q err=%v", bobRows, bobNext, err)
 	}
-	if bobRows[0].ID != bobOnly || bobRows[0].ViewerRole != household.RoleAdmin {
-		t.Fatalf("bob row=%+v", bobRows[0])
+	var bobVersion int64
+	if err := admin.QueryRow(ctx, `SELECT version FROM household_memberships WHERE household_id=$1::uuid AND user_id=$2::uuid`, bobOnly, bob).Scan(&bobVersion); err != nil {
+		t.Fatal(err)
+	}
+	if bobRows[0].ID != bobOnly || bobRows[0].ViewerRole != household.RoleAdmin || bobRows[0].ViewerMembershipVersion != bobVersion {
+		t.Fatalf("bob row=%+v want membership version %d", bobRows[0], bobVersion)
 	}
 
 	// The hard cap is 100 even when the request asks for more.

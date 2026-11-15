@@ -889,11 +889,67 @@ func TestMemberRemovalRacesAgainstPostgres(t *testing.T) {
 				t.Fatalf("round %d default update err=%v", round, results[1])
 			}
 			got := f.defaultHousehold(worker)
+			// The concurrent selection always keeps `other` (the only remaining
+			// membership), so a cleared default is a regression: removal must not
+			// overwrite it with NULL.
 			if got == nil {
-				continue
+				t.Fatalf("round %d default household cleared although a membership remains", round)
 			}
 			if *got != other {
 				t.Fatalf("round %d default=%s want %s", round, *got, other)
+			}
+		}
+	})
+
+	// The same person can be removed from two households at once by each
+	// household's admin. Both removals must commit: each takes its own household
+	// lock and then the shared account row FOR NO KEY UPDATE, which serializes
+	// them without a deadlock. After both, no membership remains, the account
+	// default is cleared, and each household holds exactly one audit row.
+	t.Run("same target removed from two households concurrently", func(t *testing.T) {
+		for round := 0; round < 10; round++ {
+			first := f.newHousehold(fmt.Sprintf("shared target house %d", round))
+			second := f.newHousehold(fmt.Sprintf("shared target other %d", round))
+			adminA, adminB, target := f.newUser(), f.newUser(), f.newUser()
+			f.join(adminA, first, household.RoleAdmin)
+			f.join(adminB, second, household.RoleAdmin)
+			f.join(target, first, household.RoleMember)
+			f.join(target, second, household.RoleMember)
+			f.setDefault(target, first)
+
+			results := race(
+				func() error { return f.service.RemoveMember(ctx, adminA, first, target, 1) },
+				func() error { return f.service.RemoveMember(ctx, adminB, second, target, 1) },
+			)
+			for i, err := range results {
+				if err != nil {
+					if code := pgCode(err); code == "40P01" {
+						t.Fatalf("round %d removal %d deadlocked: %v", round, i, err)
+					}
+					t.Fatalf("round %d removal %d err=%v", round, i, err)
+				}
+			}
+			if _, _, ok := f.membership(first, target); ok {
+				t.Fatalf("round %d target still a member of the first household", round)
+			}
+			if _, _, ok := f.membership(second, target); ok {
+				t.Fatalf("round %d target still a member of the second household", round)
+			}
+			if got := f.defaultHousehold(target); got != nil {
+				t.Fatalf("round %d default household=%s want it cleared", round, *got)
+			}
+			if audits := f.auditCount(first); audits != 1 {
+				t.Fatalf("round %d first household audit rows=%d want 1", round, audits)
+			}
+			if audits := f.auditCount(second); audits != 1 {
+				t.Fatalf("round %d second household audit rows=%d want 1", round, audits)
+			}
+			var total int
+			if err := admin.QueryRow(ctx, `SELECT count(*) FROM household_member_removals WHERE target_user_id=$1::uuid`, target).Scan(&total); err != nil {
+				t.Fatal(err)
+			}
+			if total != 2 {
+				t.Fatalf("round %d audit rows for the target=%d want 2", round, total)
 			}
 		}
 	})

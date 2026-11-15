@@ -32,6 +32,17 @@ about what it reveals to a caller who is not authorized.
   body and `Cache-Control: no-store`. The required `If-Match` is the target
   membership version, exactly as for PATCH: missing is `428`, malformed, weak,
   listed or stale is `412`.
+- **A plain member reads their version from the household.** The account read
+  that carries the membership `ETag` is admin-only (`RequireAdmin`), so a plain
+  member calling it for their own leave received `403` and never sent the
+  `DELETE`. Rather than relax that route and its uniform authorization story,
+  the `Household` representation gains `viewerMembershipVersion`: the caller's
+  own membership version, read in the same household query as `viewerRole`. The
+  client re-reads the household immediately before the `DELETE` and quotes
+  `"<viewerMembershipVersion>"` as `If-Match`. An admin removing another member
+  keeps the existing account read. The field is a navigation hint only; the
+  removal still re-checks the version and the caller's authority under the
+  membership lock.
 - **Authorization is the membership, not the instance.**
   - A current household admin may remove any member of that household,
     including themselves.
@@ -105,6 +116,30 @@ about what it reveals to a caller who is not authorized.
   Down section is necessarily lossy: it drops the audit rows, while the
   membership deletion and the effect writes stay in place.
 
+## Global lock order
+
+Later slices that touch several households or the account itself must keep these
+lock modes and this order. The removal above is the membership-scoped prefix of
+the same protocol.
+
+1. `installation_state FOR UPDATE` — only instance-administrator paths that
+   change the installation-wide administrator set, including a
+   last-instance-administrator guard.
+2. `households FOR NO KEY UPDATE`, ascending household id when one transaction
+   touches several households.
+3. `household_invitations`.
+4. `user_accounts FOR NO KEY UPDATE` — never `FOR UPDATE`, because a session
+   insert takes `KEY SHARE` there (ADR 0018).
+5. `household_memberships FOR UPDATE` — the row whose version authorizes the
+   change.
+6. items, subjects, and `password_reset_tokens`.
+7. `local_credentials` and sessions last, in the ADR 0018 replacement order.
+
+Slice C (account deletion) must keep exactly these modes and must never run at
+`REPEATABLE READ`: every invariant it checks (last admin, last instance
+administrator) is answered by rows read under these locks, and a snapshot could
+return a stale answer that the locks were meant to prevent.
+
 ## Consequences
 
 - Removal and leave share one implementation, so their effects cannot drift.
@@ -122,3 +157,8 @@ about what it reveals to a caller who is not authorized.
 - Sessions surviving the removal is deliberate. Revoking access to one
   household does not sign the account out of the others; every request
   re-authorizes against current memberships.
+- `household_member_removals.target_user_id` and `actor_user_id` reference
+  `user_accounts` without `ON DELETE`. Account deletion (slice C) must therefore
+  anonymize the account row in place or handle these audit references
+  explicitly; deleting the row would either fail on the foreign key or destroy
+  the removal history.

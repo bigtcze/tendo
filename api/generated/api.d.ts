@@ -424,7 +424,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a household member, or leave the household
-         * @description Removes one membership with no representation on success. A household admin may remove any member, including themselves; a plain member may remove only themselves (leave). A member removing anyone else returns 403 admin_required. A non-member, unknown household, malformed target, or target who is not a member of this household all return the uniform 404 not_found. Removing the household's last admin returns 409 last_admin and changes nothing. The required If-Match is the target membership version, exactly like PATCH. Sessions are not revoked: the removed account keeps its existing sessions for its other households. Outstanding invitations created by the removed member and reset links they are party to inside this household are revoked, item responsibility is released, the member person is unlinked without archiving, and the account default moves to a remaining membership or is cleared.
+         * @description Removes one membership with no representation on success. A household admin may remove any member, including themselves; a plain member may remove only themselves (leave). A plain member naming any other target receives 403 admin_required whether or not that target exists, so the answer never reveals another membership. A non-member, unknown household, malformed target, or target who is not a member of this household all return the uniform 404 not_found. Removing the household's last admin returns 409 last_admin and changes nothing. The required If-Match is the target membership version, exactly like PATCH; a member leaving takes it from the household's viewerMembershipVersion. Sessions are not revoked: the removed account keeps its existing sessions for its other households. Outstanding invitations created by the removed member and reset links they are party to inside this household are revoked, item responsibility is released, the member person is unlinked without archiving, and the account default moves to a remaining membership or is cleared.
          */
         delete: operations["removeHouseholdAccount"];
         options?: never;
@@ -847,6 +847,11 @@ export interface components {
             createdAt: string;
             /** @description The caller's membership role in this household. A navigation hint only; admin operations always re-authorize. */
             viewerRole: components["schemas"]["MemberRole"];
+            /**
+             * Format: int64
+             * @description The caller's strong membership version for this household, read with the household. A plain member quotes it as If-Match when leaving; a navigation hint only, because every mutation re-checks the version and the caller's authority.
+             */
+            viewerMembershipVersion: number;
         };
         HouseholdList: {
             items: components["schemas"]["Household"][];
@@ -7007,7 +7012,8 @@ export interface operations {
                      *           "name": "Veselí",
                      *           "timezone": "Europe/Prague",
                      *           "createdAt": "2026-10-06T10:00:00Z",
-                     *           "viewerRole": "member"
+                     *           "viewerRole": "member",
+                     *           "viewerMembershipVersion": 1
                      *         }
                      *       ],
                      *       "nextCursor": null
@@ -7154,7 +7160,8 @@ export interface operations {
                      *       "name": "Veselí",
                      *       "timezone": "Europe/Prague",
                      *       "createdAt": "2026-10-06T10:00:00Z",
-                     *       "viewerRole": "admin"
+                     *       "viewerRole": "admin",
+                     *       "viewerMembershipVersion": 1
                      *     }
                      */
                     "application/json": components["schemas"]["Household"];

@@ -1120,6 +1120,9 @@ type Household struct {
 	// Timezone Named IANA timezone.
 	Timezone string `json:"timezone"`
 
+	// ViewerMembershipVersion The caller's strong membership version for this household, read with the household. A plain member quotes it as If-Match when leaving; a navigation hint only, because every mutation re-checks the version and the caller's authority.
+	ViewerMembershipVersion int64 `json:"viewerMembershipVersion"`
+
 	// ViewerRole The caller's membership role in this household. A navigation hint only; admin operations always re-authorize.
 	ViewerRole MemberRole `json:"viewerRole"`
 }

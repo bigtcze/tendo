@@ -168,13 +168,13 @@ assert status==200 and restored['userId']==changed['userId'] and restored['signI
 token,cookie_header=rotated_session(h['Set-Cookie'])
 assert owner_hash()!=initial_hash,'restored credential reuses the pre-change hash'
 status,h,lh,_=call('GET','/api/v1/households',template='/api/v1/households',headers=cookie_header,sink=fixtures)
-assert status==200 and lh['items'][0]['id']==household and lh['items'][0]['viewerRole']=='admin' and lh['nextCursor'] is None and 'ETag' not in h,('list households',status,lh,dict(h))
+assert status==200 and lh['items'][0]['id']==household and lh['items'][0]['viewerRole']=='admin' and lh['items'][0]['viewerMembershipVersion']==1 and lh['nextCursor'] is None and 'ETag' not in h,('list households',status,lh,dict(h))
 status,h,patched,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':origin},sink=fixtures)
 assert status==200 and patched['defaultHouseholdId']==household and 'ETag' not in h,('patch session default',status,patched,dict(h))
 def hreq(hid,headers=None,record=True):
  return call('GET','/api/v1/households/'+hid,template='/api/v1/households/{householdId}',headers=headers,sink=fixtures if record else None)[:3]
 status,h,hb=hreq(household,cookie_header)
-assert status==200 and set(hb)=={'id','name','timezone','createdAt','viewerRole'} and hb['viewerRole']=='admin' and hb['id']==household and hb['name']=='Veselí 家族' and hb['timezone']=='Europe/Prague' and hb['createdAt'].endswith('Z'),('get household',status,hb)
+assert status==200 and set(hb)=={'id','name','timezone','createdAt','viewerRole','viewerMembershipVersion'} and hb['viewerRole']=='admin' and hb['viewerMembershipVersion']==1 and hb['id']==household and hb['name']=='Veselí 家族' and hb['timezone']=='Europe/Prague' and hb['createdAt'].endswith('Z'),('get household',status,hb)
 assert h['ETag']=='"1"' and h['Cache-Control']=='no-store' and h['Content-Type'].startswith('application/json'),dict(h)
 assert psql(f"SELECT to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') FROM households WHERE id='{household}'")==hb['createdAt'].rstrip('Z').split('.')[0],('createdAt mismatch',hb)
 status,h,b_anon=hreq(household);assert status==401 and b_anon['code']=='unauthenticated' and 'Set-Cookie' not in h,('household without cookie',status,b_anon)
@@ -554,7 +554,7 @@ assert st==200 and {(m['login'],m['role']) for m in owner_members['items']}=={('
 st,_,joined_members,_=xreq('GET',f'/api/v1/households/{household}/members',MEMBERS,headers=member_cookie)
 assert st==200 and {(m['login'],m['role']) for m in joined_members['items']}=={('owner_smoke','admin'),('member_smoke','member')},('member member list',st,joined_members)
 assert psql(f"SELECT m.role||'|'||(u.default_household_id=m.household_id)::text FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id WHERE u.login='member_smoke' AND m.household_id='{household}'")=='member|true','membership/default household persistence'
-status,_,member_hb=hreq(household,member_cookie,record=False);assert status==200 and member_hb['viewerRole']=='member' and member_hb['id']==household,('member household viewerRole',status,member_hb)
+status,_,member_hb=hreq(household,member_cookie,record=False);assert status==200 and member_hb['viewerRole']=='member' and member_hb['viewerMembershipVersion']>=1 and member_hb['id']==household,('member household viewerRole',status,member_hb)
 # Admin account directory and role management: directory reads, optimistic concurrency, audit and last-admin guard.
 ACC='/api/v1/households/{householdId}/accounts'
 ACC_ITEM='/api/v1/households/{householdId}/accounts/{userId}'
@@ -766,7 +766,7 @@ st,_,reset_used=areq('GET',accounts_base,ACC,headers=member_cookie)
 assert st==401 and reset_used['code']=='unauthenticated',('reset must delete target sessions',st,reset_used)
 st,_,old_password,_=req('POST',member_login,{'Origin':origin},record=False)
 assert st==401 and old_password['code']=='invalid_credentials',('old password after reset',st,old_password)
-st,_,_,_=req('POST',{'login':'member_smoke','password':reset_password},{'Origin':origin},record=False)
+st,member_login_headers,_,_=req('POST',{'login':'member_smoke','password':reset_password},{'Origin':origin},record=False)
 assert st==201,('new password after reset',st)
 # Membership removal: an admin removes another member. The membership and its
 # effects disappear, an audit row records who removed whom, and the removed
@@ -778,6 +778,30 @@ assert st==204 and removed_member is None,('remove member',st,removed_member)
 assert psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{household}' AND user_id='{free_user}'")=='0','removal left the membership'
 assert psql(f"SELECT count(*) FROM household_member_removals WHERE household_id='{household}' AND target_user_id='{free_user}' AND actor_user_id='{owner_account_id}' AND previous_role='member'")=='1','removal audit row'
 assert psql(f"SELECT count(*) FROM user_sessions WHERE user_id='{free_user}'")=='1','removal must not revoke sessions'
+# A plain member leaves on their own: the household read carries the caller's
+# membership version, which the member quotes as If-Match. The account route is
+# admin-only and is never needed. After 204 the household is no longer visible.
+leaver_cookie={'Cookie':member_login_headers['Set-Cookie'].split(';',1)[0]}
+st,_,leaver_hb=hreq(household,leaver_cookie,record=False)
+assert st==200 and leaver_hb['viewerRole']=='member' and isinstance(leaver_hb['viewerMembershipVersion'],int) and leaver_hb['viewerMembershipVersion']>=1,('member household for leave',st,leaver_hb)
+leaver_version=psql(f"SELECT version::text FROM household_memberships WHERE household_id='{household}' AND user_id='{member_account_id}'")
+assert leaver_version and str(leaver_hb['viewerMembershipVersion'])==leaver_version,('viewerMembershipVersion must equal the stored membership version',leaver_hb,leaver_version)
+st,_,member_account_read=areq('GET',accounts_base+'/'+member_account_id,ACC_ITEM,headers=leaver_cookie)
+assert st==403 and member_account_read['code']=='admin_required',('plain member account read stays admin-only',st,member_account_read)
+leaver_tag='"' + str(leaver_hb['viewerMembershipVersion']) + '"'
+# A plain member may only leave. Removing an admin, or a target that does not
+# belong to this household, is the same 403 admin_required and reveals nothing.
+st,_,member_removes_admin=areq('DELETE',accounts_base+'/'+owner_account_id,ACC_ITEM,headers={**leaver_cookie,'Origin':origin,'If-Match':leaver_tag})
+assert st==403 and member_removes_admin['code']=='admin_required',('plain member may not remove another member',st,member_removes_admin)
+st,_,member_removes_unknown=areq('DELETE',accounts_base+'/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61',ACC_ITEM,headers={**leaver_cookie,'Origin':origin,'If-Match':leaver_tag})
+assert st==403 and member_removes_unknown['code']=='admin_required',('plain member refusal must not depend on target existence',st,member_removes_unknown)
+st,_,left=areq('DELETE',accounts_base+'/'+member_account_id,ACC_ITEM,headers={**leaver_cookie,'Origin':origin,'If-Match':leaver_tag})
+assert st==204 and left is None,('member leaves with its own version',st,left)
+st,_,left_gone=hreq(household,leaver_cookie,record=False)
+assert st==404 and left_gone['code']=='not_found',('left household is no longer visible',st,left_gone)
+assert psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{household}' AND user_id='{member_account_id}'")=='0','self-leave left the membership'
+assert psql(f"SELECT count(*) FROM household_member_removals WHERE household_id='{household}' AND target_user_id='{member_account_id}' AND actor_user_id='{member_account_id}'")=='1','self-leave audit row'
+assert psql(f"SELECT default_household_id IS NULL FROM user_accounts WHERE id='{member_account_id}'")=='t','self-leave must clear the last default household'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 fixtures.append({'path':'/api/v1/session','method':'delete','status':status,'headers':dict(h.items())})

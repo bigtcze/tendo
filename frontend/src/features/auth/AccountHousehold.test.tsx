@@ -39,8 +39,10 @@ describe('Account household section', () => {
     let current = session();
     const fake = installFakeServer({
       'GET /api/v1/session': () => json(200, current),
-      [`GET ${base}`]: json(200, memberHousehold),
-      [accountPath(member.userId)]: json(200, member, { ETag: '"2"' }),
+      // A plain member reads their own membership version from the household;
+      // the account route is admin-only and must never be called.
+      [`GET ${base}`]: json(200, { ...memberHousehold, viewerMembershipVersion: 2 }),
+      [accountPath(member.userId)]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' }),
       [removalPath(member.userId)]: () => { current = session(false); return json(204); },
     });
     app();
@@ -63,7 +65,13 @@ describe('Account household section', () => {
     expect(await screen.findByText('You left Veselí. You’re not in a household now — join one with an invitation.')).toBeVisible();
     expect(window.location.pathname).toBe('/');
     expect(await screen.findByRole('heading', { level: 1, name: 'Join your household by invitation' })).toBeVisible();
-    expect(fake.requests.find((request) => request.method === 'DELETE')?.headers.get('If-Match')).toBe('"2"');
+    // The tag is the quoted viewerMembershipVersion, read again right before the DELETE.
+    const removal = fake.requests.find((request) => request.method === 'DELETE');
+    expect(removal?.headers.get('If-Match')).toBe('"2"');
+    const reads = fake.requests.filter((request) => request.method === 'GET' && request.path === base);
+    expect(reads.length).toBeGreaterThan(0);
+    expect(fake.requests.indexOf(reads[reads.length - 1])).toBeLessThan(fake.requests.indexOf(removal!));
+    expect(fake.requests.some((request) => request.method === 'GET' && request.path === accountPath(member.userId))).toBe(false);
   });
 
   it('asks nothing when the dialog is dismissed and keeps the membership', async () => {
@@ -85,10 +93,10 @@ describe('Account household section', () => {
   });
 
   it('explains that the membership changed elsewhere and stays on Account', async () => {
-    installFakeServer({
+    const fake = installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      [`GET ${base}`]: json(200, memberHousehold),
-      [accountPath(member.userId)]: json(200, member, { ETag: '"2"' }),
+      [`GET ${base}`]: json(200, { ...memberHousehold, viewerMembershipVersion: 3 }),
+      [accountPath(member.userId)]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' }),
       [removalPath(member.userId)]: json(412, { type: 'about:blank', title: 'Precondition Failed', status: 412, code: 'precondition_failed' }),
     });
     app();
@@ -101,6 +109,9 @@ describe('Account household section', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/account');
     expect(within(section).getByRole('button', { name: 'Leave household' })).toBeEnabled();
+    const removal = fake.requests.find((request) => request.method === 'DELETE');
+    expect(removal?.headers.get('If-Match')).toBe('"3"');
+    expect(fake.requests.some((request) => request.method === 'GET' && request.path === accountPath(member.userId))).toBe(false);
   });
 
   it('renders the Czech membership section', async () => {

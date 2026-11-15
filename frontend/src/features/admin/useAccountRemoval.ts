@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { readAccount, removeAccount, type AccountRemoval as RemovalResult, type AccountRole } from './adminApi';
+import { readAccount, readViewerMembership, removeAccount, type AccountRemoval as RemovalResult, type AccountRole } from './adminApi';
 import type { NoticeSpec } from './useRoleChange';
 
 /** One membership on its way out: enough to name it and to tell the viewer's own row from someone else's. */
@@ -56,9 +56,11 @@ function announceRemoval(result: RemovalResult, out: Outcomes, self: boolean, lo
 }
 
 /**
- * One removal, or the viewer's own leave: read the account for a fresh membership version, quote it exactly in the
- * DELETE, and only then change anything on screen. Every refusal ends the dialog and speaks through the screen's live
- * region; nothing is removed locally before the server answers 204.
+ * One removal, or the viewer's own leave: read a fresh membership version, quote it exactly in the
+ * DELETE, and only then change anything on screen. An admin removing someone else reads that account
+ * (an admin-only route); leaving reads the household's own viewerMembershipVersion, because a plain
+ * member may not call the account route. Every refusal ends the dialog and speaks through the screen's
+ * live region; nothing is removed locally before the server answers 204.
  */
 export function useAccountRemoval(outcomes: Outcomes) {
   const [pending, setPending] = useState<RemovalTarget | null>(null);
@@ -99,13 +101,16 @@ export function useAccountRemoval(outcomes: Outcomes) {
       setBusy(false);
       setPending(null);
     };
-    const read = await readAccount(out.householdId, target.userId);
+    const read = self
+      ? await readViewerMembership(out.householdId)
+      : await readAccount(out.householdId, target.userId);
     if (read.kind !== 'ok') {
       finish();
       announceReadFailure(read, out, self);
       return;
     }
-    const result = await removeAccount(out.householdId, target.userId, read.etag);
+    const etag = 'etag' in read ? read.etag : `"${read.version}"`;
+    const result = await removeAccount(out.householdId, target.userId, etag);
     finish();
     announceRemoval(result, out, self, target.login);
   }

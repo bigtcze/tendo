@@ -6,6 +6,7 @@ export type AccountRole = components['schemas']['AccountRole'];
 export type PasswordResetCreated = components['schemas']['PasswordResetCreated'];
 
 const PAGE_SIZE = 50;
+const householdPath = '/api/v1/households/{householdId}';
 const accountsPath = '/api/v1/households/{householdId}/accounts';
 const accountPath = '/api/v1/households/{householdId}/accounts/{userId}';
 const passwordResetPath = '/api/v1/households/{householdId}/accounts/{userId}/password-reset';
@@ -34,6 +35,25 @@ export async function listAccounts(householdId: string, cursor?: string): Promis
 }
 
 export type AccountRead = { kind: 'ok'; account: Account; etag: string } | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+/**
+ * Reads the household the caller already belongs to for their own membership
+ * version. The account read is admin-only, so this is the only tag a plain
+ * member can obtain before leaving; it is re-read immediately before the DELETE
+ * rather than reused from a stale screen.
+ */
+export type ViewerMembershipRead = { kind: 'ok'; version: number } | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+export async function readViewerMembership(householdId: string): Promise<ViewerMembershipRead> {
+  try {
+    const { data, error, response } = await api.GET(householdPath, { params: { path: { householdId } } });
+    if (data && response.status === 200) return { kind: 'ok', version: data.viewerMembershipVersion };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 404) return { kind: 'notFound' };
+  } catch { /* fall through */ }
+  return { kind: 'error' };
+}
 
 /** Reads one account for a fresh membership version; the role change must quote that exact strong tag. */
 export async function readAccount(householdId: string, userId: string): Promise<AccountRead> {
