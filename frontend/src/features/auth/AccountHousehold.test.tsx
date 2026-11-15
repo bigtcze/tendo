@@ -86,7 +86,7 @@ describe('Account household section', () => {
     await userEvent.click(within(section).getByRole('button', { name: 'Leave household' }));
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
 
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(section).toBeVisible();
     expect(fake.requests.some((request) => request.method === 'DELETE')).toBe(false);
     expect(fake.requests.some((request) => request.method === 'GET' && request.path === accountPath(member.userId))).toBe(false);
@@ -106,7 +106,7 @@ describe('Account household section', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Leave household' }));
 
     expect(await screen.findByText('Your membership changed elsewhere. Try again.')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(window.location.pathname).toBe('/account');
     expect(within(section).getByRole('button', { name: 'Leave household' })).toBeEnabled();
     const removal = fake.requests.find((request) => request.method === 'DELETE');

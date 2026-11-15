@@ -369,7 +369,7 @@ describe('Admin center', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
 
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rowOf('petr')).toHaveTextContent('Member');
   });
 
@@ -620,7 +620,7 @@ describe('Admin center', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create link' }));
 
     expect(await screen.findByText(message)).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rowOf('jana')).not.toHaveTextContent('Reset link active until');
     expect(within(rowOf('jana')).getByRole('button', { name: 'Reset password: jana' })).toBeEnabled();
   });

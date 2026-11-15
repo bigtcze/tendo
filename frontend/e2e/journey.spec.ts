@@ -1834,6 +1834,13 @@ test.describe('Tendo production journey', () => {
     const demoteLabel = (login: string) => en['admin.action.demoteLabel'].replace('{login}', login);
     const removeLabel = (login: string) => en['admin.action.removeLabel'].replace('{login}', login);
     const leaveLabel = (login: string) => en['admin.action.leaveLabel'].replace('{login}', login);
+    /** The role the installation's own account route reports: the UI change is only proven once it is persisted. */
+    const installedRole = async (login: string) => {
+      const response = await page.request.get(`${adminHouseholdsPath}/${householdId}/accounts?limit=50`);
+      expect(response.status()).toBe(200);
+      const items = (await response.json() as { items: Array<{ login: string; role: string }> }).items;
+      return items.find((item) => item.login === login)?.role;
+    };
     try {
       // The switcher is the only way from the household Admin center to the installation list.
       await page.goto('/');
@@ -1888,13 +1895,40 @@ test.describe('Tendo production journey', () => {
       await expect(accounts.getByRole('link')).toHaveCount(0);
       await expectNoAxeViolations(page, 'admin-installation-household');
 
-      // The confirmation dialog belongs to this screen, so scan it open too; cancelling changes nothing.
-      await memberRow.getByRole('button', { name: promoteLabel(memberLogin), exact: true }).click();
-      const promoteDialog = page.getByRole('dialog');
-      await expect(promoteDialog.getByRole('heading', { name: en['admin.dialog.promote.title'].replace('{login}', memberLogin) })).toBeVisible();
-      await expectNoAxeViolations(page, 'admin-installation-household-dialog');
-      await promoteDialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
-      await expect(page.getByRole('dialog')).toHaveCount(0);
+      // V5-10 B2b: a change made here really lands in the household, and it uses the installation's account routes
+      // only. The viewer's own default-household provider read (`GET /api/v1/households/{id}`) is expected here; its
+      // Admin account routes are not. The confirmation dialog is scanned open, and confirming proves the round trip.
+      const ownHouseholdAccountRequests: string[] = [];
+      const recordOwnAccountRoutes = (request: Request) => {
+        const pathname = new URL(request.url()).pathname;
+        if (pathname.startsWith(`/api/v1/households/${householdId}/accounts`)) {
+          ownHouseholdAccountRequests.push(`${request.method()} ${pathname}`);
+        }
+      };
+      page.on('request', recordOwnAccountRoutes);
+      try {
+        await memberRow.getByRole('button', { name: promoteLabel(memberLogin), exact: true }).click();
+        const promoteDialog = page.getByRole('dialog');
+        await expect(promoteDialog.getByRole('heading', { name: en['admin.dialog.promote.title'].replace('{login}', memberLogin) })).toBeVisible();
+        await expectNoAxeViolations(page, 'admin-installation-household-dialog');
+        await promoteDialog.getByRole('button', { name: en['admin.action.promote'], exact: true }).click();
+        await expect(page.getByText(en['admin.notice.promoted'].replace('{login}', memberLogin))).toBeVisible();
+        await expect(memberRow).toContainText(en['members.role.admin']);
+        expect(await installedRole(memberLogin), 'the promotion is persisted').toBe('admin');
+
+        // Demote back at once. The member is left exactly as found, and the final read asserts that rather than
+        // trusting it: every later step sees member_e2e as a member.
+        await memberRow.getByRole('button', { name: demoteLabel(memberLogin), exact: true }).click();
+        const demoteDialog = page.getByRole('dialog');
+        await expect(demoteDialog.getByRole('heading', { name: en['admin.dialog.demote.title'].replace('{login}', memberLogin) })).toBeVisible();
+        await demoteDialog.getByRole('button', { name: en['admin.action.demote'], exact: true }).click();
+        await expect(page.getByText(en['admin.notice.demoted'].replace('{login}', memberLogin))).toBeVisible();
+        await expect(memberRow).toContainText(en['members.role.member']);
+        expect(await installedRole(memberLogin), 'the demotion is persisted').toBe('member');
+      } finally {
+        page.off('request', recordOwnAccountRoutes);
+      }
+      expect(ownHouseholdAccountRequests, 'installation detail never uses the household Admin account routes').toEqual([]);
 
       await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
       await expect(page).toHaveURL(/\/admin\/households$/);
@@ -1903,9 +1937,9 @@ test.describe('Tendo production journey', () => {
 
       // A foreign household is managed from this screen through the installation routes only. The conflict household
       // is the seed with a fixed membership — exactly one account, its own administrator (scripts/e2e_db_fixtures.py)
-      // — so the deterministic action here is the last-administrator refusal and no round trip is needed to restore
-      // anything. The generic foreign household holds no membership and the large paging household's 1000 members are
-      // pinned by n28, so neither offers a deterministic non-viewer round trip that can be undone safely.
+      // — so the deterministic action here is the last-administrator refusal, with nothing to restore (the round trip
+      // above already proved a successful change persists). The generic foreign household holds no membership and the
+      // large paging household's 1000 members are pinned by n28, so neither offers a safe non-viewer round trip.
       const foreignHouseholdRouteRequests: string[] = [];
       const recordHouseholdRoute = (request: Request) => {
         const pathname = new URL(request.url()).pathname;
@@ -1940,6 +1974,11 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByRole('heading', { level: 1, name: 'Conflict household' })).toBeVisible();
         // Only a refusal the test has just proven joins the response ledger.
         instanceAdminRefusals.push(`PATCH ${refusalPath} 409`);
+        // The refusal changed nothing in the installation's own read either, not just in the rendered row.
+        const foreignAfterRefusal = await page.request.get(`${foreignAccountsPath}?limit=50`);
+        expect(foreignAfterRefusal.status()).toBe(200);
+        const foreignAfter = (await foreignAfterRefusal.json() as { items: Array<{ login: string; role: string }> }).items;
+        expect(foreignAfter.find((item) => item.login === 'existing_conflict_e2e')?.role, 'the refusal left the sole administrator an administrator').toBe('admin');
 
         // The screen never opens the household it shows: its own routes stay unread while it is managed from here.
         expect(foreignHouseholdRouteRequests, 'installation detail never touches household routes').toEqual([]);

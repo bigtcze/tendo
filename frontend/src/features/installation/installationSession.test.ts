@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installFakeServer, json, session } from '../../test/fakeServer';
+import type { Session } from '../auth/sessionApi';
 import { rereadInstanceAdminSession } from './installationSession';
 
 const other = { ...session(), userId: '0198a2f0-0000-7000-8000-0000000000ff', login: 'bea' };
@@ -52,5 +53,24 @@ describe('rereadInstanceAdminSession', () => {
     for (const callback of [calls.onSession, calls.onSignedOut, calls.onReboot]) {
       expect(callback).not.toHaveBeenCalled();
     }
+  });
+
+  it('reports a failed read to a caller that has something riding on it', async () => {
+    installFakeServer({ 'GET /api/v1/session': json(503, { type: 'about:blank', title: 'Unavailable', status: 503 }) });
+    const calls = { ...handlers(), onError: vi.fn() };
+    await rereadInstanceAdminSession(calls);
+    expect(calls.onError).toHaveBeenCalledTimes(1);
+    for (const callback of [calls.onSession, calls.onSignedOut, calls.onReboot]) {
+      expect(callback).not.toHaveBeenCalled();
+    }
+  });
+
+  it('hands the fresh session to the caller, which decides what it means', async () => {
+    installFakeServer({ 'GET /api/v1/session': json(200, session()) });
+    const calls = handlers();
+    const seen: Session[] = [];
+    await rereadInstanceAdminSession({ ...calls, onSession: (next) => seen.push(next) });
+    expect(seen).toEqual([session()]);
+    expect(calls.onReboot).not.toHaveBeenCalled();
   });
 });

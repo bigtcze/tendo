@@ -114,7 +114,8 @@ describe('installation household account actions', () => {
 
   it('assigns with PUT and separates a creation from the idempotent replay and the conflicts', async () => {
     const fake = installFakeServer({ [`PUT ${accountPath}`]: json(201, account, { ETag: '"1"' }) });
-    await expect(assignAdminHouseholdAccount(HOUSEHOLD_ID, userId, 'member')).resolves.toEqual({ kind: 'created', account });    expect(fake.requests[0].body).toBe('{"role":"member"}');
+    await expect(assignAdminHouseholdAccount(HOUSEHOLD_ID, userId, 'member')).resolves.toEqual({ kind: 'created', account });
+    expect(fake.requests[0].body).toBe('{"role":"member"}');
 
     installFakeServer({ [`PUT ${accountPath}`]: json(200, account) });
     await expect(assignAdminHouseholdAccount(HOUSEHOLD_ID, userId, 'member')).resolves.toEqual({ kind: 'unchanged', account });

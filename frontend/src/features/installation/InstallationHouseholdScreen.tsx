@@ -31,23 +31,26 @@ import { useAdminHouseholdAccounts, type InstanceList } from './useInstanceAdmin
  *
  * A change to the viewer's own membership keeps this screen where it is: demoting themselves, or even removing
  * themselves from this household, costs no access to the Admin center, so it is not treated as leaving. The shell
- * still reads the session again, because the server may have moved the viewer's default household; when that
- * remounts this screen, the notice and the focus come back in through `selfNotice`.
+ * still reads the session, because the server may have moved the viewer's default household; only when it did does
+ * this screen come back through a remount, and then `selfNotice` carries the notice and the heading the focus.
  *
  * `name` is only what the list already showed on the way in; a direct load or a reload shows the generic heading
  * instead of reading the list again to find it.
  */
 export function InstallationHouseholdScreen({
-  householdId, name, viewerId, login, selfNotice, onSelfChange, onSelfNoticeDone, onSignedOut, onForbidden, onBack,
+  householdId, defaultHouseholdId, name, viewerId, login, selfNotice, onSelfChange, onSelfNoticeDone,
+  onSignedOut, onForbidden, onBack,
 }: {
   householdId: string;
+  /** The household the shell is showing: the only one whose role the navigation rail follows. */
+  defaultHouseholdId: string | null;
   name: string | null;
   viewerId: string;
   login: string;
-  /** A notice handed back by the shell because a self change remounted this screen; taken once, then cleared. */
+  /** A notice handed back by the shell because a self change remounted this screen; spoken once, then cleared. */
   selfNotice: NoticeSpec | null;
   /** A self change was accepted: the shell reads the session again, so it follows the households really left. */
-  onSelfChange: (notice: NoticeSpec) => void;
+  onSelfChange: (notice: NoticeSpec, kind: 'role' | 'removal') => void;
   onSelfNoticeDone: () => void;
   onSignedOut: () => void;
   onForbidden: () => void;
@@ -58,7 +61,7 @@ export function InstallationHouseholdScreen({
   const { notice, announce } = useLiveNotice(selfNotice, headingRef, onSelfNoticeDone);
   const list = useAdminHouseholdAccounts(householdId, { onSignedOut, onForbidden });
   const { change, removal, busy } = useMembershipActions({
-    householdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden,
+    householdId, defaultHouseholdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden,
   });
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
@@ -99,22 +102,15 @@ export function InstallationHouseholdScreen({
 }
 
 /**
- * The screen's live notice, including the one the shell hands back. The shell keeps a self-change notice above the
- * household keys, so it survives a remount the moved default household causes; taking a copy as soon as it appears
- * lets the notice stay readable after the shell has been told to clear it. Adopting it while rendering is React's own
- * answer to a prop that has to become state: no extra pass, and no flash of the not-yet-announced screen.
+ * The screen's live notice. A self change that moved the viewer's default household remounts this screen, so the
+ * shell hands the notice back with `selfNotice`: it is this screen's first notice, and the heading takes the focus
+ * the remount left on the document. Every other outcome is announced here directly.
  */
 function useLiveNotice(selfNotice: NoticeSpec | null, headingRef: RefObject<HTMLHeadingElement | null>, onDone: () => void) {
   const [notice, setNotice] = useState<NoticeSpec | null>(selfNotice);
-  const [taken, setTaken] = useState<NoticeSpec | null>(selfNotice);
-  if (selfNotice !== taken) {
-    setTaken(selfNotice);
-    if (selfNotice) setNotice(selfNotice);
-  }
   useEffect(() => {
     if (!selfNotice) return;
-    // A remount takes the focus with the element it lived on, so the heading welcomes the reader back. When this
-    // screen was already up, the confirmed control still holds the focus and nothing is taken from it.
+    // The remount took the focus with the element it lived on; the heading says where the reader still is.
     const active = document.activeElement;
     if (active === null || active === document.body) headingRef.current?.focus();
     onDone();
@@ -125,23 +121,24 @@ function useLiveNotice(selfNotice: NoticeSpec | null, headingRef: RefObject<HTML
 /**
  * The two membership actions of this screen, wired to the installation's account routes. An accepted change to the
  * viewer's own membership is announced here: the row shows the server's answer, the notice speaks now, and the shell
- * re-reads the session because the default household may have moved. After a role change the shell's own default
- * household is refreshed so the navigation rail follows the role the viewer really holds; that is the provider's read of
- * the viewer's default, never a read this screen makes of the household it shows.
+ * reads the session again because the default household may have moved. A self role change in the household the shell
+ * is showing is followed by a refresh of that household, so the navigation rail shows the role the viewer really
+ * holds; that is the provider's read of the default household, never a read this screen makes of the one it shows.
  */
-function useMembershipActions({ householdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden }: {
+function useMembershipActions({ householdId, defaultHouseholdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden }: {
   householdId: string;
+  defaultHouseholdId: string | null;
   viewerId: string;
   list: InstanceList<AdminHouseholdAccount>;
   announce: (notice: NoticeSpec) => void;
-  onSelfChange: (notice: NoticeSpec) => void;
+  onSelfChange: (notice: NoticeSpec, kind: 'role' | 'removal') => void;
   onSignedOut: () => void;
   onForbidden: () => void;
 }) {
   const household = useHouseholdData();
-  const selfChanged = (notice: NoticeSpec) => {
+  const selfChanged = (notice: NoticeSpec, kind: 'role' | 'removal') => {
     announce(notice);
-    onSelfChange(notice);
+    onSelfChange(notice, kind);
   };
   // An authoritative `instance_admin_required` says the grant hint is stale: drop the rows and let the shell re-read.
   const denied = () => { list.markForbidden(); onForbidden(); };
@@ -155,10 +152,13 @@ function useMembershipActions({ householdId, viewerId, list, announce, onSelfCha
     // Staying here is the point: the installation grant, not this household role, is what opened this screen.
     onSelfChanged: (account, nextRole) => {
       list.replaceItem(account);
-      selfChanged({ key: nextRole === 'admin' ? 'install.notice.selfPromoted' : 'install.notice.selfDemoted', tone: 'success' });
-      // Only the viewer's own default household carries a role the rail shows; another household's change needs no
-      // read. A removal needs none either: leaving the default moves it, and the session re-read remounts the shell.
-      if (household?.data.kind === 'ready' && household.data.household.id === householdId) household.refresh();
+      selfChanged({
+        key: nextRole === 'admin' ? 'install.notice.selfPromoted' : 'install.notice.selfDemoted',
+        tone: 'success',
+      }, 'role');
+      // Only the household the shell shows carries a role the rail reads, and only a role change leaves the viewer
+      // in it: a removal moves the default household, which the shell's own session read already settles.
+      if (defaultHouseholdId === householdId) household?.refresh();
     },
     read: (userId) => readAdminHouseholdAccount(householdId, userId),
     change: (userId, role, etag) => changeAdminHouseholdAccountRole(householdId, userId, role, etag),
@@ -172,7 +172,7 @@ function useMembershipActions({ householdId, viewerId, list, announce, onSelfCha
     // The viewer's own row leaves this household, not the Admin center: the list is read again and this screen stays.
     onSelfLeft: (alreadyGone) => {
       list.reload();
-      selfChanged({ key: 'install.notice.selfRemoved', tone: alreadyGone ? 'neutral' : 'success' });
+      selfChanged({ key: 'install.notice.selfRemoved', tone: alreadyGone ? 'neutral' : 'success' }, 'removal');
     },
     read: (target) => readAdminHouseholdAccount(householdId, target.userId),
     remove: (userId, etag) => removeAdminHouseholdAccount(householdId, userId, etag),

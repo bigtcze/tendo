@@ -74,6 +74,27 @@ async function confirm(trigger: string, label: string) {
   return dialog;
 }
 
+/**
+ * The session read that follows a self change, held open until the test lets it through. The boot is answered at
+ * once; every later read waits for the gate and then answers what the test settled on, so a test can watch the
+ * screen while the shell is still holding the session it booted with.
+ */
+function heldSession(after: () => Response = () => json(200, instanceAdminSession())) {
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => { open = resolve; });
+  let calls = 0;
+  return {
+    route: async () => {
+      calls += 1;
+      if (calls === 1) return json(200, instanceAdminSession());
+      await gate;
+      return after();
+    },
+    release: () => open(),
+    calls: () => calls,
+  };
+}
+
 beforeEach(() => {
   vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']);
 });
@@ -394,6 +415,192 @@ describe('installation household detail', () => {
     expect(screen.getByText('You’re now a member of this household.')).toBeVisible();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Household accounts' })).toHaveFocus());
     expect(window.location.pathname).toBe(detailPath);
+  });
+
+  it('keeps the notice and the reader’s place when the moved default household arrives late', async () => {
+    // The session re-read that decides whether the default household moved is still in flight when the screen speaks.
+    const held = heldSession(() => json(200, { ...instanceAdminSession(), defaultHouseholdId: elsewhere }));
+    renderAt({
+      'GET /api/v1/session': held.route,
+      [`GET /api/v1/households/${elsewhere}`]: json(200, { ...household, id: elsewhere, name: 'U Nováků' }),
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [readPath(anna.userId)]: json(200, anna, { ETag: '"6"' }),
+      [changePath(anna.userId)]: json(200, annaAsMember),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+    const heading = screen.getByRole('heading', { level: 1, name: 'Household accounts' });
+    expect(heading).not.toHaveFocus();
+
+    await confirm('Make member: anna', 'Make member');
+
+    // The screen has already spoken and the shell is still waiting for the session, so nothing has remounted yet.
+    expect(await screen.findByText('You’re now a member of this household.')).toBeVisible();
+    await waitFor(() => expect(held.calls()).toBe(2));
+    expect(screen.getByRole('heading', { level: 1, name: 'Household accounts' })).not.toHaveFocus();
+    expect(window.location.pathname).toBe(detailPath);
+
+    held.release();
+
+    // The late answer moves the default household: the screen comes back with the notice, and the reader with it.
+    expect(await screen.findByRole('button', { name: 'Household: U Nováků' })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Household accounts' })).toHaveFocus());
+    expect(screen.getByText('You’re now a member of this household.')).toBeVisible();
+    expect(window.location.pathname).toBe(detailPath);
+  });
+
+  it('does not carry a notice into a later visit when the answer arrives after the reader left', async () => {
+    const held = heldSession(() => json(200, { ...instanceAdminSession(), defaultHouseholdId: elsewhere }));
+    const fake = renderAt({
+      'GET /api/v1/session': held.route,
+      [listPath]: json(200, { items: [veseli], nextCursor: null }),
+      [`GET /api/v1/households/${elsewhere}`]: json(200, { ...household, id: elsewhere, name: 'U Nováků' }),
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [readPath(anna.userId)]: json(200, anna, { ETag: '"6"' }),
+      [changePath(anna.userId)]: json(200, annaAsMember),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Make member: anna', 'Make member');
+    expect(await screen.findByText('You’re now a member of this household.')).toBeVisible();
+    await waitFor(() => expect(held.calls()).toBe(2));
+
+    // The reader walks away while the shell is still waiting, so the notice belongs to a visit that is over.
+    await userEvent.click(screen.getByRole('link', { name: 'Back to households' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Households' })).toBeVisible();
+
+    held.release();
+    // The answer is adopted — the bar follows the moved household — but the notice it carried died with the visit.
+    expect(await screen.findByRole('button', { name: 'Household: U Nováků' })).toBeVisible();
+
+    await userEvent.click(await screen.findByRole('link', { name: 'Veselí' }));
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+    expect(screen.queryByText('You’re now a member of this household.')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe(detailPath);
+    expect(sessionReads(fake)).toBe(2);
+  });
+
+  it('boots again when the session that answers the re-read belongs to another account', async () => {
+    const bea = { ...session(), userId: '0198a2f0-0000-7000-8000-0000000000ff', login: 'bea' };
+    const held = heldSession(() => json(200, bea));
+    const fake = renderAt({
+      'GET /api/v1/session': held.route,
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [readPath(anna.userId)]: json(200, anna, { ETag: '"6"' }),
+      [changePath(anna.userId)]: json(200, annaAsMember),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Make member: anna', 'Make member');
+    await waitFor(() => expect(held.calls()).toBe(2));
+
+    held.release();
+
+    // Someone else's session is never folded into this shell: the app boots again from the server instead.
+    await waitFor(() => expect(held.calls()).toBe(3));
+    expect(sessionReads(fake)).toBe(3);
+  });
+
+  it('returns to sign-in when the session answered the re-read as ended', async () => {
+    const held = heldSession(() => json(401));
+    renderAt({
+      'GET /api/v1/session': held.route,
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [readPath(anna.userId)]: json(200, anna, { ETag: '"6"' }),
+      [changePath(anna.userId)]: json(200, annaAsMember),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Make member: anna', 'Make member');
+    await waitFor(() => expect(held.calls()).toBe(2));
+
+    held.release();
+
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
+  });
+
+  it('keeps the screen and its notice when the session cannot be read after a role change', async () => {
+    let reads = 0;
+    renderAt({
+      'GET /api/v1/session': () => { reads += 1; return reads === 1 ? json(200, instanceAdminSession()) : problem(503); },
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [readPath(anna.userId)]: json(200, anna, { ETag: '"6"' }),
+      [changePath(anna.userId)]: json(200, annaAsMember),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Make member: anna', 'Make member');
+
+    expect(await screen.findByText('You’re now a member of this household.')).toBeVisible();
+    await waitFor(() => expect(reads).toBe(2));
+    // A role change never moves the default household, so a read that failed leaves the shell exactly where it was.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(reads).toBe(2);
+    expect(screen.getByRole('heading', { level: 2, name: 'Accounts' })).toBeVisible();
+    expect(window.location.pathname).toBe(detailPath);
+  });
+
+  it('boots again when the session cannot be read after the viewer leaves this household', async () => {
+    let reads = 0;
+    let listCalls = 0;
+    const fake = renderAt({
+      'GET /api/v1/session': () => {
+        reads += 1;
+        return reads === 2 ? problem(503) : json(200, instanceAdminSession());
+      },
+      [accountsPath]: () => json(200, { items: ++listCalls === 1 ? [anna, petr] : [petr], nextCursor: null }),
+      [readPath(anna.userId)]: json(200, anna, { ETag: '"9"' }),
+      [removalPath(anna.userId)]: json(204),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Leave household: anna', 'Leave household');
+
+    // Leaving moves the default household, so a session that cannot be read is not trusted: the shell re-boots.
+    await waitFor(() => expect(reads).toBe(3));
+    expect(sessionReads(fake)).toBe(3);
+    // The re-boot comes back to the same page, with the one row the server still holds.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Accounts' })).toBeVisible();
+    expect(rowOf('petr')).toBeVisible();
+    expect(window.location.pathname).toBe(detailPath);
+  });
+
+  it('says the viewer has already left when their own row is no longer there', async () => {
+    const fake = renderAt({
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [readPath(anna.userId)]: problem(404),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Leave household: anna', 'Leave household');
+
+    expect(await screen.findByText('You’re no longer a member of this household.')).toBeVisible();
+    // Nothing was removed because there was nothing left to remove.
+    expect(fake.requests.filter((request) => request.method === 'DELETE')).toHaveLength(0);
+    expect(window.location.pathname).toBe(detailPath);
+  });
+
+  it('drops the rows and re-reads the session when reading an account is refused', async () => {
+    let reads = 0;
+    renderAt({
+      'GET /api/v1/session': () => {
+        reads += 1;
+        return json(200, reads === 1 ? instanceAdminSession() : session());
+      },
+      [`GET ${base}`]: json(200, memberHousehold),
+      [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      // The grant hint was stale: the read refuses before a change is even attempted.
+      [readPath(anna.userId)]: problem(403, 'instance_admin_required'),
+    });
+    await waitFor(() => expect(accountRows()).toHaveLength(2));
+
+    await confirm('Make member: anna', 'Make member');
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Only an installation administrator can see this.' })).toBeVisible();
+    expect(accountRows()).toHaveLength(0);
+    await waitFor(() => expect(reads).toBe(2));
   });
 
   it('says a household needs an administrator when the last one cannot be removed', async () => {

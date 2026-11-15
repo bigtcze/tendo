@@ -71,7 +71,7 @@ describe('Admin center membership removal', () => {
 
     release(json(204));
     expect(await screen.findByText('petr was removed from this household.')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     await waitFor(() => expect(rowsOnScreen()).toBe(1));
 
     const read = fake.requests.find((request) => request.method === 'GET' && request.path === `${base}/accounts/${petr.userId}`);
@@ -95,7 +95,7 @@ describe('Admin center membership removal', () => {
     await userEvent.click(trigger);
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
 
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
     expect(rowsOnScreen()).toBe(2);
     expect(fake.requests.some((request) => request.method === 'DELETE')).toBe(false);
@@ -185,7 +185,7 @@ describe('Admin center membership removal', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove from household' }));
 
     expect(await screen.findByText(message)).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     // A gone or changed membership asks the list again; a refusal leaves the rows exactly as they were.
     await waitFor(() => expect(listCalls).toBe(reloads ? 2 : 1));
     await waitFor(() => expect(rowsOnScreen()).toBe(reloads ? 1 : 2));
@@ -208,7 +208,7 @@ describe('Admin center membership removal', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Leave household' }));
 
     expect(await screen.findByText('A household always needs at least one administrator. Make someone else an administrator before you leave.')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(window.location.pathname).toBe('/admin');
     expect(rowOf('anna')).toBeVisible();
   });
