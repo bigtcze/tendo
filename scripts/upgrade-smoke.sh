@@ -223,6 +223,11 @@ def verify():
         else:
             assert 'viewerRole' not in household,('source release before v4.0.0 already exposed viewerRole',source,household.get('viewerRole'))
         household['viewerRole']='admin'
+        # V5-10 added the caller's viewerMembershipVersion the same way. No released source
+        # exposes it; the owner's membership row is never re-versioned by the populated fixture
+        # (migration 017 defaults version to 1), so the upgrade must report exactly 1.
+        assert 'viewerMembershipVersion' not in household,('source release already exposed viewerMembershipVersion',source,household.get('viewerMembershipVersion'))
+        household['viewerMembershipVersion']=1
     def flatten(groups):
         return [item for page in groups for item in page['body']['items']]
     active_key='subjects archived=false'
@@ -427,14 +432,14 @@ for name, count in before.items():
     if name == 'subjects':
         continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'household_role_changes', 'instance_admins', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
+unexpected = set(after) - set(before) - {'household_member_removals', 'household_role_changes', 'instance_admins', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 # Migration tables must exist afterwards. A source release that already shipped the
 # migration keeps its rows (the generic preservation check above); a source that
 # predates it must get an empty table. member_person_migration_unlinks may hold
 # deliberate non-canonical unlink rows, so only its existence is required here and its
 # count is asserted against the measured expectation below.
-for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020')):
+for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020'), ('household_member_removals', '024')):
     assert name in after, (f'migration {migration} table missing after upgrade', sorted(after))
     if name not in before:
         assert after[name] == '0', (f'migration {migration} must create {name} empty', name, after[name])

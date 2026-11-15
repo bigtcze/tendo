@@ -42,14 +42,15 @@ export type AccountRead = { kind: 'ok'; account: Account; etag: string } | { kin
  * member can obtain before leaving; it is re-read immediately before the DELETE
  * rather than reused from a stale screen.
  */
-export type ViewerMembershipRead = { kind: 'ok'; version: number } | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+export type ViewerMembershipRead = { kind: 'ok'; etag: string } | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
 
 export async function readViewerMembership(householdId: string): Promise<ViewerMembershipRead> {
   try {
-    const { data, error, response } = await api.GET(householdPath, { params: { path: { householdId } } });
-    if (data && response.status === 200) return { kind: 'ok', version: data.viewerMembershipVersion };
+    const { data, response } = await api.GET(householdPath, { params: { path: { householdId } } });
+    if (data && response.status === 200) return { kind: 'ok', etag: `"${data.viewerMembershipVersion}"` };
     if (response.status === 401) return { kind: 'unauthenticated' };
-    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
+    // The household read never answers 403: a non-member gets the uniform 404.
+    if (response.status === 403) return { kind: 'rejected' };
     if (response.status === 404) return { kind: 'notFound' };
   } catch { /* fall through */ }
   return { kind: 'error' };

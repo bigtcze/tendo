@@ -109,8 +109,7 @@ export function useAccountRemoval(outcomes: Outcomes) {
       announceReadFailure(read, out, self);
       return;
     }
-    const etag = 'etag' in read ? read.etag : `"${read.version}"`;
-    const result = await removeAccount(out.householdId, target.userId, etag);
+    const result = await removeAccount(out.householdId, target.userId, read.etag);
     finish();
     announceRemoval(result, out, self, target.login);
   }
