@@ -25,10 +25,11 @@ fail rather than silently return an unrelated household.
 - **One resource, two operations.** A household is created with
   `POST /api/v1/admin/households` (`createAdminHousehold`) and read back with
   `GET /api/v1/admin/households/{householdId}` (`getAdminHousehold`). Both are
-  instance-administrator routes under the ADR 0020 rules: session, then the
-  global origin check, then the grant (`403 instance_admin_required`), then the
-  request. Every response is `Cache-Control: no-store`; MCP tokens are never
-  accepted. Neither route carries household content.
+  instance-administrator routes under the ADR 0020 rules: the global
+  origin/authority middleware, then the session, then the grant
+  (`403 instance_admin_required`), then the request. Every response is
+  `Cache-Control: no-store`; MCP tokens are never accepted. Neither route
+  carries household content.
 - **Creation includes the first admin.** The request is
   `{name, timezone, adminUserId}`. `adminUserId` names an existing installation
   account that becomes the household's first membership with role `admin`. The
@@ -40,8 +41,9 @@ fail rather than silently return an unrelated household.
   member person is provisioned, the account default is set only when unset, and
   the `household_member_assignments` audit row records authority
   `instance_admin`.
-- **Evaluation order.** Session (`401`) → origin/CSRF (`403 forbidden_origin`)
-  → grant (`403 instance_admin_required`, before the key and the body) →
+- **Evaluation order.** Origin/authority middleware (`400`, code-less `403`
+  origin rejection, `421`) → session (`401`) → grant
+  (`403 instance_admin_required`, before the key and the body) →
   Idempotency-Key (`400 idempotency_key_required` / `invalid_idempotency_key`)
   → body (`400`/`413`/`415`) → replay lookup → field validation → persistence
   (`503`). Field validation runs in the order `name`, `timezone`,
@@ -55,7 +57,7 @@ fail rather than silently return an unrelated household.
   the lowercased actor, the trimmed name exactly as stored, the timezone
   exactly as submitted, and the lowercased `adminUserId`. An identical retry
   returns `201` with the current household representation, the original
-  `Location` and its version `ETag`; the same key with a different
+  `Location` and its current version `ETag`; the same key with a different
   name/timezone/adminUserId returns `422 idempotency_key_reused` without a
   `field`. Keys live for the household's lifetime.
 - **Race handling.** Replay lookup runs inside the create transaction before
@@ -73,6 +75,19 @@ fail rather than silently return an unrelated household.
   above. The runtime role gets `SELECT, INSERT` only. The Down section drops the
   table and is lossy: a same-key retry after a downgrade and re-upgrade creates
   a new household.
+
+## Lock order
+
+The create transaction extends the ADR 0019/0020 global order without locking
+any existing household:
+
+1. `installation_state` `FOR SHARE` (grant gate);
+2. the new `households` row (invisible to others until commit);
+3. the `household_creations` actor/key unique index — a same-key loser waits
+   here while holding nothing the winner needs, so the wait cannot deadlock;
+4. the target `user_accounts` row `FOR NO KEY UPDATE`;
+5. the membership insert;
+6. the member-person `subjects` row.
 
 ## Slice C note
 

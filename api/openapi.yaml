@@ -1578,7 +1578,7 @@ paths:
     post:
       operationId: createAdminHousehold
       summary: Create a household with its first administrator
-      description: 'Instance administrator only (ADR 0021). Creates a household and, in the same transaction, the admin membership of the named existing account, so the household has an administrator from its first commit. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes) scoped to the calling administrator. An identical retry returns 201 with the original household, Location and ETag; reusing the key for a different name, timezone or adminUserId returns 422 idempotency_key_reused. Field validation runs in the order name, timezone, adminUserId. An unknown or inaccessible account is 503, never 404.'
+      description: 'Instance administrator only (ADR 0021). Creates a household and, in the same transaction, the admin membership of the named existing account, so the household has an administrator from its first commit. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes) scoped to the calling administrator. An identical retry returns 201 with the current household representation, the original Location and the current version ETag; reusing the key for a different name, timezone or adminUserId returns 422 idempotency_key_reused. Field validation runs in the order name, timezone, adminUserId. An unknown or inaccessible account is 503, never 404.'
       tags: [Admin]
       security:
         - SessionCookie: []
@@ -1598,7 +1598,7 @@ paths:
             example: { name: Veselí, timezone: Europe/Prague, adminUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62 }
       responses:
         '201':
-          description: Household created, or an identical retry replaying the original household.
+          description: Household created, or an identical retry replaying the current representation of the original household.
           headers:
             Location: { description: Canonical URL of the created household., schema: { type: string, pattern: '^/api/v1/admin/households/[0-9a-fA-F-]{36}$' }, example: /api/v1/admin/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61 }
             ETag: { description: Strong entity tag derived from the household resource version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
