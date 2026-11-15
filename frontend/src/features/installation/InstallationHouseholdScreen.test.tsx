@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -13,7 +13,8 @@ type AdminAccount = components['schemas']['AdminAccount'];
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const target = '0198a2f0-0000-7000-8000-000000000011';
 const listPath = 'GET /api/v1/admin/households';
-const accountsPath = `GET /api/v1/admin/households/${target}/accounts`;
+const accountsLink = `/api/v1/admin/households/${target}/accounts`;
+const accountsPath = `GET ${accountsLink}`;
 const detailPath = `/admin/households/${target}`;
 const problem = (status: number, code?: string) => json(status, { type: 'about:blank', title: 'x', status, ...(code ? { code } : {}) });
 
@@ -48,7 +49,7 @@ afterEach(() => {
 
 describe('installation household detail', () => {
   it('drills down from the list under the household’s own name, read-only', async () => {
-    renderAt({
+    const fake = renderAt({
       [listPath]: json(200, { items: [veseli], nextCursor: null }),
       [accountsPath]: json(200, { items: [anna, petr], nextCursor: null }),
     }, '/admin/households');
@@ -72,15 +73,44 @@ describe('installation household detail', () => {
     expect(within(main).queryAllByRole('button')).toHaveLength(0);
     expect(within(first).queryAllByRole('link')).toHaveLength(0);
     expect(within(second).queryAllByRole('link')).toHaveLength(0);
-    // The household screen is a view of the installation, not a switch into the household: only the target's accounts were read.
-    expect(screen.getByRole('navigation', { name: 'Household navigation' })).toBeVisible();
+    // The household screen is a view of the installation, not a switch into it: nothing of the household's own
+    // records is read, and the installation reads are only the list that led here and the target's accounts.
+    const paths = fake.requests.map((request) => request.path);
+    expect(paths.filter((path) => path.startsWith(`/api/v1/households/${target}`))).toHaveLength(0);
+    expect(paths.filter((path) => path.startsWith('/api/v1/admin/'))).toEqual(['/api/v1/admin/households', accountsLink]);
   });
 
   it('falls back to a generic heading on a direct load instead of reading the list again', async () => {
     const fake = renderAt({ [accountsPath]: json(200, { items: [anna], nextCursor: null }) });
     expect(await screen.findByRole('heading', { level: 1, name: 'Household accounts' })).toBeVisible();
     await waitFor(() => expect(accountRows()).toHaveLength(1));
-    expect(fake.requests.filter((request) => request.path === '/api/v1/admin/households')).toHaveLength(0);
+    const paths = fake.requests.map((request) => request.path);
+    expect(paths.filter((path) => path === '/api/v1/admin/households')).toHaveLength(0);
+    expect(paths.filter((path) => path.startsWith('/api/v1/admin/'))).toEqual([accountsLink]);
+  });
+
+  it('shows the generic heading again when history comes back to the detail', async () => {
+    renderAt({
+      [listPath]: json(200, { items: [veseli], nextCursor: null }),
+      [accountsPath]: json(200, { items: [anna], nextCursor: null }),
+    }, '/admin/households');
+    await userEvent.click(await screen.findByRole('link', { name: 'Veselí' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(await screen.findByRole('heading', { level: 2, name: 'Households' })).toBeVisible();
+
+    // A history entry never carried the name, so returning Forward shows the generic heading instead of a name
+    // that may not belong to the household any more.
+    await act(async () => {
+      window.history.forward();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Household accounts' })).toBeVisible();
+    expect(window.location.pathname).toBe(detailPath);
   });
 
   it('says the household is gone when the address names one that no longer exists', async () => {

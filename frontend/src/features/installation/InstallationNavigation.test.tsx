@@ -86,6 +86,20 @@ describe('Admin center entry', () => {
     expect(within(nav()).queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument();
   });
 
+  it('names the single entry the same way in Czech', async () => {
+    // One neutral word for the whole Admin center, matching the English "Admin center", and no second entry.
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer(routesFor({ role: 'admin' }, {
+      [`GET ${base}/accounts`]: json(200, { items: [], nextCursor: null }),
+    }));
+    app('/');
+    const czechNav = () => screen.getByRole('navigation', { name: 'Navigace domácnosti' });
+    const entry = await waitFor(() => within(czechNav()).getByRole('link', { name: 'Správa' }));
+    expect(entry).toHaveAttribute('href', '/admin');
+    expect(within(czechNav()).getAllByRole('link', { name: 'Správa' })).toHaveLength(1);
+    expect(within(czechNav()).queryByRole('link', { name: 'Správa domácnosti' })).not.toBeInTheDocument();
+  });
+
   it('keeps the entry in the phone More sheet instead of the bar', async () => {
     installFakeServer(routesFor({ role: 'admin' }));
     app('/');
@@ -109,6 +123,8 @@ describe('Admin center entry', () => {
     expect(entry).toHaveAttribute('href', '/admin/households');
     await userEvent.click(entry);
     expect(await screen.findByRole('heading', { level: 2, name: 'Households' })).toBeVisible();
+    expect(within(nav()).getByRole('link', { name: 'Admin center' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav()).getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current');
   });
 
   it('offers no Admin center entry to a household-less account without the grant', async () => {
@@ -157,6 +173,9 @@ describe('household-less /admin address', () => {
     app('/admin');
     expect(await screen.findByRole('heading', { level: 2, name: 'Households' })).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/admin/households'));
+    // The replaced address also replaces the route, so the entry stays current instead of falling back to Home.
+    expect(within(nav()).getByRole('link', { name: 'Admin center' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav()).getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current');
   });
 
   it('is corrected to Home for every other household-less account', async () => {

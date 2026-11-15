@@ -31,9 +31,6 @@ function renderAt(routes: Parameters<typeof installFakeServer>[0], path = '/admi
 function rows() {
   return [...screen.getByRole('main').querySelectorAll<HTMLElement>('li[data-install-household-id]')];
 }
-function requests() {
-  return screen.queryAllByRole('main');
-}
 
 beforeEach(() => {
   vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']);
@@ -125,7 +122,7 @@ describe('installation household list', () => {
 
   it('drops the list on an authoritative refusal and lets the session correct the navigation hint', async () => {
     let sessionReads = 0;
-    renderAt({
+    const fake = renderAt({
       'GET /api/v1/session': () => {
         sessionReads += 1;
         return sessionReads === 1 ? json(200, instanceAdminSession()) : json(200, session());
@@ -140,13 +137,31 @@ describe('installation household list', () => {
     await waitFor(() => expect(sessionReads).toBe(2));
     await waitFor(() => expect(within(screen.getByRole('navigation', { name: 'Household navigation' }))
       .queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument());
-    expect(requests()).toHaveLength(1);
+    // A refusal is an answer, not a failure to retry: the list is read exactly once.
+    expect(fake.requests.filter((request) => request.path === '/api/v1/admin/households')).toHaveLength(1);
   });
 
   it('does not mistake a request-origin refusal for the calm grant refusal', async () => {
     renderAt({ [listPath]: problem(403, 'forbidden_origin') });
     expect(await screen.findByText('Households couldn’t be loaded. Check your connection and try again.')).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Only an installation administrator can see this.' })).not.toBeInTheDocument();
+  });
+
+  it('re-boots from the server when the re-read session belongs to another account', async () => {
+    // The tab was signed in as someone else meanwhile: the shell must not adopt that session under the old screen.
+    let sessionReads = 0;
+    const other = { ...session(), userId: '0198a2f0-0000-7000-8000-0000000000ff', login: 'bea' };
+    renderAt({
+      'GET /api/v1/session': () => {
+        sessionReads += 1;
+        return sessionReads === 1 ? json(200, instanceAdminSession()) : json(200, other);
+      },
+      [listPath]: json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'instance_admin_required' }),
+    });
+    expect(await screen.findByRole('heading', { level: 2, name: 'Only an installation administrator can see this.' })).toBeVisible();
+    await waitFor(() => expect(sessionReads).toBeGreaterThanOrEqual(3));
+    // The re-booted shell is bea's: her household switcher is back in place of the household-less bar.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Household: Veselí' })).toBeVisible());
   });
 });
 
@@ -158,7 +173,7 @@ describe('Admin center sections', () => {
     });
     const sections = await screen.findByRole('navigation', { name: 'Admin center sections' });
     expect(within(sections).getByRole('link', { name: 'Households' })).toHaveAttribute('aria-current', 'page');
-    const householdSection = within(sections).getByRole('link', { name: 'This household' });
+    const householdSection = within(sections).getByRole('link', { name: 'Your household' });
     expect(householdSection).toHaveAttribute('href', '/admin');
     expect(householdSection).not.toHaveAttribute('aria-current');
 
@@ -166,7 +181,7 @@ describe('Admin center sections', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Admin center' })).toBeVisible();
     expect(window.location.pathname).toBe('/admin');
     const known = screen.getByRole('navigation', { name: 'Admin center sections' });
-    expect(within(known).getByRole('link', { name: 'This household' })).toHaveAttribute('aria-current', 'page');
+    expect(within(known).getByRole('link', { name: 'Your household' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('stays out of the way when only one section applies', async () => {

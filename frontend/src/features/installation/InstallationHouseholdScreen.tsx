@@ -9,10 +9,8 @@ import { LoadError } from '../../components/ui/load-error';
 import { useI18n, type Translate } from '../../i18n';
 import { signInMethod } from '../admin/adminApi';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
-import type { Session } from '../auth/sessionApi';
 import type { AdminHouseholdAccount } from './instanceAdminApi';
 import { InstallationGone, InstallationOnlyAdmins, BACK_LINK } from './InstallationStates';
-import { rereadInstanceAdminSession } from './installationSession';
 import { useAdminHouseholdAccounts } from './useInstanceAdminList';
 
 /**
@@ -23,19 +21,16 @@ import { useAdminHouseholdAccounts } from './useInstanceAdminList';
  * `name` is only what the list already showed on the way in; a direct load or a reload shows the generic heading
  * instead of reading the list again to find it.
  */
-export function InstallationHouseholdScreen({ householdId, name, login, onSignedOut, onSessionChanged, onBack }: {
+export function InstallationHouseholdScreen({ householdId, name, login, onSignedOut, onForbidden, onBack }: {
   householdId: string;
   name: string | null;
   login: string;
   onSignedOut: () => void;
-  onSessionChanged: (session: Session) => void;
+  onForbidden: () => void;
   onBack: () => void;
 }) {
   const { t } = useI18n();
-  const list = useAdminHouseholdAccounts(householdId, {
-    onSignedOut,
-    onForbidden: () => { void rereadInstanceAdminSession({ onSession: onSessionChanged, onSignedOut }); },
-  });
+  const list = useAdminHouseholdAccounts(householdId, { onSignedOut, onForbidden });
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">

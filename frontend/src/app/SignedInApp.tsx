@@ -14,6 +14,7 @@ import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { InstallationHouseholdsScreen } from '../features/installation/InstallationHouseholdsScreen';
 import { InstallationHouseholdScreen } from '../features/installation/InstallationHouseholdScreen';
+import { rereadInstanceAdminSession } from '../features/installation/installationSession';
 import { ScreenTransitionContext } from './Heading';
 import { HouseholdSwitchProvider } from './HouseholdSwitchProvider';
 import { Layout } from './Layout';
@@ -195,18 +196,32 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
 
 /**
  * The installation-wide side of the Admin center. It belongs to the account, not to a household, so it renders
- * without one; the household list is also what a household-less /admin really means.
+ * without one; the household list is also what a household-less /admin really means on its first render, before the
+ * canonical correction replaces the route with the list's own.
  */
 function renderInstallation(props: Props) {
   const { route, session, navigation, sessionActions } = props;
   const shared = {
     login: session.login,
     onSignedOut: sessionActions.sessionEnded,
-    onSessionChanged: sessionActions.updateSession,
+    // A refused installation read means the grant hint is stale; the re-read follows whatever the account really is.
+    onForbidden: () => {
+      void rereadInstanceAdminSession({
+        viewerId: session.userId,
+        onSession: sessionActions.updateSession,
+        onSignedOut: sessionActions.sessionEnded,
+        onReboot: sessionActions.retry,
+      });
+    },
   };
-  const households = <InstallationHouseholdsScreen {...shared} onOpenHousehold={navigation.openAdminHousehold} />;
-  if (route.kind === 'adminHouseholds') return households;
-  if (route.kind === 'admin') return session.instanceAdmin && !session.defaultHouseholdId ? households : null;
+  const householdList = () => <InstallationHouseholdsScreen
+    {...shared}
+    onOpenHousehold={navigation.openAdminHousehold}
+  />;
+  if (route.kind === 'adminHouseholds') return householdList();
+  if (route.kind === 'admin') {
+    return session.instanceAdmin && !session.defaultHouseholdId ? householdList() : null;
+  }
   if (route.kind !== 'adminHousehold') return null;
   // The name is only ever the one this visit carried in; it is dropped when it belongs to another account or page.
   const remembered = navigation.adminHouseholdName;

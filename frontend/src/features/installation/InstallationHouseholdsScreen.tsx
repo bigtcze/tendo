@@ -8,10 +8,8 @@ import { ListSkeleton } from '../../components/ui/list-skeleton';
 import { LoadError } from '../../components/ui/load-error';
 import { useI18n, type Translate } from '../../i18n';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
-import type { Session } from '../auth/sessionApi';
 import type { AdminHousehold } from './instanceAdminApi';
 import { InstallationOnlyAdmins } from './InstallationStates';
-import { rereadInstanceAdminSession } from './installationSession';
 import { useAdminHouseholdList } from './useInstanceAdminList';
 
 const ROW_LINK = [
@@ -28,21 +26,18 @@ function formatCreated(iso: string, locale: string): string {
  * shows only what a household is (name, timezone, when it was created) and never its contents, so opening one is
  * a plain drill-down, not a household switch.
  */
-export function InstallationHouseholdsScreen({ login, onSignedOut, onSessionChanged, onOpenHousehold }: {
+export function InstallationHouseholdsScreen({ login, onSignedOut, onForbidden, onOpenHousehold }: {
   login: string;
   onSignedOut: () => void;
-  onSessionChanged: (session: Session) => void;
+  onForbidden: () => void;
   onOpenHousehold: (householdId: string, name: string) => void;
 }) {
   const { t, locale } = useI18n();
-  const list = useAdminHouseholdList({
-    onSignedOut,
-    onForbidden: () => { void rereadInstanceAdminSession({ onSession: onSessionChanged, onSignedOut }); },
-  });
+  const list = useAdminHouseholdList({ onSignedOut, onForbidden });
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
-      <Heading className="text-h1 font-semibold text-ink">{t('install.account.title')}</Heading>
+      <Heading className="text-h1 font-semibold text-ink">{t('install.page.title')}</Heading>
       <AdminSectionSwitcher current="households" />
       {list.state === 'loading' ? <ListSkeleton label={t('install.loading')} /> : null}
       {/* A household list is never missing; an unexpected 404 still gets the message that can be retried. */}

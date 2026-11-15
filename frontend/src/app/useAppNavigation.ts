@@ -31,14 +31,17 @@ function isArchivedSearch(search: string) {
 
 /**
  * /people and /admin without a household have nothing to show, and /login is only a landing path for sign-in
- * results; in both cases the address bar is corrected to the destination the screen really shows.
+ * results; in both cases the address bar is corrected to the destination the screen really shows. The route is
+ * corrected with it, so the navigation highlights the screen that is actually open instead of the address it left.
  */
-function useCanonicalUrl(route: Route, state: BootState) {
+function useCanonicalUrl(route: Route, state: BootState, setRoute: Dispatch<SetStateAction<Route>>) {
   const noHousehold = state.kind === 'signedIn' && !state.session.defaultHouseholdId;
   // /people and /admin without a household have nothing to show; the installation administrator's Admin center is
   // the household list, so that is where their /admin really points.
+  const householdLessInstallation = noHousehold && state.kind === 'signedIn' && state.session.instanceAdmin
+    && route.kind === 'admin';
   const householdLessAdmin = noHousehold && route.kind === 'admin'
-    ? (state.kind === 'signedIn' && state.session.instanceAdmin ? ADMIN_HOUSEHOLDS_PATH : '/')
+    ? (householdLessInstallation ? ADMIN_HOUSEHOLDS_PATH : '/')
     : null;
   const noHouseholdScreen = noHousehold && (route.kind === 'people' || route.kind === 'admin');
   const signedInOnLogin = state.kind === 'signedIn' && route.kind === 'login';
@@ -46,7 +49,10 @@ function useCanonicalUrl(route: Route, state: BootState) {
     if (householdLessAdmin) window.history.replaceState(null, '', householdLessAdmin);
     else if (noHouseholdScreen) window.history.replaceState(null, '', '/');
     if (signedInOnLogin) window.history.replaceState(null, '', '/');
-  }, [householdLessAdmin, noHouseholdScreen, signedInOnLogin]);
+    // A replaced address must also replace the route: the Admin center stays highlighted for a household-less
+    // installation administrator, and the list is no longer a household route that only knows how to fall back Home.
+    if (householdLessInstallation) setRoute({ kind: 'adminHouseholds' });
+  }, [householdLessAdmin, householdLessInstallation, noHouseholdScreen, setRoute, signedInOnLogin]);
 }
 
 /** Every way out of a screen: one place that records the destination, the address and the list it belongs to. */
@@ -169,7 +175,7 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
     userId, setAdminHouseholdName,
   });
   usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, setItemOrigin, clearTransient, setAdminHouseholdName });
-  useCanonicalUrl(route, state);
+  useCanonicalUrl(route, state, setRoute);
   return { ...actions, itemOrigin, archivedView, adminHouseholdName };
 }
 
