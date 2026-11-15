@@ -25,6 +25,7 @@ import { HouseholdDataProvider } from './HouseholdData';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
 import type { Session } from '../features/auth/sessionApi';
+import type { NoticeSpec } from '../features/admin/useRoleChange';
 
 type Props = {
   route: Route;
@@ -44,6 +45,9 @@ export function SignedInApp(props: Props) {
   const { route, session, navigation, sessionActions } = props;
   const { t } = useI18n();
   const [announcement, setAnnouncement] = useState('');
+  // The installation Admin center's notice about the viewer's own membership. It lives here, above the household
+  // keys, because a re-read session can move the default household and remount the screen that reported it.
+  const [installHandoff, setInstallHandoff] = useState<InstallHandoff | null>(null);
   const householdId = session.defaultHouseholdId;
   const navRoute = householdNavRoute(route, Boolean(householdId));
   const navigationActions: NavigationActions = {
@@ -85,13 +89,16 @@ export function SignedInApp(props: Props) {
     >
       {route.kind === 'notFound'
         ? renderNotFound(props, householdId ?? null, navigationActions)
-        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions, selfLeft)}
+        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions, selfLeft, { handoff: installHandoff, setHandoff: setInstallHandoff })}
     </HouseholdSwitchProvider>
     {/* WCAG 4.1.3: one polite host sits beside the screens and never remounts, so a switch is spoken once Home has
         taken over. It carries no status role, so it never competes with the screen's own mutation notice. */}
     <p aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
   </>;
 }
+
+type InstallHandoff = { householdId: string; notice: NoticeSpec };
+type InstallHandoffState = { handoff: InstallHandoff | null; setHandoff: (next: InstallHandoff | null) => void };
 
 /** Unknown pages keep the signed-in shell (account actions and navigation); Home is the nearest destination. */
 function renderNotFound(props: Props, householdId: string | null, navigationActions: NavigationActions) {
@@ -164,7 +171,12 @@ function renderHouseholdRecords(props: Props, householdId: string) {
 }
 
 /** The destination screen for the current route; every household route falls back to Home without a household. */
-function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft: (household: string, alreadyGone: boolean) => void) {
+function renderRouteScreen(
+  props: Props,
+  householdId: string | null,
+  onSelfLeft: (household: string, alreadyGone: boolean) => void,
+  install: InstallHandoffState,
+) {
   const { route, session, navigation, sessionActions } = props;
   if (route.kind === 'account') {
     return <AccountScreen
@@ -174,7 +186,7 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
       onSelfLeft={onSelfLeft}
     />;
   }
-  const installation = renderInstallation(props);
+  const installation = renderInstallation(props, install);
   if (installation) return installation;
   if (route.kind === 'admin' && householdId) {
     return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login}
@@ -199,7 +211,7 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
  * without one; the household list is also what a household-less /admin really means on its first render, before the
  * canonical correction replaces the route with the list's own.
  */
-function renderInstallation(props: Props) {
+function renderInstallation(props: Props, install: InstallHandoffState) {
   const { route, session, navigation, sessionActions } = props;
   const shared = {
     login: session.login,
@@ -226,11 +238,31 @@ function renderInstallation(props: Props) {
   // The name is only ever the one this visit carried in; it is dropped when it belongs to another account or page.
   const remembered = navigation.adminHouseholdName;
   const name = remembered?.userId === session.userId && remembered.householdId === route.householdId ? remembered.name : null;
+  const target = route.householdId;
+  /**
+   * The viewer changed their own membership in this household. The screen stays where it is — it never opens the
+   * household or treats this as leaving it — but the server may have moved the default household, so the session is
+   * read again for the same account. When that moves the default, the household subtree remounts and the screen
+   * picks the notice up from here, with focus on its heading.
+   */
+  const onSelfChange = (notice: NoticeSpec) => {
+    install.setHandoff({ householdId: target, notice });
+    void fetchSession().then((result) => {
+      if (result.kind === 'signedIn' && result.session.userId === session.userId) sessionActions.updateSession(result.session);
+      else if (result.kind === 'signedOut') sessionActions.sessionEnded();
+      else sessionActions.retry();
+    });
+  };
+  const handoff = install.handoff?.householdId === target ? install.handoff.notice : null;
   return <InstallationHouseholdScreen
-    key={route.householdId}
-    householdId={route.householdId}
+    key={target}
+    householdId={target}
     name={name}
+    viewerId={session.userId}
     {...shared}
+    selfNotice={handoff}
+    onSelfChange={onSelfChange}
+    onSelfNoticeDone={() => install.setHandoff(null)}
     onBack={navigation.openAdminHouseholds}
   />;
 }
@@ -245,6 +277,7 @@ function renderHouseholdScreens(
   navRoute: ReturnType<typeof householdNavRoute>,
   navigationActions: NavigationActions,
   onSelfLeft: (household: string, alreadyGone: boolean) => void,
+  install: InstallHandoffState,
 ) {
   const { sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
@@ -253,7 +286,7 @@ function renderHouseholdScreens(
         route: navRoute, actions: navigationActions, household: Boolean(householdId), instanceAdmin: props.session.instanceAdmin,
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
       }}>
-        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId, onSelfLeft)}</ScreenTransitionContext>
+        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId, onSelfLeft, install)}</ScreenTransitionContext>
       </HouseholdNavigationContext>
     </HouseholdDataProvider>
   </SignOutContext>;

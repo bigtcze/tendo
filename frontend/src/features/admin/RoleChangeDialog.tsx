@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
 import { Notice } from '../../components/ui/notice';
-import { useI18n } from '../../i18n';
+import { useI18n, type MessageKey } from '../../i18n';
 import type { PendingChange } from './useRoleChange';
 
 /**
@@ -10,13 +10,15 @@ import type { PendingChange } from './useRoleChange';
  * warning, because it ends your access to the Admin center. Every outcome closes the dialog and is announced
  * by the screen's live region.
  */
-export function RoleChangeDialog({ pending, viewerId, busy, triggerRef, onConfirm, onCancel }: {
+export function RoleChangeDialog({ pending, viewerId, busy, triggerRef, onConfirm, onCancel, selfDemoteBody = 'admin.dialog.selfDemote.body' }: {
   pending: PendingChange | null;
   viewerId: string;
   busy: boolean;
   triggerRef: RefObject<HTMLElement | null>;
   onConfirm: () => void;
   onCancel: () => void;
+  /** What demoting yourself costs on this screen; the installation Admin center keeps its own access. */
+  selfDemoteBody?: MessageKey;
 }) {
   const { t } = useI18n();
   const promote = pending?.nextRole === 'admin';
@@ -34,7 +36,7 @@ export function RoleChangeDialog({ pending, viewerId, busy, triggerRef, onConfir
   >
     <div className="space-y-4">
       {self && !promote
-        ? <Notice>{t('admin.dialog.selfDemote.body')}</Notice>
+        ? <Notice>{t(selfDemoteBody)}</Notice>
         : <p className="max-w-prose text-body text-ink">{t(promote ? 'admin.dialog.promote.body' : 'admin.dialog.demote.body', { login })}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="quiet" disabled={busy} onClick={onCancel}>{t('admin.action.cancel')}</Button>

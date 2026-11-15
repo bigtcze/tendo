@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
 import { Notice } from '../../components/ui/notice';
-import { useI18n } from '../../i18n';
+import { useI18n, type Translate } from '../../i18n';
 import type { RemovalTarget } from './useAccountRemoval';
 
 /**
@@ -13,7 +13,8 @@ import type { RemovalTarget } from './useAccountRemoval';
 export function RemoveAccountDialog({ pending, viewerId, householdName, busy, triggerRef, onConfirm, onCancel }: {
   pending: RemovalTarget | null;
   viewerId: string;
-  householdName: string;
+  /** Null when the screen cannot name the household (a direct load of the installation page): the title says “this household”. */
+  householdName: string | null;
   busy: boolean;
   triggerRef: RefObject<HTMLElement | null>;
   onConfirm: () => void;
@@ -23,9 +24,7 @@ export function RemoveAccountDialog({ pending, viewerId, householdName, busy, tr
   const self = pending?.userId === viewerId;
   const login = pending?.login ?? '';
   const lastAdmin = pending?.role === 'admin';
-  const title = pending
-    ? t(self ? 'admin.remove.dialog.leaveTitle' : 'admin.remove.dialog.title', { login, household: householdName })
-    : '';
+  const title = pending ? dialogTitle(t, self, login, householdName) : '';
   return <Dialog
     open={pending !== null}
     onOpenChange={(open) => { if (!open) onCancel(); }}
@@ -54,4 +53,10 @@ export function RemoveAccountDialog({ pending, viewerId, householdName, busy, tr
       </div>
     </div>
   </Dialog>;
+}
+
+/** The household's name when the screen knows it; otherwise “this household”, never an empty name. */
+function dialogTitle(t: Translate, self: boolean, login: string, householdName: string | null): string {
+  if (householdName === null) return t(self ? 'admin.remove.dialog.leaveTitleUnnamed' : 'admin.remove.dialog.titleUnnamed', { login });
+  return t(self ? 'admin.remove.dialog.leaveTitle' : 'admin.remove.dialog.title', { login, household: householdName });
 }

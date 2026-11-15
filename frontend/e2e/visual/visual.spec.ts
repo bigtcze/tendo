@@ -710,12 +710,12 @@ test('Admin center and the member refusal', async ({ browser }) => {
   await memberContext.close();
 });
 
-test('Installation households and one household’s read-only accounts', async ({ browser }) => {
+test('Installation households and one household’s accounts with their actions', async ({ browser }) => {
   test.setTimeout(90_000);
   const { context, page } = await authenticated(browser);
   // The installation list: every household of this installation, names only, never their contents.
   await page.goto('/admin/households');
-  await expect(page.getByRole('heading', { level: 1, name: en['install.account.title'] })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
   const households = page.getByRole('main').getByRole('list', { name: en['install.title'] });
   const ownRow = households.getByRole('listitem').filter({ hasText: HOUSEHOLD });
   await expect(ownRow.getByRole('link', { name: HOUSEHOLD, exact: true })).toBeVisible();
@@ -732,7 +732,11 @@ test('Installation households and one household’s read-only accounts', async (
   const accounts = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] });
   await expect(accounts.getByRole('listitem').filter({ hasText: OWNER_LOGIN })).toContainText(en['members.role.admin']);
   await expect(accounts.getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toContainText(en['members.role.member']);
-  await expect(accounts.getByRole('button')).toHaveCount(0);
+  // Each row carries its two membership actions; the viewer's own row asks about leaving.
+  await expect(accounts.getByRole('button', { name: en['admin.action.demoteLabel'].replace('{login}', OWNER_LOGIN), exact: true })).toBeVisible();
+  await expect(accounts.getByRole('button', { name: en['admin.action.leaveLabel'].replace('{login}', OWNER_LOGIN), exact: true })).toBeVisible();
+  await expect(accounts.getByRole('button', { name: en['admin.action.promoteLabel'].replace('{login}', REFERENCE_MEMBER_LOGIN), exact: true })).toBeVisible();
+  await expect(accounts.getByRole('button', { name: en['admin.action.removeLabel'].replace('{login}', REFERENCE_MEMBER_LOGIN), exact: true })).toBeVisible();
   await captureScreen(page, 'admin-households-detail', true);
 
   // Czech phone width after captureScreen left the page at 1440.
@@ -740,7 +744,7 @@ test('Installation households and one household’s read-only accounts', async (
   await page.setViewportSize({ width: 390, height: 900 });
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: cs['install.account.title'] })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
   await expect(page.getByRole('main').getByRole('list', { name: cs['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
   await capture(page, 'admin-households-cs-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));

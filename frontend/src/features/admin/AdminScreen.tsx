@@ -40,7 +40,18 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut, onSelfL
   // The routes are injected, so the installation Admin center reuses both state machines with its own reads.
   const change = useRoleChange({
     viewerId, onSignedOut, onNotice: setNotice, onReload: list.reload, onAccount: list.replaceItem,
-    onForbidden: forbidden, onSelfDemoted: forbidden,
+    onForbidden: forbidden,
+    // Demoting yourself closes this household's Admin center; a promotion (only reachable through a stale row) is an
+    // ordinary row update.
+    onSelfChanged: (account, nextRole) => {
+      if (nextRole === 'member') {
+        forbidden();
+        setNotice({ key: 'admin.notice.selfDemoted', tone: 'success' });
+        return;
+      }
+      list.replaceItem(account);
+      setNotice({ key: 'admin.notice.promoted', params: { login: account.login }, tone: 'success' });
+    },
     read: (userId) => readAccount(householdId, userId),
     change: (userId, role, etag) => changeAccountRole(householdId, userId, role, etag),
   });

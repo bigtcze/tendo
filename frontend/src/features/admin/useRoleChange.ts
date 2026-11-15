@@ -24,7 +24,11 @@ type Outcomes<A extends MemberTarget> = {
   onReload: () => void;
   onAccount: (account: A) => void;
   onForbidden: () => void;
-  onSelfDemoted: () => void;
+  /**
+   * The viewer changed their own role and the server accepted it. The caller owns what that means on its screen
+   * (the household Admin center closes on a demotion; the installation one stays open), including the notice.
+   */
+  onSelfChanged: (account: A, nextRole: AccountRole) => void;
   /** A fresh membership version for one target; the caller owns which route reads it. */
   read: (userId: string) => Promise<MembershipRead>;
   /** Applies the role with exactly the tag the read returned. */
@@ -66,7 +70,7 @@ export function useRoleChange<A extends MemberTarget = MemberTarget>(outcomes: O
   async function confirm() {
     if (!pending || busyRef.current) return;
     const { account, nextRole } = pending;
-    const { viewerId, onSignedOut, onNotice, onReload, onAccount, onForbidden, onSelfDemoted, read, change } = outcomesRef.current;
+    const { viewerId, onSignedOut, onNotice, onReload, onAccount, onForbidden, onSelfChanged, read, change } = outcomesRef.current;
     busyRef.current = true;
     setBusy(true);
     const finish = () => {
@@ -90,8 +94,7 @@ export function useRoleChange<A extends MemberTarget = MemberTarget>(outcomes: O
     const login = account.login;
     if (result.kind === 'ok') {
       if (self) {
-        onSelfDemoted();
-        onNotice({ key: 'admin.notice.selfDemoted', tone: 'success' });
+        onSelfChanged(result.account, nextRole);
         return;
       }
       onAccount(result.account);

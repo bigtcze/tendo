@@ -1,42 +1,75 @@
-import type { MouseEvent, RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
+import { useHouseholdData } from '../../app/HouseholdData';
 import { Layout } from '../../app/Layout';
 import { NavLink } from '../../app/NavLink';
+import { Button } from '../../components/ui/button';
 import { CursorPager } from '../../components/ui/cursor-pager';
 import { ListSkeleton } from '../../components/ui/list-skeleton';
 import { LoadError } from '../../components/ui/load-error';
+import { Notice } from '../../components/ui/notice';
 import { useI18n, type Translate } from '../../i18n';
 import { signInMethod } from '../admin/adminApi';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
-import type { AdminHouseholdAccount } from './instanceAdminApi';
+import { RemoveAccountDialog } from '../admin/RemoveAccountDialog';
+import { RoleChangeDialog } from '../admin/RoleChangeDialog';
+import { useAccountRemoval, type RemovalTarget } from '../admin/useAccountRemoval';
+import { useRoleChange, type NoticeSpec } from '../admin/useRoleChange';
+import {
+  changeAdminHouseholdAccountRole, readAdminHouseholdAccount, removeAdminHouseholdAccount,
+  type AdminHouseholdAccount,
+} from './instanceAdminApi';
 import { InstallationGone, InstallationOnlyAdmins, BACK_LINK } from './InstallationStates';
-import { useAdminHouseholdAccounts } from './useInstanceAdminList';
+import { useAdminHouseholdAccounts, type InstanceList } from './useInstanceAdminList';
 
 /**
- * One household of the installation, read-only: who belongs to it, which role they hold and how they sign in.
- * Nothing here changes a membership yet, and the screen never reads the household's own data or opens it, so the
- * installation grant stays a view of names and roles rather than a way into another household.
+ * One household of the installation: who belongs to it, which role they hold and how they sign in, with the two
+ * membership actions an installation administrator has here — change a role, or remove someone from this household.
+ * Every read and every change uses the installation's own account routes, the viewer's own row included, so this
+ * screen never reaches into the household itself and never opens it.
+ *
+ * A change to the viewer's own membership keeps this screen where it is: demoting themselves, or even removing
+ * themselves from this household, costs no access to the Admin center, so it is not treated as leaving. The shell
+ * still reads the session again, because the server may have moved the viewer's default household; when that
+ * remounts this screen, the notice and the focus come back in through `selfNotice`.
  *
  * `name` is only what the list already showed on the way in; a direct load or a reload shows the generic heading
  * instead of reading the list again to find it.
  */
-export function InstallationHouseholdScreen({ householdId, name, login, onSignedOut, onForbidden, onBack }: {
+export function InstallationHouseholdScreen({
+  householdId, name, viewerId, login, selfNotice, onSelfChange, onSelfNoticeDone, onSignedOut, onForbidden, onBack,
+}: {
   householdId: string;
   name: string | null;
+  viewerId: string;
   login: string;
+  /** A notice handed back by the shell because a self change remounted this screen; taken once, then cleared. */
+  selfNotice: NoticeSpec | null;
+  /** A self change was accepted: the shell reads the session again, so it follows the households really left. */
+  onSelfChange: (notice: NoticeSpec) => void;
+  onSelfNoticeDone: () => void;
   onSignedOut: () => void;
   onForbidden: () => void;
   onBack: () => void;
 }) {
   const { t } = useI18n();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const { notice, announce } = useLiveNotice(selfNotice, headingRef, onSelfNoticeDone);
   const list = useAdminHouseholdAccounts(householdId, { onSignedOut, onForbidden });
+  const { change, removal, busy } = useMembershipActions({
+    householdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden,
+  });
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
-      <Heading className="text-h1 font-semibold text-ink">
+      <Heading headingRef={headingRef} className="text-h1 font-semibold text-ink">
         <span className="break-words">{name ?? t('install.household.title')}</span>
       </Heading>
+      {/* The one live host, right under the heading, exactly as the household Admin center keeps it. */}
+      <div role="status" aria-atomic="true" className="mt-6 empty:mt-0">
+        {notice ? <Notice tone={notice.tone === 'success' ? 'success' : 'neutral'} role={null}>{t(notice.key, notice.params)}</Notice> : null}
+      </div>
       <AdminSectionSwitcher current="households" />
       <NavLink href="/admin/households" onNavigate={onBack} className={BACK_LINK}>{t('install.household.back')}</NavLink>
       {list.state === 'loading' ? <ListSkeleton label={t('admin.loading')} /> : null}
@@ -47,29 +80,151 @@ export function InstallationHouseholdScreen({ householdId, name, login, onSigned
       {list.state === 'forbidden' ? <InstallationOnlyAdmins t={t} /> : null}
       {list.state === 'ready' ? <Accounts
         accounts={list.items}
+        viewerId={viewerId}
         stack={list.stack}
         nextCursor={list.nextCursor}
-        busy={list.busy}
+        busy={busy}
         headingRef={list.headingRef}
         onPrevious={list.previous}
         onNext={list.next}
+        onChange={change.request}
+        onRemove={removal.request}
         pageFailure={list.pageFailure !== null}
         onRetryPage={list.retryPage}
         t={t}
       /> : null}
     </section>
+    <ScreenDialogs viewerId={viewerId} householdName={name} change={change} removal={removal} />
   </Layout>;
 }
 
-/** The read-only member list: the same flat divided rows and pager the household Admin center uses. */
-function Accounts({ accounts, stack, nextCursor, busy, headingRef, onPrevious, onNext, pageFailure, onRetryPage, t }: {
+/**
+ * The screen's live notice, including the one the shell hands back. The shell keeps a self-change notice above the
+ * household keys, so it survives a remount the moved default household causes; taking a copy as soon as it appears
+ * lets the notice stay readable after the shell has been told to clear it. Adopting it while rendering is React's own
+ * answer to a prop that has to become state: no extra pass, and no flash of the not-yet-announced screen.
+ */
+function useLiveNotice(selfNotice: NoticeSpec | null, headingRef: RefObject<HTMLHeadingElement | null>, onDone: () => void) {
+  const [notice, setNotice] = useState<NoticeSpec | null>(selfNotice);
+  const [taken, setTaken] = useState<NoticeSpec | null>(selfNotice);
+  if (selfNotice !== taken) {
+    setTaken(selfNotice);
+    if (selfNotice) setNotice(selfNotice);
+  }
+  useEffect(() => {
+    if (!selfNotice) return;
+    // A remount takes the focus with the element it lived on, so the heading welcomes the reader back. When this
+    // screen was already up, the confirmed control still holds the focus and nothing is taken from it.
+    const active = document.activeElement;
+    if (active === null || active === document.body) headingRef.current?.focus();
+    onDone();
+  }, [selfNotice, onDone, headingRef]);
+  return { notice, announce: setNotice };
+}
+
+/**
+ * The two membership actions of this screen, wired to the installation's account routes. An accepted change to the
+ * viewer's own membership is announced here: the row shows the server's answer, the notice speaks now, and the shell
+ * re-reads the session because the default household may have moved. After a role change the shell's own default
+ * household is refreshed so the navigation rail follows the role the viewer really holds; that is the provider's read of
+ * the viewer's default, never a read this screen makes of the household it shows.
+ */
+function useMembershipActions({ householdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden }: {
+  householdId: string;
+  viewerId: string;
+  list: InstanceList<AdminHouseholdAccount>;
+  announce: (notice: NoticeSpec) => void;
+  onSelfChange: (notice: NoticeSpec) => void;
+  onSignedOut: () => void;
+  onForbidden: () => void;
+}) {
+  const household = useHouseholdData();
+  const selfChanged = (notice: NoticeSpec) => {
+    announce(notice);
+    onSelfChange(notice);
+  };
+  // An authoritative `instance_admin_required` says the grant hint is stale: drop the rows and let the shell re-read.
+  const denied = () => { list.markForbidden(); onForbidden(); };
+  const change = useRoleChange<AdminHouseholdAccount>({
+    viewerId,
+    onSignedOut,
+    onNotice: announce,
+    onReload: list.reload,
+    onAccount: list.replaceItem,
+    onForbidden: denied,
+    // Staying here is the point: the installation grant, not this household role, is what opened this screen.
+    onSelfChanged: (account, nextRole) => {
+      list.replaceItem(account);
+      selfChanged({ key: nextRole === 'admin' ? 'install.notice.selfPromoted' : 'install.notice.selfDemoted', tone: 'success' });
+      // Only the viewer's own default household carries a role the rail shows; another household's change needs no
+      // read. A removal needs none either: leaving the default moves it, and the session re-read remounts the shell.
+      if (household?.data.kind === 'ready' && household.data.household.id === householdId) household.refresh();
+    },
+    read: (userId) => readAdminHouseholdAccount(householdId, userId),
+    change: (userId, role, etag) => changeAdminHouseholdAccountRole(householdId, userId, role, etag),
+  });
+  const removal = useAccountRemoval({
+    viewerId,
+    onSignedOut,
+    onNotice: announce,
+    onReload: list.reload,
+    onForbidden: denied,
+    // The viewer's own row leaves this household, not the Admin center: the list is read again and this screen stays.
+    onSelfLeft: (alreadyGone) => {
+      list.reload();
+      selfChanged({ key: 'install.notice.selfRemoved', tone: alreadyGone ? 'neutral' : 'success' });
+    },
+    read: (target) => readAdminHouseholdAccount(householdId, target.userId),
+    remove: (userId, etag) => removeAdminHouseholdAccount(householdId, userId, etag),
+  });
+  return { change, removal, busy: list.busy || change.busy || removal.busy };
+}
+
+type ChangeState = Pick<ReturnType<typeof useRoleChange<AdminHouseholdAccount>>, 'pending' | 'busy' | 'triggerRef' | 'confirm' | 'cancel'>;
+type RemovalState = Pick<ReturnType<typeof useAccountRemoval>, 'pending' | 'busy' | 'triggerRef' | 'confirm' | 'cancel'>;
+
+/** The two dialogs this screen can open; the hooks above own every outcome they can announce. */
+function ScreenDialogs({ viewerId, householdName, change, removal }: {
+  viewerId: string;
+  householdName: string | null;
+  change: ChangeState;
+  removal: RemovalState;
+}) {
+  return <>
+    <RoleChangeDialog
+      pending={change.pending}
+      viewerId={viewerId}
+      busy={change.busy}
+      triggerRef={change.triggerRef}
+      onConfirm={() => { void change.confirm(); }}
+      onCancel={change.cancel}
+      selfDemoteBody="install.dialog.selfDemote.body"
+    />
+    {/* The household may not be named on a direct load; the dialog says “this household” instead of hiding the action. */}
+    <RemoveAccountDialog
+      pending={removal.pending}
+      viewerId={viewerId}
+      householdName={householdName}
+      busy={removal.busy}
+      triggerRef={removal.triggerRef}
+      onConfirm={() => { void removal.confirm(); }}
+      onCancel={removal.cancel}
+    />
+  </>;
+}
+
+/** The member list: the same flat divided rows and pager the household Admin center uses, with its two actions. */
+function Accounts({ accounts, viewerId, stack, nextCursor, busy, headingRef, onPrevious, onNext, onChange, onRemove, pageFailure, onRetryPage, t }: {
   accounts: AdminHouseholdAccount[];
+  viewerId: string;
   stack: string[];
   nextCursor: string | null;
   busy: boolean;
   headingRef: RefObject<HTMLHeadingElement | null>;
   onPrevious: (event: MouseEvent<HTMLButtonElement>) => void;
   onNext: (event: MouseEvent<HTMLButtonElement>) => void;
+  onChange: (account: AdminHouseholdAccount, trigger: HTMLElement) => void;
+  onRemove: (target: RemovalTarget, trigger: HTMLElement) => void;
   pageFailure: boolean;
   onRetryPage: () => void;
   t: Translate;
@@ -82,7 +237,15 @@ function Accounts({ accounts, stack, nextCursor, busy, headingRef, onPrevious, o
       <p className="mt-1 max-w-prose text-small text-muted">{t('install.household.explained')}</p>
       {accounts.length
         ? <ul aria-labelledby="install-accounts-heading" className="mt-3 divide-y divide-line border-t border-line">
-          {accounts.map((account) => <AccountRow key={account.userId} account={account} t={t} />)}
+          {accounts.map((account) => <AccountRow
+            key={account.userId}
+            account={account}
+            self={account.userId === viewerId}
+            busy={busy}
+            onChange={onChange}
+            onRemove={onRemove}
+            t={t}
+          />)}
         </ul>
         : <p className="mt-3 border-t border-line pt-3 text-body text-muted">{t('admin.list.empty')}</p>}
       {stack.length > 0 || nextCursor
@@ -95,16 +258,51 @@ function Accounts({ accounts, stack, nextCursor, busy, headingRef, onPrevious, o
   </>;
 }
 
-/** One flat account row, like the household Admin center's: login, then the role and the sign-in method as text. */
-function AccountRow({ account, t }: { account: AdminHouseholdAccount; t: Translate }) {
-  return <li data-install-account-id={account.userId} className="py-3">
-    <p className="min-w-0 break-words text-row-title font-semibold text-ink">
-      <span data-install-login>{account.login}</span>
-    </p>
-    <p data-install-meta className="mt-0.5 text-meta leading-snug text-muted">
-      <span data-install-role>{t(account.role === 'admin' ? 'members.role.admin' : 'members.role.member')}</span>
-      {' '}<span aria-hidden="true" className="select-none">·</span>{' '}
-      <span>{t(`admin.signIn.${signInMethod(account)}`)}</span>
-    </p>
+/**
+ * One flat account row, like the household Admin center's: the login (with “(you)” on the viewer's own) over the
+ * muted line that states the role and the sign-in method, then the two actions. Removal comes last, and the viewer's
+ * own row asks about leaving instead.
+ */
+function AccountRow({ account, self, busy, onChange, onRemove, t }: {
+  account: AdminHouseholdAccount;
+  self: boolean;
+  busy: boolean;
+  onChange: (account: AdminHouseholdAccount, trigger: HTMLElement) => void;
+  onRemove: (target: RemovalTarget, trigger: HTMLElement) => void;
+  t: Translate;
+}) {
+  const isAdmin = account.role === 'admin';
+  return <li data-install-account-id={account.userId} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+    <div className="min-w-0 flex-1 basis-40">
+      <p className="min-w-0 break-words text-row-title font-semibold text-ink">
+        <span data-install-login>{account.login}</span>
+        {self ? <span className="font-normal text-muted"> ({t('members.you')})</span> : null}
+      </p>
+      <p data-install-meta className="mt-0.5 text-meta leading-snug text-muted">
+        <span data-install-role>{t(isAdmin ? 'members.role.admin' : 'members.role.member')}</span>
+        {' '}<span aria-hidden="true" className="select-none">·</span>{' '}
+        <span>{t(`admin.signIn.${signInMethod(account)}`)}</span>
+      </p>
+    </div>
+    <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+      <Button
+        variant="secondary"
+        size="small"
+        disabled={busy}
+        aria-label={t(isAdmin ? 'admin.action.demoteLabel' : 'admin.action.promoteLabel', { login: account.login })}
+        onClick={(event) => onChange(account, event.currentTarget)}
+      >
+        {t(isAdmin ? 'admin.action.demote' : 'admin.action.promote')}
+      </Button>
+      <Button
+        variant="secondary"
+        size="small"
+        disabled={busy}
+        aria-label={t(self ? 'admin.action.leaveLabel' : 'admin.action.removeLabel', { login: account.login })}
+        onClick={(event) => onRemove({ userId: account.userId, login: account.login, role: account.role }, event.currentTarget)}
+      >
+        {t(self ? 'admin.action.leave' : 'admin.action.remove')}
+      </Button>
+    </div>
   </li>;
 }

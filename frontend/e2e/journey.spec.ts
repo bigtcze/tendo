@@ -1819,15 +1819,21 @@ test.describe('Tendo production journey', () => {
   // V5-10 B2a: the installation-wide side of the Admin center. The first-run owner holds the installation grant,
   // so the household Admin center grows a two-section switcher; a member's refusal at the same address is proven
   // in n7b, where a member session already exists and costs no local sign-in attempt (the sign-in throttle is a
-  // shared per-minute budget the journey must not overspend).
-  test('n7d. the installation administrator lists every household and opens one household’s accounts read-only', async () => {
+  // shared per-minute budget the journey must not overspend). Since B2b the household detail is actionable, and it
+  // acts through the installation's own account routes, never by opening the household.
+  test('n7d. the installation administrator lists every household and manages one household’s accounts without opening it', async () => {
     test.setTimeout(120_000);
     // This step drives a phone viewport; the one it inherited is restored even when an assertion fails.
     const originalViewport = page.viewportSize();
     const adminHouseholdsPath = '/api/v1/admin/households';
     const unknownHouseholdId = '6d1f0b7a-0000-4000-8000-000000000000';
     const unknownAccountsPath = `${adminHouseholdsPath}/${unknownHouseholdId}/accounts`;
+    const foreignAccountsPath = `${adminHouseholdsPath}/${conflictHouseholdId}/accounts`;
     const memberLogin = 'member_e2e';
+    const promoteLabel = (login: string) => en['admin.action.promoteLabel'].replace('{login}', login);
+    const demoteLabel = (login: string) => en['admin.action.demoteLabel'].replace('{login}', login);
+    const removeLabel = (login: string) => en['admin.action.removeLabel'].replace('{login}', login);
+    const leaveLabel = (login: string) => en['admin.action.leaveLabel'].replace('{login}', login);
     try {
       // The switcher is the only way from the household Admin center to the installation list.
       await page.goto('/');
@@ -1839,7 +1845,7 @@ test.describe('Tendo production journey', () => {
       await expect(switcher.getByRole('link', { name: en['admin.sections.household'], exact: true })).toHaveAttribute('aria-current', 'page');
       await switcher.getByRole('link', { name: en['admin.sections.households'], exact: true }).click();
       await expect(page).toHaveURL(/\/admin\/households$/);
-      await expect(page.getByRole('heading', { level: 1, name: en['install.account.title'] })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
       await expect(switcher.getByRole('link', { name: en['admin.sections.households'], exact: true })).toHaveAttribute('aria-current', 'page');
 
       // The rendered list is the real installation: the owner's own household plus every other seeded household,
@@ -1848,6 +1854,7 @@ test.describe('Tendo production journey', () => {
       expect(listedResponse.status()).toBe(200);
       const listed = (await listedResponse.json() as { items: Array<{ id: string; name: string }> }).items;
       expect(listed.some((entry) => entry.id === householdId && entry.name === householdName), 'own household is listed').toBe(true);
+      expect(listed.some((entry) => entry.id === conflictHouseholdId && entry.name === 'Conflict household'), 'the seeded foreign household is listed').toBe(true);
       expect(listed.length, 'the seeded installation holds more than one household').toBeGreaterThanOrEqual(2);
       const main = page.getByRole('main');
       const householdList = main.getByRole('list', { name: en['install.title'] });
@@ -1857,7 +1864,7 @@ test.describe('Tendo production journey', () => {
       }
       await expectNoAxeViolations(page, 'admin-installation-households');
 
-      // The owner's own row opens the read-only account list of that household.
+      // The owner's own row opens that household's account list; since B2b the rows are actionable from here.
       await householdList.getByRole('listitem').filter({ hasText: householdName }).getByRole('link', { name: householdName, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/admin/households/${householdId}$`));
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
@@ -1868,16 +1875,80 @@ test.describe('Tendo production journey', () => {
       await expect(ownerRow).toContainText(en['admin.signIn.password']);
       await expect(memberRow).toContainText(en['members.role.member']);
       await expect(memberRow).toContainText(en['admin.signIn.password']);
-      // Read-only: an account row offers no control at all, and the screen's only action is the way back.
-      await expect(accounts.getByRole('button')).toHaveCount(0);
+      // Each row carries the same two membership actions as the household Admin center: a role change and a
+      // membership change. The viewer's own row asks about leaving, never about removing someone else.
+      await expect(ownerRow.getByRole('button')).toHaveCount(2);
+      await expect(memberRow.getByRole('button')).toHaveCount(2);
+      await expect(ownerRow.getByRole('button', { name: demoteLabel(ownerLogin), exact: true })).toBeVisible();
+      await expect(ownerRow.getByRole('button', { name: leaveLabel(ownerLogin), exact: true })).toBeVisible();
+      await expect(ownerRow.getByRole('button', { name: removeLabel(ownerLogin) })).toHaveCount(0);
+      await expect(memberRow.getByRole('button', { name: promoteLabel(memberLogin), exact: true })).toBeVisible();
+      await expect(memberRow.getByRole('button', { name: removeLabel(memberLogin), exact: true })).toBeVisible();
+      await expect(memberRow.getByRole('button', { name: leaveLabel(memberLogin) })).toHaveCount(0);
       await expect(accounts.getByRole('link')).toHaveCount(0);
-      await expect(main.getByRole('button')).toHaveCount(0);
       await expectNoAxeViolations(page, 'admin-installation-household');
+
+      // The confirmation dialog belongs to this screen, so scan it open too; cancelling changes nothing.
+      await memberRow.getByRole('button', { name: promoteLabel(memberLogin), exact: true }).click();
+      const promoteDialog = page.getByRole('dialog');
+      await expect(promoteDialog.getByRole('heading', { name: en['admin.dialog.promote.title'].replace('{login}', memberLogin) })).toBeVisible();
+      await expectNoAxeViolations(page, 'admin-installation-household-dialog');
+      await promoteDialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
 
       await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
       await expect(page).toHaveURL(/\/admin\/households$/);
-      await expect(page.getByRole('heading', { level: 1, name: en['install.account.title'] })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
       await expect(householdList.getByRole('listitem')).toHaveCount(listed.length);
+
+      // A foreign household is managed from this screen through the installation routes only. The conflict household
+      // is the seed with a fixed membership — exactly one account, its own administrator (scripts/e2e_db_fixtures.py)
+      // — so the deterministic action here is the last-administrator refusal and no round trip is needed to restore
+      // anything. The generic foreign household holds no membership and the large paging household's 1000 members are
+      // pinned by n28, so neither offers a deterministic non-viewer round trip that can be undone safely.
+      const foreignHouseholdRouteRequests: string[] = [];
+      const recordHouseholdRoute = (request: Request) => {
+        const pathname = new URL(request.url()).pathname;
+        if (pathname === `/api/v1/households/${conflictHouseholdId}` || pathname.startsWith(`/api/v1/households/${conflictHouseholdId}/`)) {
+          foreignHouseholdRouteRequests.push(`${request.method()} ${pathname}`);
+        }
+      };
+      page.on('request', recordHouseholdRoute);
+      try {
+        const foreignRowLink = householdList.getByRole('listitem').filter({ hasText: 'Conflict household' }).getByRole('link', { name: 'Conflict household', exact: true });
+        await foreignRowLink.click();
+        await expect(page).toHaveURL(new RegExp(`/admin/households/${conflictHouseholdId}$`));
+        await expect(page.getByRole('heading', { level: 1, name: 'Conflict household' })).toBeVisible();
+        const foreignAccounts = main.getByRole('list', { name: en['admin.list.title'] });
+        await expect(foreignAccounts.getByRole('listitem')).toHaveCount(1);
+        const soleAdminRow = foreignAccounts.getByRole('listitem').first();
+        await expect(soleAdminRow).toContainText('existing_conflict_e2e');
+        await expect(soleAdminRow).toContainText(en['members.role.admin']);
+        const foreignUserId = await soleAdminRow.getAttribute('data-install-account-id');
+        if (!foreignUserId) throw new Error('the foreign household row carries no account id');
+
+        // Demoting the only administrator is refused: the row and this screen stay exactly as they were.
+        const refusalPath = `${foreignAccountsPath}/${foreignUserId}`;
+        // Chromium logs a console error for the refused change; expectation is the exact path and status.
+        expectedFailedStatuses.add(`${refusalPath} 409`);
+        await soleAdminRow.getByRole('button', { name: demoteLabel('existing_conflict_e2e'), exact: true }).click();
+        const foreignDialog = page.getByRole('dialog');
+        await expect(foreignDialog).toContainText(en['admin.dialog.demote.body'].replace('{login}', 'existing_conflict_e2e'));
+        await foreignDialog.getByRole('button', { name: en['admin.action.demote'], exact: true }).click();
+        await expect(page.getByText(en['admin.error.lastAdmin'])).toBeVisible();
+        await expect(soleAdminRow).toContainText(en['members.role.admin']);
+        await expect(page.getByRole('heading', { level: 1, name: 'Conflict household' })).toBeVisible();
+        // Only a refusal the test has just proven joins the response ledger.
+        instanceAdminRefusals.push(`PATCH ${refusalPath} 409`);
+
+        // The screen never opens the household it shows: its own routes stay unread while it is managed from here.
+        expect(foreignHouseholdRouteRequests, 'installation detail never touches household routes').toEqual([]);
+
+        await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
+        await expect(page).toHaveURL(/\/admin\/households$/);
+      } finally {
+        page.off('request', recordHouseholdRoute);
+      }
 
       // 320 CSS px: neither the list nor the detail scrolls sideways.
       await page.setViewportSize({ width: 320, height: 640 });
@@ -3535,7 +3606,7 @@ test.describe('Tendo production journey', () => {
           { path: '/members', heading: en['members.title'] },
           { path: '/account', heading: en['account.title'] },
           // The installation list of the Admin center is a signed-in route too (n7d holds its behavior).
-          { path: '/admin/households', heading: en['install.account.title'] },
+          { path: '/admin/households', heading: en['install.page.title'] },
         ];
         for (const route of routeChecks) {
           await page.goto(route.path);
