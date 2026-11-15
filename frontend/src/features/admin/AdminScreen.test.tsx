@@ -205,9 +205,49 @@ describe('Admin center', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make member' }));
 
     expect(await screen.findByText('You’re now a member of this household. The Admin center is no longer available to you.')).toBeVisible();
+    // The demotion names the closed Admin center, never the ordinary promotion notice.
+    expect(screen.queryByText('anna is now an administrator.')).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Only administrators can open the Admin center.' })).toBeVisible();
     await waitFor(() => expect(within(nav()).queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument());
     expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(0);
+  });
+
+  it('promotes the viewer through a stale member row instead of closing the Admin center', async () => {
+    // The list is one render behind: it still says the viewer is a member, so it offers a promotion on their own row.
+    const staleSelf: Account = { ...owner, role: 'member' };
+    const promotedSelf: Account = { ...owner, role: 'admin' };
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [staleSelf, petr], nextCursor: null }),
+      [accountPath(owner.userId)]: json(200, staleSelf, { ETag: '"11"' }),
+      [changePath(owner.userId)]: json(200, promotedSelf, { ETag: '"12"' }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('anna')).toHaveTextContent('Member'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Make administrator: anna' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Make anna an administrator?');
+    // Promoting yourself keeps the Admin center, so the demotion warning would be a lie here.
+    expect(dialog).not.toHaveTextContent('You’ll lose access to the Admin center.');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Make administrator' }));
+
+    // Regression: an accepted self change used to mark the Admin center forbidden and speak the demotion notice
+    // for every outcome, so a promotion closed the screen the viewer still administers.
+    expect(await screen.findByText('anna is now an administrator.')).toBeVisible();
+    expect(screen.queryByText('You’re now a member of this household. The Admin center is no longer available to you.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Only administrators can open the Admin center.' })).not.toBeInTheDocument();
+    await waitFor(() => expect(rowOf('anna')).toHaveTextContent('Administrator'));
+    expect(within(nav()).getByRole('link', { name: 'Admin center' })).toBeInTheDocument();
+    expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(2);
+    // The viewer's role was not re-read as a demotion: the household stays trusted after a promotion.
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === base)).toHaveLength(1);
+
+    const change = fake.requests.find((request) => request.method === 'PATCH' && request.path === `${base}/accounts/${owner.userId}`);
+    expect(change?.headers.get('If-Match')).toBe('"11"');
+    expect(JSON.parse(change!.body)).toEqual({ role: 'admin' });
   });
 
   it('disables the role control and the dialog while a change is in flight', async () => {
@@ -329,7 +369,7 @@ describe('Admin center', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
 
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rowOf('petr')).toHaveTextContent('Member');
   });
 
@@ -580,7 +620,7 @@ describe('Admin center', () => {
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create link' }));
 
     expect(await screen.findByText(message)).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rowOf('jana')).not.toHaveTextContent('Reset link active until');
     expect(within(rowOf('jana')).getByRole('button', { name: 'Reset password: jana' })).toBeEnabled();
   });

@@ -800,7 +800,7 @@ describe('add', () => {
     expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
     expect(headerCancel).toBeEnabled();
     await userEvent.click(headerCancel);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('focuses the Name field when the Add dialog opens', async () => {
@@ -1367,7 +1367,7 @@ describe('archive and restore', () => {
     expect(within(screen.getByRole('main')).queryByRole('button', { name: 'Edit Octavia' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('main')).queryByText('Octavia')).not.toBeInTheDocument();
     expect(screen.getByText('Anna')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     let patch = sent(fake.requests, 'PATCH')[0]!;
     expect(patch.headers.get('If-Match')).toBe('"6"');
     expect(JSON.parse(patch.body)).toEqual({ archived: true });

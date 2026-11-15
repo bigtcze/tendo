@@ -189,7 +189,7 @@ export function HouseholdMenu({ householdId, name, canManage }: { householdId: s
             onNavigate={() => { setOpen(false); navigation.actions.admin(); }}
             className={ADMIN_ROW}
           >
-            {t('nav.admin')}
+            {t('admin.title')}
           </NavLink>
         ) : (
           <p className={HELP}>{t('household.menu.help')}</p>

@@ -1,5 +1,5 @@
 import { AccountScreen } from '../features/auth/AccountScreen';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useI18n } from '../i18n';
 import { fetchSession } from '../features/auth/sessionApi';
 import type { useAppNavigation } from './useAppNavigation';
@@ -25,6 +25,7 @@ import { HouseholdDataProvider } from './HouseholdData';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
 import type { Session } from '../features/auth/sessionApi';
+import type { NoticeSpec } from '../features/admin/useRoleChange';
 
 type Props = {
   route: Route;
@@ -44,7 +45,15 @@ export function SignedInApp(props: Props) {
   const { route, session, navigation, sessionActions } = props;
   const { t } = useI18n();
   const [announcement, setAnnouncement] = useState('');
+  // The installation Admin center's notice about the viewer's own membership. It lives here, above the household
+  // keys, because a re-read session can move the default household and remount the screen that reported it.
+  const [installHandoff, setInstallHandoff] = useState<InstallHandoff | null>(null);
+  const clearInstallHandoff = useCallback(() => setInstallHandoff(null), []);
   const householdId = session.defaultHouseholdId;
+  // A handoff belongs to the visit that reported it: leaving that visit — another route, or another household —
+  // ends it, so a notice can never surface on a later one.
+  const visitedHousehold = route.kind === 'adminHousehold' ? route.householdId : null;
+  if (installHandoff !== null && installHandoff.householdId !== visitedHousehold) setInstallHandoff(null);
   const navRoute = householdNavRoute(route, Boolean(householdId));
   const navigationActions: NavigationActions = {
     home: navigation.goHome,
@@ -85,13 +94,23 @@ export function SignedInApp(props: Props) {
     >
       {route.kind === 'notFound'
         ? renderNotFound(props, householdId ?? null, navigationActions)
-        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions, selfLeft)}
+        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions, selfLeft, {
+          handoff: installHandoff, setHandoff: setInstallHandoff, clearHandoff: clearInstallHandoff,
+        })}
     </HouseholdSwitchProvider>
     {/* WCAG 4.1.3: one polite host sits beside the screens and never remounts, so a switch is spoken once Home has
         taken over. It carries no status role, so it never competes with the screen's own mutation notice. */}
     <p aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
   </>;
 }
+
+type InstallHandoff = { householdId: string; notice: NoticeSpec };
+type InstallHandoffState = {
+  handoff: InstallHandoff | null;
+  setHandoff: (next: InstallHandoff | null) => void;
+  /** Stable for the screen's hand-off effect, which calls it once per noticed visit. */
+  clearHandoff: () => void;
+};
 
 /** Unknown pages keep the signed-in shell (account actions and navigation); Home is the nearest destination. */
 function renderNotFound(props: Props, householdId: string | null, navigationActions: NavigationActions) {
@@ -164,7 +183,12 @@ function renderHouseholdRecords(props: Props, householdId: string) {
 }
 
 /** The destination screen for the current route; every household route falls back to Home without a household. */
-function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft: (household: string, alreadyGone: boolean) => void) {
+function renderRouteScreen(
+  props: Props,
+  householdId: string | null,
+  onSelfLeft: (household: string, alreadyGone: boolean) => void,
+  install: InstallHandoffState,
+) {
   const { route, session, navigation, sessionActions } = props;
   if (route.kind === 'account') {
     return <AccountScreen
@@ -174,7 +198,7 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
       onSelfLeft={onSelfLeft}
     />;
   }
-  const installation = renderInstallation(props);
+  const installation = renderInstallation(props, install);
   if (installation) return installation;
   if (route.kind === 'admin' && householdId) {
     return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login}
@@ -199,7 +223,7 @@ function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft:
  * without one; the household list is also what a household-less /admin really means on its first render, before the
  * canonical correction replaces the route with the list's own.
  */
-function renderInstallation(props: Props) {
+function renderInstallation(props: Props, install: InstallHandoffState) {
   const { route, session, navigation, sessionActions } = props;
   const shared = {
     login: session.login,
@@ -226,11 +250,44 @@ function renderInstallation(props: Props) {
   // The name is only ever the one this visit carried in; it is dropped when it belongs to another account or page.
   const remembered = navigation.adminHouseholdName;
   const name = remembered?.userId === session.userId && remembered.householdId === route.householdId ? remembered.name : null;
+  const target = route.householdId;
+  /**
+   * The viewer changed their own membership in this household. The screen stays where it is — it never opens the
+   * household or treats this as leaving it — but the server may have moved the default household, so the session is
+   * read again for the same account.
+   *
+   * The notice only travels through here when that read really moved the default, because only then does the
+   * household subtree remount and take the notice the screen was showing with it. It is set in the same callback as
+   * the adopted session, so the remount and the notice happen together; and because the visit is still the current
+   * one at that moment, a notice can never outlive the household page that reported it.
+   */
+  const onSelfChange = (notice: NoticeSpec, kind: 'role' | 'removal') => {
+    void rereadInstanceAdminSession({
+      viewerId: session.userId,
+      onSession: (next) => {
+        const moved = next.defaultHouseholdId !== session.defaultHouseholdId;
+        if (moved) install.setHandoff({ householdId: target, notice });
+        sessionActions.updateSession(next);
+      },
+      onSignedOut: sessionActions.sessionEnded,
+      // A role change never moves the default household (ADR 0020), so a failed read changes nothing here. A removal
+      // does move it, and a shell that keeps trusting a household the viewer may have just left is worse than a
+      // re-boot from the server.
+      onError: kind === 'removal' ? sessionActions.retry : undefined,
+      onReboot: sessionActions.retry,
+    });
+  };
+  const handoff = install.handoff?.householdId === target ? install.handoff.notice : null;
   return <InstallationHouseholdScreen
-    key={route.householdId}
-    householdId={route.householdId}
+    key={target}
+    householdId={target}
+    defaultHouseholdId={session.defaultHouseholdId ?? null}
     name={name}
+    viewerId={session.userId}
     {...shared}
+    selfNotice={handoff}
+    onSelfChange={onSelfChange}
+    onSelfNoticeDone={install.clearHandoff}
     onBack={navigation.openAdminHouseholds}
   />;
 }
@@ -245,6 +302,7 @@ function renderHouseholdScreens(
   navRoute: ReturnType<typeof householdNavRoute>,
   navigationActions: NavigationActions,
   onSelfLeft: (household: string, alreadyGone: boolean) => void,
+  install: InstallHandoffState,
 ) {
   const { sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
@@ -253,7 +311,7 @@ function renderHouseholdScreens(
         route: navRoute, actions: navigationActions, household: Boolean(householdId), instanceAdmin: props.session.instanceAdmin,
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
       }}>
-        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId, onSelfLeft)}</ScreenTransitionContext>
+        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId, onSelfLeft, install)}</ScreenTransitionContext>
       </HouseholdNavigationContext>
     </HouseholdDataProvider>
   </SignOutContext>;
