@@ -6,8 +6,10 @@ import { useI18n } from '../../i18n';
 import { AdminAccountList } from './AdminAccountList';
 import { AdminIntro, AdminLoadError, AdminListSkeleton, AdminOnlyAdmins, formatResetExpiry } from './AdminStates';
 import { PasswordResetDialog } from './PasswordResetDialog';
+import { RemoveAccountDialog } from './RemoveAccountDialog';
 import { RoleChangeDialog } from './RoleChangeDialog';
 import { useAccountList } from './useAccountList';
+import { useAccountRemoval } from './useAccountRemoval';
 import { usePasswordReset } from './usePasswordReset';
 import { useRoleChange, type NoticeSpec } from './useRoleChange';
 
@@ -15,14 +17,17 @@ import { useRoleChange, type NoticeSpec } from './useRoleChange';
  * Admin center. The account list itself is the authorization probe: the server decides, and a member's
  * refusal shows the calm only-administrators state without any account data.
  */
-export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
+export function AdminScreen({ householdId, viewerId, login, onSignedOut, onSelfLeft }: {
   householdId: string;
   viewerId: string;
   login: string;
   onSignedOut: () => void;
+  /** The viewer's own membership is gone: the shell adopts the fresh session and opens Home. */
+  onSelfLeft: (household: string, alreadyGone: boolean) => void;
 }) {
   const { t, locale } = useI18n();
   const household = useHouseholdData();
+  const householdName = household?.data.kind === 'ready' ? household.data.household.name : null;
   const list = useAccountList(householdId, onSignedOut, () => household?.refresh());
   const [notice, setNotice] = useState<NoticeSpec | null>(null);
   // An authoritative `admin_required` means the viewerRole hint may be stale (another admin demoted the viewer),
@@ -34,6 +39,11 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
 
   const change = useRoleChange({ ...shared, viewerId, onSelfDemoted: forbidden });
   const reset = usePasswordReset(shared);
+  const removal = useAccountRemoval({
+    householdId, onSignedOut, viewerId, onNotice: setNotice, onReload: list.reload, onForbidden: forbidden,
+    onSelfLeft: (alreadyGone) => { if (householdName !== null) onSelfLeft(householdName, alreadyGone); },
+  });
+  const busy = list.busy || change.busy || reset.busy || removal.busy;
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
@@ -45,7 +55,7 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
         <AdminAccountList
           accounts={list.accounts}
           viewerId={viewerId}
-          busy={list.busy || change.busy || reset.busy}
+          busy={busy}
           headingRef={list.headingRef}
           stack={list.stack}
           nextCursor={list.nextCursor}
@@ -54,6 +64,7 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
           onChange={change.request}
           onReset={reset.request}
           onCancelReset={(account) => { void reset.cancelLink(account); }}
+          onRemove={householdName === null ? undefined : removal.request}
           formatExpiry={(iso) => formatResetExpiry(iso, locale)}
           t={t}
         />
@@ -77,5 +88,14 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
       onCancel={reset.cancelRequest}
       onCloseLink={reset.closeLink}
     />
+    {householdName === null ? null : <RemoveAccountDialog
+      pending={removal.pending}
+      viewerId={viewerId}
+      householdName={householdName}
+      busy={removal.busy}
+      triggerRef={removal.triggerRef}
+      onConfirm={() => { void removal.confirm(); }}
+      onCancel={removal.cancel}
+    />}
   </Layout>;
 }

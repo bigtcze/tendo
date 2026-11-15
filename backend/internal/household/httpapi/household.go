@@ -61,7 +61,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	out := apimodel.HouseholdList{Items: make([]apimodel.Household, 0, len(items)), NextCursor: nil}
 	for _, item := range items {
-		out.Items = append(out.Items, apimodel.Household{Id: item.ID, Name: item.Name, Timezone: item.Timezone, CreatedAt: item.CreatedAt.UTC(), ViewerRole: apimodel.MemberRole(item.ViewerRole)})
+		out.Items = append(out.Items, apimodel.Household{Id: item.ID, Name: item.Name, Timezone: item.Timezone, CreatedAt: item.CreatedAt.UTC(), ViewerRole: apimodel.MemberRole(item.ViewerRole), ViewerMembershipVersion: item.ViewerMembershipVersion})
 	}
 	if next != "" {
 		out.NextCursor = &next
@@ -85,7 +85,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", `"`+strconv.FormatInt(found.Version, 10)+`"`)
-	writeJSON(w, http.StatusOK, apimodel.Household{Id: found.ID, Name: found.Name, Timezone: found.Timezone, CreatedAt: found.CreatedAt.UTC(), ViewerRole: apimodel.MemberRole(found.ViewerRole)})
+	writeJSON(w, http.StatusOK, apimodel.Household{Id: found.ID, Name: found.Name, Timezone: found.Timezone, CreatedAt: found.CreatedAt.UTC(), ViewerRole: apimodel.MemberRole(found.ViewerRole), ViewerMembershipVersion: found.ViewerMembershipVersion})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

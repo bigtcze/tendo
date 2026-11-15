@@ -28,6 +28,15 @@ type HouseholdInvitation struct {
 	RevokedAt       pgtype.Timestamptz
 }
 
+type HouseholdMemberRemoval struct {
+	ID           pgtype.UUID
+	HouseholdID  pgtype.UUID
+	TargetUserID pgtype.UUID
+	ActorUserID  pgtype.UUID
+	PreviousRole string
+	RemovedAt    pgtype.Timestamptz
+}
+
 type HouseholdMembership struct {
 	UserID      pgtype.UUID
 	HouseholdID pgtype.UUID

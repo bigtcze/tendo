@@ -126,6 +126,7 @@ export const household: components['schemas']['Household'] = {
   timezone: 'Europe/Prague',
   createdAt: '2026-01-01T00:00:00Z',
   viewerRole: 'admin',
+  viewerMembershipVersion: 1,
 };
 
 /** The same household seen by a plain member: the navigation then offers no Admin center. */

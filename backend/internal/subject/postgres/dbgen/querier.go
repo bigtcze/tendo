@@ -14,6 +14,11 @@ type Querier interface {
 	GetSubject(ctx context.Context, arg GetSubjectParams) (GetSubjectRow, error)
 	ListSubjects(ctx context.Context, arg ListSubjectsParams) ([]ListSubjectsRow, error)
 	ListSubjectsByIDs(ctx context.Context, arg ListSubjectsByIDsParams) ([]ListSubjectsByIDsRow, error)
+	// Removing a member unlinks the canonical person subject without archiving it:
+	// the person stays active and keeps item and history associations, and only
+	// the login link disappears. A later rejoin provisions a fresh person; nothing
+	// is merged by name (ADR 0010, ADR 0019).
+	UnlinkMemberPersonSubject(ctx context.Context, arg UnlinkMemberPersonSubjectParams) error
 	UpdateSubject(ctx context.Context, arg UpdateSubjectParams) (UpdateSubjectRow, error)
 }
 

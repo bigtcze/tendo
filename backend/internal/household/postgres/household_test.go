@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -87,6 +88,13 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 		if got.ID != homeA || got.Name != "Alice Home" || got.Timezone != "Europe/Prague" || got.Version != 1 || got.ViewerRole != household.RoleAdmin {
 			t.Fatalf("got=%+v", got)
 		}
+		var stored int64
+		if err := admin.QueryRow(ctx, `SELECT version FROM household_memberships WHERE household_id=$1::uuid AND user_id=$2::uuid`, homeA, alice).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if got.ViewerMembershipVersion != stored {
+			t.Fatalf("viewerMembershipVersion=%d want the stored membership version %d", got.ViewerMembershipVersion, stored)
+		}
 		if got.CreatedAt.Location() != time.UTC || time.Since(got.CreatedAt) > time.Minute || got.CreatedAt.IsZero() {
 			t.Fatalf("createdAt=%v", got.CreatedAt)
 		}
@@ -150,6 +158,27 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 			if err != nil || got.Name != want.name || got.ID != id || got.ViewerRole != want.role {
 				t.Fatalf("household %s: got=%+v err=%v", id, got, err)
 			}
+		}
+	})
+
+	// The caller's membership version is the tag a plain member quotes when
+	// leaving, so it must be the real stored version and follow a role change
+	// through the same account service the PATCH uses.
+	t.Run("viewer membership version follows a role change", func(t *testing.T) {
+		accounts := AccountServiceFor(app, identitypostgres.New(app, nil), identitypostgres.New(app, nil), emptyResetLookup{}, func() time.Time {
+			return time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
+		})
+		before, err := repo.FindForMember(ctx, carol, homeA)
+		if err != nil || before.ViewerRole != household.RoleMember || before.ViewerMembershipVersion != 1 {
+			t.Fatalf("before role change: got=%+v err=%v", before, err)
+		}
+		changed, err := accounts.ChangeRole(ctx, alice, homeA, carol, household.RoleAdmin, before.ViewerMembershipVersion)
+		if err != nil || changed.Version != before.ViewerMembershipVersion+1 {
+			t.Fatalf("change role: account=%+v err=%v", changed, err)
+		}
+		after, err := repo.FindForMember(ctx, carol, homeA)
+		if err != nil || after.ViewerRole != household.RoleAdmin || after.ViewerMembershipVersion != changed.Version {
+			t.Fatalf("after role change: got=%+v err=%v", after, err)
 		}
 	})
 

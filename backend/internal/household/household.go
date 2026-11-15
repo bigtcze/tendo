@@ -27,6 +27,11 @@ type Household struct {
 	// read with the household. It only drives presentation; admin operations
 	// re-authorize through RequireAdmin.
 	ViewerRole string
+	// ViewerMembershipVersion is the caller's membership version for this
+	// household, read in the same query as the role. It lets a plain member
+	// quote the strong If-Match for leaving without calling an admin-only
+	// account route; it is a navigation hint and every mutation re-checks it.
+	ViewerMembershipVersion int64
 }
 
 // Repository loads households visible to a member. FindForMember returns
@@ -57,6 +62,9 @@ func (s *Service) Get(ctx context.Context, userID, householdID string) (Househol
 		return Household{}, errUnavailable
 	}
 	if found.ViewerRole != RoleAdmin && found.ViewerRole != RoleMember {
+		return Household{}, errUnavailable
+	}
+	if found.ViewerMembershipVersion < 1 {
 		return Household{}, errUnavailable
 	}
 	return found, nil

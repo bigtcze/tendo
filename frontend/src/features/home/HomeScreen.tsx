@@ -1,20 +1,21 @@
 import { AccountActions } from '../../app/AccountActions';
 import { useHouseholdData } from '../../app/HouseholdData';
+import type { NoticeMessage } from '../../app/notices';
 import { Layout } from '../../app/Layout';
 import { ErrorScreen, LoadingScreen } from '../../app/StatusScreens';
-import { useI18n, type MessageKey } from '../../i18n';
+import { useI18n } from '../../i18n';
 import type { Session } from '../auth/sessionApi';
 import { ItemsScreen } from '../items/ItemsScreen';
 import { Button } from '../../components/ui/button';
 import { Notice } from '../../components/ui/notice';
 import { NoHouseholdScreen } from './NoHouseholdScreen';
 
-/** One-time calm note about the result of a provider sign-in; dismissible so it never blocks the screen. */
-function HomeNotice({ notice, onDismiss }: { notice: MessageKey; onDismiss: () => void }) {
+/** One-time calm note about the result of a provider sign-in or leaving a household; dismissible so it never blocks. */
+function HomeNotice({ notice, onDismiss }: { notice: NoticeMessage; onDismiss: () => void }) {
   const { t } = useI18n();
   return (
     <div className="mb-5 flex max-w-3xl flex-wrap items-start gap-2">
-      <Notice className="min-w-0 flex-1">{t(notice)}</Notice>
+      <Notice className="min-w-0 flex-1">{t(notice.key, notice.params)}</Notice>
       <Button variant="quiet" size="small" onClick={onDismiss}>{t('notice.dismiss')}</Button>
     </div>
   );
@@ -35,7 +36,7 @@ export function HomeScreen({
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: import('../items/itemsApi').ItemGroup) => void;
-  homeNotice?: MessageKey | null;
+  homeNotice?: NoticeMessage | null;
   onDismissNotice?: () => void;
   onContinuePending?: () => void;
 }) {

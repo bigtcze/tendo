@@ -12,7 +12,7 @@ import (
 )
 
 const findMemberHousehold = `-- name: FindMemberHousehold :one
-SELECT h.id::text AS id, h.name, h.timezone, h.created_at, h.version, m.role AS viewer_role
+SELECT h.id::text AS id, h.name, h.timezone, h.created_at, h.version, m.role AS viewer_role, m.version AS viewer_membership_version
 FROM households h
 JOIN household_memberships m ON m.household_id = h.id
 WHERE h.id = $1 AND m.user_id = $2
@@ -24,12 +24,13 @@ type FindMemberHouseholdParams struct {
 }
 
 type FindMemberHouseholdRow struct {
-	ID         string
-	Name       string
-	Timezone   string
-	CreatedAt  pgtype.Timestamptz
-	Version    int64
-	ViewerRole string
+	ID                      string
+	Name                    string
+	Timezone                string
+	CreatedAt               pgtype.Timestamptz
+	Version                 int64
+	ViewerRole              string
+	ViewerMembershipVersion int64
 }
 
 func (q *Queries) FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error) {
@@ -42,12 +43,13 @@ func (q *Queries) FindMemberHousehold(ctx context.Context, arg FindMemberHouseho
 		&i.CreatedAt,
 		&i.Version,
 		&i.ViewerRole,
+		&i.ViewerMembershipVersion,
 	)
 	return i, err
 }
 
 const listMemberHouseholds = `-- name: ListMemberHouseholds :many
-SELECT h.id::text AS id, h.name, h.timezone, h.created_at, m.role AS viewer_role
+SELECT h.id::text AS id, h.name, h.timezone, h.created_at, m.role AS viewer_role, m.version AS viewer_membership_version
 FROM households h
 JOIN household_memberships m ON m.household_id = h.id
 WHERE m.user_id=$1 AND ($2::uuid IS NULL OR h.id > $2)
@@ -61,11 +63,12 @@ type ListMemberHouseholdsParams struct {
 }
 
 type ListMemberHouseholdsRow struct {
-	ID         string
-	Name       string
-	Timezone   string
-	CreatedAt  pgtype.Timestamptz
-	ViewerRole string
+	ID                      string
+	Name                    string
+	Timezone                string
+	CreatedAt               pgtype.Timestamptz
+	ViewerRole              string
+	ViewerMembershipVersion int64
 }
 
 func (q *Queries) ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error) {
@@ -83,6 +86,7 @@ func (q *Queries) ListMemberHouseholds(ctx context.Context, arg ListMemberHouseh
 			&i.Timezone,
 			&i.CreatedAt,
 			&i.ViewerRole,
+			&i.ViewerMembershipVersion,
 		); err != nil {
 			return nil, err
 		}

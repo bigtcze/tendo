@@ -71,9 +71,23 @@ type Querier interface {
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	ReadLocalCredential(ctx context.Context, userID pgtype.UUID) (ReadLocalCredentialRow, error)
+	// The account's default is a navigation hint guarded by the deferred composite
+	// foreign key user_default_membership_fk (ADR 0015). It must be moved off the
+	// removed household in the same transaction and before commit, otherwise the
+	// constraint fails the removal. The lowest-id remaining membership is
+	// deterministic; no membership leaves NULL.
+	ReassignDefaultHousehold(ctx context.Context, arg ReassignDefaultHouseholdParams) error
 	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
+	// Reset links the removed member is party to inside this household stop
+	// working: as a target they cannot be redeemed by an admin of a household they
+	// left, and as an issuer they lose the admin role that redemption re-checks.
+	// Links of the same account issued through another household are untouched.
+	RevokeMemberResetsInHousehold(ctx context.Context, arg RevokeMemberResetsInHouseholdParams) error
 	RevokeOutstandingPasswordResetsForTarget(ctx context.Context, arg RevokeOutstandingPasswordResetsForTargetParams) (int64, error)
+	// A removed member must not keep a usable invitation into the household. The
+	// rows stay as audit history with the secret-bearing token no longer usable.
+	RevokePendingInvitationsCreatedBy(ctx context.Context, arg RevokePendingInvitationsCreatedByParams) error
 	SetAccountDefaultHousehold(ctx context.Context, arg SetAccountDefaultHouseholdParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)

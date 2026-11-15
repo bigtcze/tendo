@@ -35,7 +35,7 @@ func (r *Repository) FindForMember(ctx context.Context, userID, householdID stri
 	if err != nil {
 		return household.Household{}, errors.New("household persistence failed")
 	}
-	return household.Household{ID: row.ID, Name: row.Name, Timezone: row.Timezone, CreatedAt: row.CreatedAt.Time.UTC(), Version: row.Version, ViewerRole: row.ViewerRole}, nil
+	return household.Household{ID: row.ID, Name: row.Name, Timezone: row.Timezone, CreatedAt: row.CreatedAt.Time.UTC(), Version: row.Version, ViewerRole: row.ViewerRole, ViewerMembershipVersion: row.ViewerMembershipVersion}, nil
 }
 
 // ListForMember returns one page of the caller's member households in ID order.
@@ -60,7 +60,7 @@ func (r *Repository) ListForMember(ctx context.Context, userID, afterID string, 
 	}
 	out := make([]household.ListedHousehold, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, household.ListedHousehold{ID: row.ID, Name: row.Name, Timezone: row.Timezone, CreatedAt: row.CreatedAt.Time.UTC(), ViewerRole: row.ViewerRole})
+		out = append(out, household.ListedHousehold{ID: row.ID, Name: row.Name, Timezone: row.Timezone, CreatedAt: row.CreatedAt.Time.UTC(), ViewerRole: row.ViewerRole, ViewerMembershipVersion: row.ViewerMembershipVersion})
 	}
 	return out, next, nil
 }

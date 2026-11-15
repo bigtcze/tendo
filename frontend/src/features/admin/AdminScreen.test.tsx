@@ -655,6 +655,9 @@ describe('Admin center', () => {
     await waitFor(() => expect(within(navCs).getByRole('link', { name: 'Správa domácnosti' })).toHaveAttribute('href', '/admin'));
     await waitFor(() => expect(rowOf('petr')).toHaveTextContent('Člen'));
     expect(screen.getByRole('button', { name: 'Jmenovat správcem: petr' })).toHaveTextContent('Jmenovat správcem');
+    // Membership actions speak Czech too: removal for someone else, leaving for the viewer's own row.
+    expect(screen.getByRole('button', { name: 'Odebrat z domácnosti: petr' })).toHaveTextContent('Odebrat z domácnosti');
+    expect(screen.getByRole('button', { name: 'Opustit domácnost: anna' })).toHaveTextContent('Opustit domácnost');
     expect(screen.getByRole('main')).toHaveTextContent('Heslo');
     expect(screen.getByRole('main')).toHaveTextContent('Jednotné přihlášení');
   });

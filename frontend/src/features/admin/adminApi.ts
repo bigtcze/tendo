@@ -6,6 +6,7 @@ export type AccountRole = components['schemas']['AccountRole'];
 export type PasswordResetCreated = components['schemas']['PasswordResetCreated'];
 
 const PAGE_SIZE = 50;
+const householdPath = '/api/v1/households/{householdId}';
 const accountsPath = '/api/v1/households/{householdId}/accounts';
 const accountPath = '/api/v1/households/{householdId}/accounts/{userId}';
 const passwordResetPath = '/api/v1/households/{householdId}/accounts/{userId}/password-reset';
@@ -35,6 +36,26 @@ export async function listAccounts(householdId: string, cursor?: string): Promis
 
 export type AccountRead = { kind: 'ok'; account: Account; etag: string } | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
 
+/**
+ * Reads the household the caller already belongs to for their own membership
+ * version. The account read is admin-only, so this is the only tag a plain
+ * member can obtain before leaving; it is re-read immediately before the DELETE
+ * rather than reused from a stale screen.
+ */
+export type ViewerMembershipRead = { kind: 'ok'; etag: string } | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+export async function readViewerMembership(householdId: string): Promise<ViewerMembershipRead> {
+  try {
+    const { data, response } = await api.GET(householdPath, { params: { path: { householdId } } });
+    if (data && response.status === 200) return { kind: 'ok', etag: `"${data.viewerMembershipVersion}"` };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    // The household read never answers 403: a non-member gets the uniform 404.
+    if (response.status === 403) return { kind: 'rejected' };
+    if (response.status === 404) return { kind: 'notFound' };
+  } catch { /* fall through */ }
+  return { kind: 'error' };
+}
+
 /** Reads one account for a fresh membership version; the role change must quote that exact strong tag. */
 export async function readAccount(householdId: string, userId: string): Promise<AccountRead> {
   try {
@@ -61,6 +82,32 @@ export async function changeAccountRole(householdId: string, userId: string, rol
       body: { role },
     });
     if (data && response.status === 200) return { kind: 'ok', account: data };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 409 && problemCode(error) === 'last_admin') return { kind: 'lastAdmin' };
+    if (response.status === 409) return { kind: 'rejected' };
+    if (response.status === 412) return { kind: 'stale' };
+  } catch { /* fall through */ }
+  return { kind: 'error' };
+}
+
+export type AccountRemoval =
+  | { kind: 'ok' }
+  | { kind: 'lastAdmin' }
+  | { kind: 'stale' }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+/**
+ * Removes one membership (the account's own is "leave"). Nothing comes back but the status, and the required
+ * If-Match quotes the same strong membership version a role change would: a stale tag changes nothing.
+ */
+export async function removeAccount(householdId: string, userId: string, etag: string): Promise<AccountRemoval> {
+  try {
+    const { error, response } = await api.DELETE(accountPath, {
+      params: { path: { householdId, userId }, header: { 'If-Match': etag } },
+    });
+    if (response.status === 204) return { kind: 'ok' };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
     if (response.status === 404) return { kind: 'notFound' };

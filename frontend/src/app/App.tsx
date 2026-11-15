@@ -1,5 +1,6 @@
 import { InviteScreen } from '../features/members/InviteScreen';
 import { ResetPasswordScreen } from '../features/auth/ResetPasswordScreen';
+import { useHomeNotice } from './useHomeNotice';
 import { ScreenTransitionContext } from './Heading';
 import { SignedOutApp } from './SignedOutApp';
 import { SignedInApp } from './SignedInApp';
@@ -23,13 +24,14 @@ export function App() {
     setOidcOutcome,
     entry,
   });
+  const [homeNotice, dismissHomeNotice] = useHomeNotice(session, entry);
   const navigation = useAppNavigation({
     route: routeState.route,
     setRoute: routeState.setRoute,
     transitionedRef: routeState.transitioned,
     setAllItemsVisit: routeState.setAllItemsVisit,
     setOidcOutcome,
-    clearHomeNotice: entry.clearNotice,
+    clearHomeNotice: dismissHomeNotice,
     state: session.state,
   });
   const state = session.state;
@@ -53,8 +55,8 @@ export function App() {
         inviteToken={invite.inviteToken}
         allItemsVisit={routeState.allItemsVisit}
         transitioned={routeState.transitioned}
-        homeNotice={entry.notice}
-        onDismissNotice={entry.clearNotice}
+        homeNotice={homeNotice}
+        onDismissNotice={dismissHomeNotice}
         onContinuePending={session.pendingSignedOut}
         navigation={navigation}
         sessionActions={session}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
+import type { NoticeMessage } from './notices';
 import type { Route } from './routes';
 import type { OidcEntryActions } from './useOidcEntry';
 import { clearPendingStores, useSessionTransitions } from './useSessionTransitions';
@@ -44,6 +45,7 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
   const [inviteFocusLogin, setInviteFocusLogin] = useState(false);
   const [loginPrefill, setLoginPrefill] = useState<string | null>(null);
   const [passwordResetNotice, setPasswordResetNotice] = useState(false);
+  const [householdLeftNotice, setHouseholdLeftNotice] = useState<NoticeMessage | null>(null);
 
   const isCurrentSession = useCallback(
     () => sessionGenerationRef.current === sessionGeneration && state.kind === 'signedIn',
@@ -84,11 +86,13 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
   const transitions = useSessionTransitions({
     setRoute, transitionedRef, setOidcOutcome, entry, setState, advanceSessionGeneration, isCurrentSession,
     setAccountReadyNotice, setSessionEndedNotice, setOidcContinueExpired, setInviteFocusLogin,
-    setLoginPrefill, setPasswordResetNotice,
+    setLoginPrefill, setPasswordResetNotice, setHouseholdLeftNotice,
   });
 
+  const dismissHouseholdLeft = useCallback(() => setHouseholdLeftNotice(null), []);
+
   return {
-    state, retry, updateSession,
+    state, retry, updateSession, householdLeftNotice, dismissHouseholdLeft,
     ...transitions,
     accountReadyNotice, sessionEndedNotice, oidcContinueExpired, inviteFocusLogin,
     loginPrefill, passwordResetNotice,

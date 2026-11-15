@@ -11,13 +11,15 @@ import (
 
 // ListedHousehold is one row of the caller's membership-scoped household list.
 // It deliberately omits the resource version: list responses carry no per-item
-// ETag, and a listed household is not a concurrency token.
+// ETag, and a listed household is not a concurrency token. ViewerMembershipVersion
+// is the caller's own membership version, not the household resource version.
 type ListedHousehold struct {
-	ID         string
-	Name       string
-	Timezone   string
-	CreatedAt  time.Time
-	ViewerRole string
+	ID                      string
+	Name                    string
+	Timezone                string
+	CreatedAt               time.Time
+	ViewerRole              string
+	ViewerMembershipVersion int64
 }
 
 // EncodeHouseholdCursor produces the opaque "h1" cursor for a household ID.
@@ -71,6 +73,9 @@ func (s *Service) ListForMember(ctx context.Context, userID, cursor string, limi
 	}
 	for _, row := range rows {
 		if row.ViewerRole != RoleAdmin && row.ViewerRole != RoleMember {
+			return nil, "", errUnavailable
+		}
+		if row.ViewerMembershipVersion < 1 {
 			return nil, "", errUnavailable
 		}
 	}

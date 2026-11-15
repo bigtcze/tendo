@@ -1,8 +1,10 @@
 import { AccountScreen } from '../features/auth/AccountScreen';
 import { useState } from 'react';
-import { useI18n, type MessageKey } from '../i18n';
+import { useI18n } from '../i18n';
+import { fetchSession } from '../features/auth/sessionApi';
 import type { useAppNavigation } from './useAppNavigation';
 import type { useAppSession } from './useAppSession';
+import type { NoticeMessage } from './notices';
 import { HomeScreen } from '../features/home/HomeScreen';
 import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
 import { AllItemsScreen } from '../features/items/AllItemsScreen';
@@ -28,7 +30,7 @@ type Props = {
   inviteToken: string | null;
   allItemsVisit: number;
   transitioned: { current: boolean };
-  homeNotice: MessageKey | null;
+  homeNotice: NoticeMessage | null;
   onDismissNotice: () => void;
   onContinuePending: () => void;
   navigation: ReturnType<typeof useAppNavigation>;
@@ -56,6 +58,17 @@ export function SignedInApp(props: Props) {
     setAnnouncement(t('household.menu.switched', { name }));
     sessionActions.signedIn(next);
   };
+  /**
+   * The viewer's own membership is gone. The server has already moved their default membership, so a fresh session
+   * read — not the one this screen booted with — decides where Home opens next. When even that read fails, re-boot
+   * from the server instead of trusting a household that may no longer be theirs.
+   */
+  const selfLeft = async (household: string, alreadyGone: boolean) => {
+    const result = await fetchSession();
+    if (result.kind === 'signedIn') { sessionActions.householdLeft(result.session, household, alreadyGone); return; }
+    if (result.kind === 'signedOut') { sessionActions.sessionEnded(); return; }
+    sessionActions.retry();
+  };
   if (route.kind === 'invite') return renderInvite(props);
   // The bar's household requests live here, above every screen, so a switch is still adopted when the menu that
   // asked for it was replaced on the way. The key restarts them with the new session: the list read for the account
@@ -68,7 +81,7 @@ export function SignedInApp(props: Props) {
     >
       {route.kind === 'notFound'
         ? renderNotFound(props, householdId ?? null, navigationActions)
-        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions)}
+        : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions, selfLeft)}
     </HouseholdSwitchProvider>
     {/* WCAG 4.1.3: one polite host sits beside the screens and never remounts, so a switch is spoken once Home has
         taken over. It carries no status role, so it never competes with the screen's own mutation notice. */}
@@ -147,17 +160,19 @@ function renderHouseholdRecords(props: Props, householdId: string) {
 }
 
 /** The destination screen for the current route; every household route falls back to Home without a household. */
-function renderRouteScreen(props: Props, householdId: string | null) {
+function renderRouteScreen(props: Props, householdId: string | null, onSelfLeft: (household: string, alreadyGone: boolean) => void) {
   const { route, session, navigation, sessionActions } = props;
   if (route.kind === 'account') {
     return <AccountScreen
       session={session}
       onSessionChanged={sessionActions.updateSession}
       onSignedOut={sessionActions.sessionEnded}
+      onSelfLeft={onSelfLeft}
     />;
   }
   if (route.kind === 'admin' && householdId) {
-    return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login} onSignedOut={sessionActions.sessionEnded} />;
+    return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login}
+      onSignedOut={sessionActions.sessionEnded} onSelfLeft={onSelfLeft} />;
   }
   const records = householdId ? renderHouseholdRecords(props, householdId) : null;
   if (records) return records;
@@ -182,6 +197,7 @@ function renderHouseholdScreens(
   householdId: string | null,
   navRoute: ReturnType<typeof householdNavRoute>,
   navigationActions: NavigationActions,
+  onSelfLeft: (household: string, alreadyGone: boolean) => void,
 ) {
   const { sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
@@ -190,7 +206,7 @@ function renderHouseholdScreens(
         route: navRoute, actions: navigationActions, household: Boolean(householdId),
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
       }}>
-        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId)}</ScreenTransitionContext>
+        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId, onSelfLeft)}</ScreenTransitionContext>
       </HouseholdNavigationContext>
     </HouseholdDataProvider>
   </SignOutContext>;

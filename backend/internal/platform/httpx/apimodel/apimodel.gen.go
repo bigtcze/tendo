@@ -1120,6 +1120,9 @@ type Household struct {
 	// Timezone Named IANA timezone.
 	Timezone string `json:"timezone"`
 
+	// ViewerMembershipVersion The caller's strong membership version for this household, read with the household. A plain member quotes it as If-Match when leaving; a navigation hint only, because every mutation re-checks the version and the caller's authority.
+	ViewerMembershipVersion int64 `json:"viewerMembershipVersion"`
+
 	// ViewerRole The caller's membership role in this household. A navigation hint only; admin operations always re-authorize.
 	ViewerRole MemberRole `json:"viewerRole"`
 }
@@ -1887,6 +1890,15 @@ type ListHouseholdAccountsParams struct {
 
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// RemoveHouseholdAccountParams defines parameters for RemoveHouseholdAccount.
+type RemoveHouseholdAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+	IfMatch string `json:"If-Match"`
 }
 
 // GetHouseholdAccountParams defines parameters for GetHouseholdAccount.

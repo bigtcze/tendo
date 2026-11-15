@@ -16,13 +16,14 @@ import (
 )
 
 type accountsFake struct {
-	items    []household.Account
-	next     string
-	account  household.Account
-	err      error
-	lastRole string
-	lastExp  int64
-	calls    int
+	items       []household.Account
+	next        string
+	account     household.Account
+	err         error
+	lastRole    string
+	lastExp     int64
+	lastRemoved string
+	calls       int
 }
 
 func (f *accountsFake) ListAccounts(_ context.Context, _, _, cursor string, _ int) ([]household.Account, string, error) {
@@ -40,6 +41,11 @@ func (f *accountsFake) ChangeRole(_ context.Context, _, _, _, role string, expec
 	f.calls++
 	f.lastRole, f.lastExp = role, expected
 	return f.account, f.err
+}
+func (f *accountsFake) RemoveMember(_ context.Context, _, _, target string, expected int64) error {
+	f.calls++
+	f.lastRemoved, f.lastExp = target, expected
+	return f.err
 }
 
 func accountsRouter(service accountService, userID string, ok bool) *chi.Mux {

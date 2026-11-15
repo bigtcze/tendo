@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { MessageKey } from '../i18n';
+import type { NoticeMessage } from './notices';
 import type { Session } from '../features/auth/sessionApi';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { clearPendingItemCreates } from '../features/items/pendingItemCreate';
@@ -19,6 +20,20 @@ function preserveInviteHistoryEntry(): void {
   window.history.replaceState(typeof inviteVisit === 'string' ? { inviteVisit } : null, '', INVITE_PATH);
 }
 
+/** Every membership change lands on Home, with the transition recorded so the fresh screen fades in. */
+function enterHome(transitionedRef: RefObject<boolean>, setRoute: Dispatch<SetStateAction<Route>>): void {
+  transitionedRef.current = true;
+  if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+  setRoute({ kind: 'home' });
+}
+
+/** Leaving and being removed read differently; so does having a household left and having none. */
+function leftNoticeKey(remaining: boolean, alreadyGone: boolean): MessageKey {
+  return alreadyGone
+    ? (remaining ? 'home.notice.removed.households' : 'home.notice.removed.none')
+    : (remaining ? 'home.notice.left.households' : 'home.notice.left.none');
+}
+
 type Deps = {
   setRoute: Dispatch<SetStateAction<Route>>;
   transitionedRef: RefObject<boolean>;
@@ -34,6 +49,7 @@ type Deps = {
   setInviteFocusLogin: (focus: boolean) => void;
   setLoginPrefill: (login: string | null) => void;
   setPasswordResetNotice: (notice: boolean) => void;
+  setHouseholdLeftNotice: (notice: NoticeMessage | null) => void;
 };
 
 type LeaveOptions = { path: string; route?: Route; expired?: boolean; sessionEnded?: boolean };
@@ -61,7 +77,7 @@ export function useSessionTransitions(deps: Deps) {
   const {
     setRoute, transitionedRef, setOidcOutcome, entry, setState, advanceSessionGeneration,
     setAccountReadyNotice, setSessionEndedNotice, setOidcContinueExpired, setInviteFocusLogin,
-    setLoginPrefill, setPasswordResetNotice,
+    setLoginPrefill, setPasswordResetNotice, setHouseholdLeftNotice,
   } = deps;
   const { clearContinue, requestContinue, clearNotice, showNotice } = entry;
   // Latest dependencies without making every callback change identity on each render.
@@ -87,9 +103,7 @@ export function useSessionTransitions(deps: Deps) {
     advanceSessionGeneration();
     clearContinue();
     clearNotice();
-    transitionedRef.current = true;
-    window.history.replaceState(null, '', '/');
-    setRoute({ kind: 'home' });
+    enterHome(transitionedRef, setRoute);
     setOidcOutcome(null);
     setSessionEndedNotice(false);
     setAccountReadyNotice(true);
@@ -123,6 +137,19 @@ export function useSessionTransitions(deps: Deps) {
     setPasswordResetNotice(true);
   }, [leave, setLoginPrefill, setPasswordResetNotice]);
 
+  /**
+   * The viewer's own membership is gone: they left, or an administrator removed them meanwhile. The server has already
+   * moved their default membership, so the fresh session — never the old one — decides where they land: Home in a
+   * remaining household, or the no-household state when none is left. Home carries the explanation.
+   */
+  const householdLeft = useCallback((session: Session, household: string, alreadyGone = false) => {
+    const key = leftNoticeKey(Boolean(session.defaultHouseholdId), alreadyGone);
+    advanceSessionGeneration();
+    setHouseholdLeftNotice({ key, params: { household } });
+    setState({ kind: 'signedIn', session });
+    enterHome(transitionedRef, setRoute);
+  }, [advanceSessionGeneration, setHouseholdLeftNotice, setRoute, setState, transitionedRef]);
+
   const signedIn = useCallback((session: Session, notice: MessageKey | null = null) => {
     advanceSessionGeneration();
     clearContinue();
@@ -133,15 +160,13 @@ export function useSessionTransitions(deps: Deps) {
     setOidcContinueExpired(false);
     setLoginPrefill(null);
     setPasswordResetNotice(false);
-    transitionedRef.current = true;
-    if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
-    setRoute({ kind: 'home' });
+    enterHome(transitionedRef, setRoute);
     setOidcOutcome(null);
     setState({ kind: 'signedIn', session });
   }, [advanceSessionGeneration, clearContinue, setAccountReadyNotice, setOidcContinueExpired, setOidcOutcome, setRoute, setSessionEndedNotice, setState, setInviteFocusLogin, setLoginPrefill, setPasswordResetNotice, showNotice, transitionedRef]);
 
   return {
     inviteSignedOut, accountReady, signedOut, sessionEnded, pendingSignedOut, continueCancelled, continueExpired,
-    passwordResetCompleted, signedIn,
+    passwordResetCompleted, signedIn, householdLeft,
   };
 }
