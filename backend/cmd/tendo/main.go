@@ -138,6 +138,7 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	accountService := householdpostgres.AccountServiceFor(pool, identityRepository, identityRepository, passwordResetRepository, time.Now)
 	memberRemovalService := newMemberRemovalService(pool)
 	householdhttp.NewAccounts(household.NewAccountCenter(accountService, memberRemovalService), sessionHandler.RequireSession, principalID).Register(routes)
+	householdhttp.NewAdmin(newInstanceAdminCenter(pool, identityRepository, identityRepository), sessionHandler.RequireSession, principalID).Register(routes)
 	invitationRepo := identitypostgres.NewInvitationRepository(pool, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
 		return householdpostgres.MembershipServiceFor(tx, identityRepository)
 	}, memberPersonFactory)

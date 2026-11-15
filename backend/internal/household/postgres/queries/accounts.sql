@@ -18,5 +18,5 @@ RETURNING version;
 SELECT count(*) FROM household_memberships WHERE household_id=$1 AND role='admin';
 
 -- name: InsertHouseholdRoleChange :exec
-INSERT INTO household_role_changes(household_id,target_user_id,actor_user_id,previous_role,new_role,changed_at)
-VALUES($1,$2,$3,$4,$5,$6);
+INSERT INTO household_role_changes(household_id,target_user_id,actor_user_id,previous_role,new_role,changed_at,actor_authority)
+VALUES($1,$2,$3,$4,$5,$6,$7);

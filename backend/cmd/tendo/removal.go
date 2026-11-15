@@ -12,10 +12,34 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// newInstanceAdminCenter wires the instance-admin household center (ADR 0020):
+// the removal effects of ADR 0019 plus the assignment effects of the identity
+// and subject modules, all on the instance-admin transaction.
+func newInstanceAdminCenter(pool *pgxpool.Pool, logins household.LoginLookup, signIn household.SignInMethodsLookup) *household.InstanceAdminCenter {
+	repository := householdpostgres.NewInstanceAdminCenterRepository(pool, memberRemovalEffectFactories(), householdpostgres.AssignmentEffectFactories{
+		Accounts: func(tx householddb.DBTX) household.AssignableAccountLocker {
+			return identitypostgres.NewAssignmentEffects(tx)
+		},
+		Defaults: func(tx householddb.DBTX) household.AssignmentDefaultSetter {
+			return identitypostgres.NewAssignmentEffects(tx)
+		},
+		Persons: func(tx householddb.DBTX) household.AssignmentPersonProvisioner {
+			return subjectpostgres.NewMemberPersonProvisioner(tx)
+		},
+	}, func(tx householddb.DBTX) household.AccountDirectory {
+		return identitypostgres.NewAccountDirectory(tx)
+	})
+	return household.NewInstanceAdminCenter(repository, logins, signIn, time.Now)
+}
+
 // newMemberRemovalService wires each module's transactional removal effect
 // (ADR 0019) into one household-owned removal transaction.
 func newMemberRemovalService(pool *pgxpool.Pool) *household.MemberRemovalService {
-	return household.NewMemberRemovalService(householdpostgres.NewMemberRemovalRepository(pool, householdpostgres.MemberRemovalEffectFactories{
+	return household.NewMemberRemovalService(householdpostgres.NewMemberRemovalRepository(pool, memberRemovalEffectFactories()), time.Now)
+}
+
+func memberRemovalEffectFactories() householdpostgres.MemberRemovalEffectFactories {
+	return householdpostgres.MemberRemovalEffectFactories{
 		Invitations: func(tx householddb.DBTX) household.InvitationRevoker { return identitypostgres.NewRemovalEffects(tx) },
 		Items: func(tx householddb.DBTX) household.ResponsibilityReleaser {
 			return itempostgres.NewResponsibilityReleaser(tx)
@@ -29,5 +53,5 @@ func newMemberRemovalService(pool *pgxpool.Pool) *household.MemberRemovalService
 		Accounts: func(tx householddb.DBTX) household.DefaultHouseholdReassigner {
 			return identitypostgres.NewRemovalEffects(tx)
 		},
-	}), time.Now)
+	}
 }

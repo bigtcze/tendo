@@ -47,17 +47,18 @@ func (q *Queries) GetMembershipAccount(ctx context.Context, arg GetMembershipAcc
 }
 
 const insertHouseholdRoleChange = `-- name: InsertHouseholdRoleChange :exec
-INSERT INTO household_role_changes(household_id,target_user_id,actor_user_id,previous_role,new_role,changed_at)
-VALUES($1,$2,$3,$4,$5,$6)
+INSERT INTO household_role_changes(household_id,target_user_id,actor_user_id,previous_role,new_role,changed_at,actor_authority)
+VALUES($1,$2,$3,$4,$5,$6,$7)
 `
 
 type InsertHouseholdRoleChangeParams struct {
-	HouseholdID  pgtype.UUID
-	TargetUserID pgtype.UUID
-	ActorUserID  pgtype.UUID
-	PreviousRole string
-	NewRole      string
-	ChangedAt    pgtype.Timestamptz
+	HouseholdID    pgtype.UUID
+	TargetUserID   pgtype.UUID
+	ActorUserID    pgtype.UUID
+	PreviousRole   string
+	NewRole        string
+	ChangedAt      pgtype.Timestamptz
+	ActorAuthority string
 }
 
 func (q *Queries) InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error {
@@ -68,6 +69,7 @@ func (q *Queries) InsertHouseholdRoleChange(ctx context.Context, arg InsertHouse
 		arg.PreviousRole,
 		arg.NewRole,
 		arg.ChangedAt,
+		arg.ActorAuthority,
 	)
 	return err
 }

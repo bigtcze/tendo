@@ -153,7 +153,8 @@ func (t *accountTx) RecordRoleChange(ctx context.Context, change household.RoleC
 	return t.q.InsertHouseholdRoleChange(ctx, dbgen.InsertHouseholdRoleChangeParams{
 		HouseholdID: house, TargetUserID: target, ActorUserID: actor,
 		PreviousRole: change.PreviousRole, NewRole: change.NewRole,
-		ChangedAt: pgtype.Timestamptz{Time: change.ChangedAt, Valid: true},
+		ChangedAt:      pgtype.Timestamptz{Time: change.ChangedAt, Valid: true},
+		ActorAuthority: change.ActorAuthority,
 	})
 }
 

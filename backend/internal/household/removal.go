@@ -14,8 +14,8 @@ const memberRemovalBudget = 5 * time.Second
 // MemberRemoval is one audited membership removal. It records who removed whom
 // and the removed membership's role, never household content.
 type MemberRemoval struct {
-	HouseholdID, TargetUserID, ActorUserID, PreviousRole string
-	RemovedAt                                            time.Time
+	HouseholdID, TargetUserID, ActorUserID, PreviousRole, ActorAuthority string
+	RemovedAt                                                            time.Time
 }
 
 // InvitationRevoker revokes the still-pending invitations of a household that
@@ -132,37 +132,39 @@ func (s *MemberRemovalService) RemoveMember(ctx context.Context, actorID, househ
 		return ErrPreconditionFailed
 	}
 	return s.repository.WithMemberRemovalTransaction(bounded, func(tx MemberRemovalTransaction, effects MemberRemovalEffects) error {
-		if err := authorizeMemberRemoval(bounded, tx, actorID, householdID, targetUserID); err != nil {
+		authority, err := authorizeMemberRemoval(bounded, tx, actorID, householdID, targetUserID)
+		if err != nil {
 			return err
 		}
-		return removeMembershipLocked(bounded, tx, effects, householdID, targetUserID, actorID, expectedVersion, s.clock)
+		return removeMembershipLocked(bounded, tx, effects, householdID, targetUserID, actorID, authority, expectedVersion, s.clock)
 	})
 }
 
 // authorizeMemberRemoval runs the household lock of the shared admin protocol
 // and re-reads the actor's role under it. An admin may remove anyone; a plain
 // member only themselves. The caller has already validated the identifiers.
-func authorizeMemberRemoval(ctx context.Context, tx MemberRemovalTransaction, actorID, householdID, targetUserID string) error {
+// It returns the authority the actor used, for the audit row.
+func authorizeMemberRemoval(ctx context.Context, tx MemberRemovalTransaction, actorID, householdID, targetUserID string) (string, error) {
 	if err := tx.LockHouseholdForMembership(ctx, actorID, householdID); err != nil {
-		return err
+		return "", err
 	}
 	role, err := tx.GetMembership(ctx, actorID, householdID)
 	if errors.Is(err, ErrNotFound) {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	switch role {
 	case RoleAdmin:
-		return nil
+		return AuthorityHouseholdAdmin, nil
 	case RoleMember:
 		if strings.EqualFold(actorID, targetUserID) {
-			return nil
+			return AuthorityHouseholdMember, nil
 		}
-		return ErrAdminRequired
+		return "", ErrAdminRequired
 	default:
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 }
 
@@ -183,9 +185,9 @@ func authorizeMemberRemoval(ctx context.Context, tx MemberRemovalTransaction, ac
 //  9. move or clear the account default;
 //  10. write the audit row.
 //
-// The function is self-contained so the future instance-admin path can reuse it
-// after its own authorization and household (or installation) lock.
-func removeMembershipLocked(ctx context.Context, tx MemberRemovalTransaction, effects MemberRemovalEffects, householdID, targetUserID, actorID string, expectedVersion int64, clock func() time.Time) error {
+// The instance-admin path (ADR 0020) reuses it after its own authorization and
+// household lock; authority records which grant the actor used.
+func removeMembershipLocked(ctx context.Context, tx MemberRemovalTransaction, effects MemberRemovalEffects, householdID, targetUserID, actorID, authority string, expectedVersion int64, clock func() time.Time) error {
 	if err := effects.Invitations.RevokePendingInvitationsCreatedBy(ctx, householdID, targetUserID); err != nil {
 		return err
 	}
@@ -207,7 +209,7 @@ func removeMembershipLocked(ctx context.Context, tx MemberRemovalTransaction, ef
 	}
 	return tx.RecordMemberRemoval(ctx, MemberRemoval{
 		HouseholdID: householdID, TargetUserID: targetUserID, ActorUserID: actorID,
-		PreviousRole: membership.Role, RemovedAt: clock().UTC(),
+		PreviousRole: membership.Role, ActorAuthority: authority, RemovedAt: clock().UTC(),
 	})
 }
 

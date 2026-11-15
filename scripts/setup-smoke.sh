@@ -731,6 +731,82 @@ assert st==201,('free account login',st)
 free_cookie={'Cookie':free_headers['Set-Cookie'].split(';',1)[0]}
 st,_,free_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':free_invite['token']},{**free_cookie,'Origin':origin})
 assert st==201 and free_accept['role']=='member',('free existing-account acceptance',st,free_accept)
+# Instance-administrator household account center (ADR 0020). The owner is the
+# only instance administrator; other_id has one plain member and no admin, so a
+# plain-member assignment is refused and an admin assignment is audited with the
+# instance-administrator authority. Runs before the member password reset.
+ADM_HOUSEHOLDS='/api/v1/admin/households'
+ADM_DIRECTORY='/api/v1/admin/accounts'
+ADM_ACCOUNTS='/api/v1/admin/households/{householdId}/accounts'
+ADM_ACCOUNT='/api/v1/admin/households/{householdId}/accounts/{userId}'
+admin_accounts_other=f'/api/v1/admin/households/{other_id}/accounts'
+def admin_account_path(user_id):
+ return admin_accounts_other+'/'+user_id
+def aareq(method,url,template,body=None,headers=None):
+ return call(method,url,template=template,body=body,headers=headers,sink=fixtures,ensure_ascii=False)[:3]
+assert psql(f"SELECT count(*)||'|'||count(*) FILTER (WHERE role='admin') FROM household_memberships WHERE household_id='{other_id}'")=='1|0','other household must start with one member and no admin'
+st,_,requires_admin=aareq('PUT',admin_account_path(member_account_id),ADM_ACCOUNT,{'role':'member'},owner_mut)
+assert st==409 and requires_admin['code']=='household_requires_admin',('plain member into admin-less household',st,requires_admin)
+assert psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{other_id}' AND user_id='{member_account_id}'")=='0','refused assignment created a membership'
+st,ah,other_assigned=aareq('PUT',admin_account_path(free_user),ADM_ACCOUNT,{'role':'admin'},owner_mut)
+assert st==201 and other_assigned['userId']==free_user and other_assigned['login']=='free_smoke' and other_assigned['role']=='admin' and ah['ETag']=='"1"' and ah['Cache-Control']=='no-store',('assign existing account as admin',st,other_assigned,dict(ah))
+assert psql(f"SELECT role||'|'||version FROM household_memberships WHERE household_id='{other_id}' AND user_id='{free_user}'")=='admin|1','assignment not persisted'
+assert psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}' AND target_user_id='{free_user}' AND actor_user_id='{owner_account_id}' AND role='admin' AND actor_authority='instance_admin'")=='1','assignment audit row'
+assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{other_id}' AND linked_user_id='{free_user}' AND type='person'")=='1','assignment member person'
+assert psql(f"SELECT default_household_id FROM user_accounts WHERE id='{free_user}'")==household,'assignment must not move an existing default household'
+st,rh,other_replay=aareq('PUT',admin_account_path(free_user),ADM_ACCOUNT,{'role':'admin'},owner_mut)
+assert st==200 and other_replay==other_assigned and rh['ETag']=='"1"',('assignment replay',st,other_replay,dict(rh))
+assert psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}' AND target_user_id='{free_user}'")=='1','assignment replay wrote an audit row'
+assert psql(f"SELECT version FROM household_memberships WHERE household_id='{other_id}' AND user_id='{free_user}'")=='1','assignment replay bumped the version'
+st,_,other_already_member=aareq('PUT',admin_account_path(free_user),ADM_ACCOUNT,{'role':'member'},owner_mut)
+assert st==409 and other_already_member['code']=='already_member',('assign another role to an existing member',st,other_already_member)
+st,_,admin_households=aareq('GET',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,headers=cookie_header)
+assert st==200 and admin_households['nextCursor'] is None and {h['id'] for h in admin_households['items']}=={household,other_id},('admin household list',st,admin_households)
+assert all({'id','name','timezone','createdAt'}<=set(h) and 'viewerRole' not in h and 'items' not in h for h in admin_households['items']),('admin household items carry no household content',admin_households)
+assert any(h['id']==other_id and h['name']=='Other' and h['timezone']=='UTC' for h in admin_households['items']),('admin household list content',admin_households)
+st,_,admin_directory=aareq('GET',ADM_DIRECTORY+'?q=free',ADM_DIRECTORY,headers=cookie_header)
+assert st==200 and admin_directory['items']==[{'userId':free_user,'login':'free_smoke'}] and admin_directory['nextCursor'] is None,('admin account directory search',st,admin_directory)
+st,_,all_directory=aareq('GET',ADM_DIRECTORY,ADM_DIRECTORY,headers=cookie_header)
+assert st==200 and {'owner_smoke','member_smoke','free_smoke'}<={a['login'] for a in all_directory['items']} and all(set(a)=={'userId','login'} for a in all_directory['items']),('admin account directory',st,all_directory)
+st,_,other_accounts=aareq('GET',admin_accounts_other,ADM_ACCOUNTS,headers=cookie_header)
+assert st==200 and other_accounts['nextCursor'] is None and {(a['login'],a['role']) for a in other_accounts['items']}=={('other_household_only','member'),('free_smoke','admin')},('admin household accounts',st,other_accounts)
+assert all({'userId','login','role','signInMethods'}<=set(a) for a in other_accounts['items']),('admin account items omit reset facts',other_accounts)
+st,gh,other_account=aareq('GET',admin_account_path(free_user),ADM_ACCOUNT,headers=cookie_header)
+assert st==200 and other_account['userId']==free_user and other_account['login']=='free_smoke' and other_account['role']=='admin' and gh['ETag']=='"1"' and gh['Cache-Control']=='no-store',('admin account read',st,other_account,dict(gh))
+st,_,missing_admin_household=aareq('GET',f'/api/v1/admin/households/{random_id}/accounts',ADM_ACCOUNTS,headers=cookie_header)
+assert st==404 and missing_admin_household['code']=='not_found',('unknown admin household',st,missing_admin_household)
+st,_,missing_admin_account=aareq('GET',f'/api/v1/admin/households/{other_id}/accounts/{random_id}',ADM_ACCOUNT,headers=cookie_header)
+assert st==404 and missing_admin_account['code']=='not_found',('unknown admin account',st,missing_admin_account)
+st,_,other_last_admin=aareq('PATCH',admin_account_path(free_user),ADM_ACCOUNT,{'role':'member'},{**owner_mut,'If-Match':'"1"'})
+assert st==409 and other_last_admin['code']=='last_admin',('sole admin of the other household',st,other_last_admin)
+assert psql(f"SELECT role FROM household_memberships WHERE household_id='{other_id}' AND user_id='{free_user}'")=='admin','last-admin rejection changed the other household role'
+st,oh,self_assigned=aareq('PUT',admin_account_path(owner_account_id),ADM_ACCOUNT,{'role':'admin'},owner_mut)
+assert st==201 and oh['ETag']=='"1"' and self_assigned['userId']==owner_account_id and self_assigned['role']=='admin',('instance administrator self-assignment',st,self_assigned,dict(oh))
+assert psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}' AND target_user_id='{owner_account_id}' AND actor_user_id='{owner_account_id}' AND actor_authority='instance_admin'")=='1','self-assignment audit row'
+st,dh,other_demoted=aareq('PATCH',admin_account_path(free_user),ADM_ACCOUNT,{'role':'member'},{**owner_mut,'If-Match':gh['ETag']})
+assert st==200 and other_demoted['role']=='member' and dh['ETag']=='"2"',('instance administrator demotes a household admin',st,other_demoted,dict(dh))
+assert psql(f"SELECT count(*)||'|'||COALESCE(min(previous_role),'')||'|'||COALESCE(min(new_role),'')||'|'||COALESCE(min(actor_authority),'') FROM household_role_changes WHERE household_id='{other_id}' AND target_user_id='{free_user}' AND actor_user_id='{owner_account_id}'")=='1|admin|member|instance_admin','instance-administrator role change audit row'
+st,_,other_removed=aareq('DELETE',admin_account_path(free_user),ADM_ACCOUNT,headers={**owner_mut,'If-Match':dh['ETag']})
+assert st==204 and other_removed is None,('instance administrator removes a membership',st,other_removed)
+assert psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{other_id}' AND user_id='{free_user}'")=='0','instance-admin removal left the membership'
+assert psql(f"SELECT count(*)||'|'||COALESCE(min(previous_role),'')||'|'||COALESCE(min(actor_authority),'') FROM household_member_removals WHERE household_id='{other_id}' AND target_user_id='{free_user}' AND actor_user_id='{owner_account_id}'")=='1|member|instance_admin','instance-administrator removal audit row'
+assert psql(f"SELECT count(*) FROM user_sessions WHERE user_id='{free_user}'")=='1','instance-admin removal must not revoke sessions'
+assert psql(f"SELECT default_household_id FROM user_accounts WHERE id='{free_user}'")==household,'instance-admin removal must keep an unrelated default household'
+other_roles_before=psql(f"SELECT string_agg(user_id::text||'|'||role||'|'||version,',' ORDER BY user_id) FROM household_memberships WHERE household_id='{other_id}'")
+other_assignments_before=psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}'")
+member_admin_routes=(
+ ('GET',ADM_HOUSEHOLDS,ADM_HOUSEHOLDS,None,None),
+ ('GET',ADM_DIRECTORY+'?q=free',ADM_DIRECTORY,None,None),
+ ('GET',admin_accounts_other,ADM_ACCOUNTS,None,None),
+ ('GET',admin_account_path(owner_account_id),ADM_ACCOUNT,None,None),
+ ('PUT',admin_account_path(free_user),ADM_ACCOUNT,{'role':'admin'},None),
+ ('PATCH',admin_account_path(owner_account_id),ADM_ACCOUNT,{'role':'member'},{'If-Match':'"1"'}),
+ ('DELETE',admin_account_path(owner_account_id),ADM_ACCOUNT,None,{'If-Match':'"1"'}),
+)
+for method,url,template,body,extra in member_admin_routes:
+ st,_,member_admin_problem=aareq(method,url,template,body,{**member_cookie,'Origin':origin,**(extra or {})})
+ assert st==403 and member_admin_problem['code']=='instance_admin_required',('member on instance-admin route',method,url,st,member_admin_problem)
+assert len(member_admin_routes)==7 and psql(f"SELECT string_agg(user_id::text||'|'||role||'|'||version,',' ORDER BY user_id) FROM household_memberships WHERE household_id='{other_id}'")==other_roles_before and psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}'")==other_assignments_before,'member requests changed instance-admin state'
 # The owner already belongs to this household; acceptance must be refused without consuming a fresh invitation.
 st,_,own_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-owner-conflict'})
 assert st==201,('owner conflict invitation',st,own_invite)
