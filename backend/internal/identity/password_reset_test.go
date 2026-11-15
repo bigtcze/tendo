@@ -267,3 +267,26 @@ func TestPasswordResetIssueAdmitsOnlyAuthorizedIssuance(t *testing.T) {
 		t.Fatalf("admitted issue error=%v", err)
 	}
 }
+
+// The actor's own ID spelled in upper case is still the actor: issue and
+// cancel both refuse it as self-targeting before any budget or link write.
+func TestPasswordResetSelfCheckIgnoresIDCase(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	actor, house := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	tx := &passwordResetTxStub{record: PasswordResetRecord{CreatedAt: now, ExpiresAt: now.Add(time.Hour)}}
+	service, err := NewPasswordResetService(&passwordResetTxRepoStub{tx: tx}, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted := 0
+	admit := func(string) bool { admitted++; return true }
+	if _, err = service.IssuePasswordResetAdmitted(context.Background(), actor, house, strings.ToUpper(actor), admit); !errors.Is(err, ErrCannotResetSelf) {
+		t.Fatalf("upper-case self issue error=%v", err)
+	}
+	if admitted != 0 {
+		t.Fatalf("self issue spent the budget %d time(s)", admitted)
+	}
+	if err = service.RevokePasswordReset(context.Background(), actor, house, strings.ToUpper(actor)); !errors.Is(err, ErrCannotResetSelf) {
+		t.Fatalf("upper-case self cancel error=%v", err)
+	}
+}

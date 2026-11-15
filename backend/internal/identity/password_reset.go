@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
@@ -134,7 +135,9 @@ func validPasswordResetToken(token string) bool {
 }
 
 // IssuePasswordReset creates a single-use link for a local-password member of
-// the household without an issuance budget. See IssuePasswordResetAdmitted.
+// the household without an issuance budget. It is a convenience for callers
+// that apply no per-target throttle (tests); the HTTP handler uses
+// IssuePasswordResetAdmitted.
 func (s *PasswordResetService) IssuePasswordReset(ctx context.Context, actorID, householdID, targetUserID string) (PasswordResetIssued, error) {
 	return s.IssuePasswordResetAdmitted(ctx, actorID, householdID, targetUserID, nil)
 }
@@ -222,7 +225,9 @@ func lockPasswordResetMember(ctx context.Context, tx PasswordResetTransaction, a
 	if e := tx.RequireAdmin(ctx, actorID, householdID); e != nil {
 		return "", e
 	}
-	if targetUserID == actorID {
+	// IDs are case-insensitive UUIDs; the URL may spell the actor's own ID in
+	// upper case.
+	if strings.EqualFold(targetUserID, actorID) {
 		return "", ErrCannotResetSelf
 	}
 	canonicalTarget, e := tx.LockPasswordResetTarget(ctx, targetUserID)

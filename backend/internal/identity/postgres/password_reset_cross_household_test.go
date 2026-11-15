@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -9,13 +10,13 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/household"
 	householdpostgres "github.com/bigtcze/tendo/backend/internal/household/postgres"
 	"github.com/bigtcze/tendo/backend/internal/identity"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // A reset link replaces an account-wide password, so it is a fact about the
 // account, not about the household it was issued through (ADR 0017
-// amendment). Every household that has the person as a member shows the
-// outstanding link, and any admin of such a household can cancel it.
+// amendment). A household shows the person's outstanding link when its issuer
+// currently administers that household, and any admin of a household the
+// person belongs to can cancel it.
 func TestPasswordResetPostgresLinkIssuedInOtherHouseholdIsVisibleAndCancellable(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, target, house := passwordResetFixture(t, ctx, admin)
@@ -188,9 +189,8 @@ func TestPasswordResetPostgresMutualResetDoesNotDeadlock(t *testing.T) {
 		close(start)
 		wg.Wait()
 		for i, e := range errs {
-			var pgErr *pgconn.PgError
-			if errors.As(e, &pgErr) || e != nil {
-				t.Fatalf("round %d side %d: %v", round, i, e)
+			if e != nil {
+				t.Fatalf("round %d side %d (deadlock=%v): %v", round, i, isDeadlockError(e), e)
 			}
 		}
 	}
@@ -252,6 +252,17 @@ func TestPasswordResetPostgresCancelRacingReissueLeavesNoLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	repository := NewPasswordResetRepository(app, passwordResetFactory, clock.now)
+	// The adapter returns the canonical account ID whatever spelling the URL
+	// used; the per-target budget is keyed by it.
+	if err := repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
+		canonical, e := tx.LockPasswordResetTarget(ctx, strings.ToUpper(target))
+		if e == nil && canonical != target {
+			t.Errorf("locked target ID=%q, want canonical %q", canonical, target)
+		}
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
 	reissueReady, reissueGo, reissueDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var reissueErr error
 	go func() {
