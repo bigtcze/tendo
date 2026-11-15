@@ -27,6 +27,54 @@ func (e AccountRole) Valid() bool {
 	}
 }
 
+// Defines values for AdminHouseholdCreateProblemCode.
+const (
+	AdminHouseholdCreateProblemCodeIdempotencyKeyReused AdminHouseholdCreateProblemCode = "idempotency_key_reused"
+	AdminHouseholdCreateProblemCodeInvalidCharacters    AdminHouseholdCreateProblemCode = "invalid_characters"
+	AdminHouseholdCreateProblemCodeInvalidIanaTimezone  AdminHouseholdCreateProblemCode = "invalid_iana_timezone"
+	AdminHouseholdCreateProblemCodeInvalidLength        AdminHouseholdCreateProblemCode = "invalid_length"
+	AdminHouseholdCreateProblemCodeInvalidReference     AdminHouseholdCreateProblemCode = "invalid_reference"
+)
+
+// Valid indicates whether the value is a known member of the AdminHouseholdCreateProblemCode enum.
+func (e AdminHouseholdCreateProblemCode) Valid() bool {
+	switch e {
+	case AdminHouseholdCreateProblemCodeIdempotencyKeyReused:
+		return true
+	case AdminHouseholdCreateProblemCodeInvalidCharacters:
+		return true
+	case AdminHouseholdCreateProblemCodeInvalidIanaTimezone:
+		return true
+	case AdminHouseholdCreateProblemCodeInvalidLength:
+		return true
+	case AdminHouseholdCreateProblemCodeInvalidReference:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminHouseholdCreateProblemField.
+const (
+	AdminHouseholdCreateProblemFieldAdminUserId AdminHouseholdCreateProblemField = "adminUserId"
+	AdminHouseholdCreateProblemFieldName        AdminHouseholdCreateProblemField = "name"
+	AdminHouseholdCreateProblemFieldTimezone    AdminHouseholdCreateProblemField = "timezone"
+)
+
+// Valid indicates whether the value is a known member of the AdminHouseholdCreateProblemField enum.
+func (e AdminHouseholdCreateProblemField) Valid() bool {
+	switch e {
+	case AdminHouseholdCreateProblemFieldAdminUserId:
+		return true
+	case AdminHouseholdCreateProblemFieldName:
+		return true
+	case AdminHouseholdCreateProblemFieldTimezone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChangePasswordValidationProblemCode.
 const (
 	ChangePasswordValidationProblemCodeIncorrect     ChangePasswordValidationProblemCode = "incorrect"
@@ -1031,6 +1079,24 @@ type AdminHousehold struct {
 	Timezone string `json:"timezone"`
 }
 
+// AdminHouseholdCreateProblem Admin household creation 422. Field validation problems carry field; idempotency_key_reused omits field.
+type AdminHouseholdCreateProblem struct {
+	Code                 AdminHouseholdCreateProblemCode   `json:"code"`
+	Detail               *string                           `json:"detail,omitempty"`
+	Field                *AdminHouseholdCreateProblemField `json:"field,omitempty"`
+	Instance             *string                           `json:"instance,omitempty"`
+	Status               int                               `json:"status"`
+	Title                string                            `json:"title"`
+	Type                 string                            `json:"type"`
+	AdditionalProperties map[string]interface{}            `json:"-"`
+}
+
+// AdminHouseholdCreateProblemCode defines model for AdminHouseholdCreateProblem.Code.
+type AdminHouseholdCreateProblemCode string
+
+// AdminHouseholdCreateProblemField defines model for AdminHouseholdCreateProblem.Field.
+type AdminHouseholdCreateProblemField string
+
 // AdminHouseholdList defines model for AdminHouseholdList.
 type AdminHouseholdList struct {
 	Items []AdminHousehold `json:"items"`
@@ -1101,6 +1167,18 @@ type CompletionProblem struct {
 
 // CompletionProblemField defines model for CompletionProblem.Field.
 type CompletionProblemField string
+
+// CreateAdminHouseholdRequest defines model for CreateAdminHouseholdRequest.
+type CreateAdminHouseholdRequest struct {
+	// AdminUserId userId of an existing installation account that becomes the household's first admin. A malformed identifier is 422 invalid_reference with field adminUserId; an unknown or inaccessible account is 503.
+	AdminUserId string `json:"adminUserId"`
+
+	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Invalid values are 422 invalid_length or invalid_characters with field name.
+	Name string `json:"name"`
+
+	// Timezone Named IANA timezone, at most 128 characters. An unknown name is 422 invalid_iana_timezone with field timezone.
+	Timezone string `json:"timezone"`
+}
 
 // CreateCompletionRequest defines model for CreateCompletionRequest.
 type CreateCompletionRequest struct {
@@ -1839,6 +1917,21 @@ type ListAdminHouseholdsParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// CreateAdminHouseholdParams defines parameters for CreateAdminHousehold.
+type CreateAdminHouseholdParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IdempotencyKey Case-sensitive visible ASCII key, 1–128 bytes. Reuse the same key only for retries of the same create intent.
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// GetAdminHouseholdParams defines parameters for GetAdminHousehold.
+type GetAdminHouseholdParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // ListAdminHouseholdAccountsParams defines parameters for ListAdminHouseholdAccounts.
 type ListAdminHouseholdAccountsParams struct {
 	// Limit Maximum number of items per page.
@@ -2334,6 +2427,9 @@ type GetReadinessParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// CreateAdminHouseholdJSONRequestBody defines body for CreateAdminHousehold for application/json ContentType.
+type CreateAdminHouseholdJSONRequestBody = CreateAdminHouseholdRequest
+
 // UpdateAdminHouseholdAccountRoleJSONRequestBody defines body for UpdateAdminHouseholdAccountRole for application/json ContentType.
 type UpdateAdminHouseholdAccountRoleJSONRequestBody = UpdateAccountRoleRequest
 
@@ -2396,6 +2492,156 @@ type UpdateSessionJSONRequestBody = UpdateSessionRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// Getter for additional properties for AdminHouseholdCreateProblem. Returns the specified
+// element and whether it was found
+func (a AdminHouseholdCreateProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for AdminHouseholdCreateProblem
+func (a *AdminHouseholdCreateProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for AdminHouseholdCreateProblem to handle AdditionalProperties
+func (a *AdminHouseholdCreateProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for AdminHouseholdCreateProblem to handle AdditionalProperties
+func (a AdminHouseholdCreateProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	if a.Field != nil {
+		object["field"], err = json.Marshal(a.Field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'field': %w", err)
+		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for ChangePasswordValidationProblem. Returns the specified
 // element and whether it was found

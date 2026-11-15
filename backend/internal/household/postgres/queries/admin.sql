@@ -29,3 +29,26 @@ RETURNING version;
 -- name: InsertHouseholdMemberAssignment :exec
 INSERT INTO household_member_assignments(household_id,target_user_id,actor_user_id,role,actor_authority,assigned_at)
 VALUES($1,$2,$3,$4,$5,$6);
+
+-- name: InsertHousehold :one
+-- The instance administrator creates the household empty and inserts its first
+-- membership in the same transaction, so the at-least-one-admin invariant holds
+-- from the first commit (ADR 0021).
+INSERT INTO households(name, timezone, created_at) VALUES($1, $2, $3)
+RETURNING id::text AS id, name, timezone, created_at, version;
+
+-- name: InsertHouseholdCreation :exec
+-- Scoped to (actor, key) for the installation. A concurrent duplicate creates
+-- nothing: the actor/key unique violation is the race signal (ADR 0021).
+INSERT INTO household_creations(household_id, actor_user_id, creation_key, request_fingerprint, created_at)
+VALUES($1, $2, $3, $4, $5);
+
+-- name: FindHouseholdCreation :one
+-- Replay lookup: returns the household and stored fingerprint for the actor's
+-- key. A different fingerprint means the key was reused for another intent.
+SELECT h.id::text AS id, h.name, h.timezone, h.created_at, h.version, c.request_fingerprint
+FROM household_creations c JOIN households h ON h.id = c.household_id
+WHERE c.actor_user_id = $1 AND c.creation_key = $2;
+
+-- name: GetHousehold :one
+SELECT id::text AS id, name, timezone, created_at, version FROM households WHERE id = $1;

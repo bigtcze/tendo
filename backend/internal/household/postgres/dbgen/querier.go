@@ -17,12 +17,23 @@ type Querier interface {
 	CountHouseholdAdminsExcluding(ctx context.Context, arg CountHouseholdAdminsExcludingParams) (int64, error)
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (string, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) error
+	// Replay lookup: returns the household and stored fingerprint for the actor's
+	// key. A different fingerprint means the key was reused for another intent.
+	FindHouseholdCreation(ctx context.Context, arg FindHouseholdCreationParams) (FindHouseholdCreationRow, error)
 	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
+	GetHousehold(ctx context.Context, id pgtype.UUID) (GetHouseholdRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
 	GetMembershipAccount(ctx context.Context, arg GetMembershipAccountParams) (GetMembershipAccountRow, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
 	HouseholdExists(ctx context.Context, id pgtype.UUID) (bool, error)
 	InsertAssignedMembership(ctx context.Context, arg InsertAssignedMembershipParams) (int64, error)
+	// The instance administrator creates the household empty and inserts its first
+	// membership in the same transaction, so the at-least-one-admin invariant holds
+	// from the first commit (ADR 0021).
+	InsertHousehold(ctx context.Context, arg InsertHouseholdParams) (InsertHouseholdRow, error)
+	// Scoped to (actor, key) for the installation. A concurrent duplicate creates
+	// nothing: the actor/key unique violation is the race signal (ADR 0021).
+	InsertHouseholdCreation(ctx context.Context, arg InsertHouseholdCreationParams) error
 	InsertHouseholdMemberAssignment(ctx context.Context, arg InsertHouseholdMemberAssignmentParams) error
 	InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHouseholdMemberRemovalParams) error
 	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error

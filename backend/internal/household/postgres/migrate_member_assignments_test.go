@@ -17,7 +17,7 @@ import (
 // the assignment audit table, the actor-authority columns with their CHECK
 // constraints and self-leave backfill, the directory index and the runtime
 // role privileges. The fixture is its own database, so the shared test schema
-// is untouched and left at version 25.
+// is untouched and left at the current version.
 func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	admin := migrationFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -26,10 +26,10 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 25)
+	requireSchemaVersion(t, ctx, admin, 26)
 	for _, relation := range []string{"household_member_assignments", "user_accounts_lower_login_id_idx"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
-			t.Fatalf("%s missing after migrate to 25", relation)
+			t.Fatalf("%s missing after migrate to the current version", relation)
 		}
 	}
 
@@ -146,7 +146,7 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 025 over populated version 24 schema: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 25)
+	requireSchemaVersion(t, ctx, admin, 26)
 	requireRemovalAuthority(t, ctx, admin, selfLeaveMember, "household_member")
 	requireRemovalAuthority(t, ctx, admin, adminRemoval, "household_admin")
 	requireRemovalAuthority(t, ctx, admin, selfLeaveAdmin, "household_admin")
@@ -176,7 +176,7 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("third apply of 025: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 25)
+	requireSchemaVersion(t, ctx, admin, 26)
 	requireRemovalAuthority(t, ctx, admin, selfLeaveMember, "household_member")
 	requireRemovalAuthority(t, ctx, admin, adminRemoval, "household_admin")
 	requireRemovalAuthority(t, ctx, admin, selfLeaveAdmin, "household_admin")
@@ -194,8 +194,8 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	if after := migrationInt(t, ctx, admin, `SELECT count(*) FROM tendo_schema_migrations`); after != before {
 		t.Fatalf("ledger rows %d->%d after repeated Up", before, after)
 	}
-	if after := migrationInt(t, ctx, admin, `SELECT max(version) FROM tendo_schema_migrations`); after != beforeVersion || after != 25 {
-		t.Fatalf("ledger version=%d want 25", after)
+	if after := migrationInt(t, ctx, admin, `SELECT max(version) FROM tendo_schema_migrations`); after != beforeVersion || after != 26 {
+		t.Fatalf("ledger version=%d want 26", after)
 	}
 }
 

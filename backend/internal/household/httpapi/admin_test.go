@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,8 @@ type instanceAdminFake struct {
 	directory  []household.DirectoryAccount
 	accounts   []household.AdminAccount
 	account    household.AdminAccount
+	household  household.AdminHousehold
+	version    int64
 
 	calls []string
 
@@ -44,6 +47,9 @@ type instanceAdminFake struct {
 	lastSearch    string
 	lastCursor    string
 	lastRole      string
+	lastKey       string
+	lastName      string
+	lastTimezone  string
 	lastLimit     int
 	lastExpected  int64
 }
@@ -60,6 +66,18 @@ func (f *instanceAdminFake) ListHouseholds(_ context.Context, _ string, cursor s
 	f.record("ListHouseholds")
 	f.lastCursor, f.lastLimit = cursor, limit
 	return f.households, f.next, f.err
+}
+
+func (f *instanceAdminFake) CreateHousehold(_ context.Context, _ string, key, name, timezone, adminUserID string) (household.AdminHousehold, int64, error) {
+	f.record("CreateHousehold")
+	f.lastKey, f.lastName, f.lastTimezone, f.lastTarget = key, name, timezone, adminUserID
+	return f.household, f.version, f.err
+}
+
+func (f *instanceAdminFake) GetHousehold(_ context.Context, _ string, householdID string) (household.AdminHousehold, int64, error) {
+	f.record("GetHousehold")
+	f.lastHousehold = householdID
+	return f.household, f.version, f.err
 }
 
 func (f *instanceAdminFake) ListDirectory(_ context.Context, _ string, search, cursor string, limit int) ([]household.DirectoryAccount, string, error) {
@@ -129,6 +147,8 @@ type adminRequest struct {
 func adminRequests() []adminRequest {
 	return []adminRequest{
 		{name: "list households", method: http.MethodGet, target: "/api/v1/admin/households"},
+		{name: "create household", method: http.MethodPost, target: "/api/v1/admin/households", body: `{"name":"Home","timezone":"Europe/Prague","adminUserId":"` + adminTargetUserID + `"}`, headers: map[string]string{"Idempotency-Key": "admin-create"}},
+		{name: "get household", method: http.MethodGet, target: "/api/v1/admin/households/" + adminHouseholdID},
 		{name: "list directory", method: http.MethodGet, target: "/api/v1/admin/accounts"},
 		{name: "list accounts", method: http.MethodGet, target: "/api/v1/admin/households/" + adminHouseholdID + "/accounts"},
 		{name: "get account", method: http.MethodGet, target: adminAccountPath},
@@ -237,6 +257,8 @@ func TestAdminRoutesRequirePrincipalContext(t *testing.T) {
 func TestAdminRoutesInstanceAdminGatePrecedesValidation(t *testing.T) {
 	for _, tc := range []adminRequest{
 		{name: "list households bad cursor and limit", method: http.MethodGet, target: "/api/v1/admin/households?cursor=bad&limit=0"},
+		{name: "create household invalid key and body", method: http.MethodPost, target: "/api/v1/admin/households", body: `{"name":`, headers: map[string]string{"Idempotency-Key": " "}},
+		{name: "get household malformed id", method: http.MethodGet, target: "/api/v1/admin/households/not-a-uuid"},
 		{name: "list directory repeated q", method: http.MethodGet, target: "/api/v1/admin/accounts?q=a&q=b"},
 		{name: "list accounts malformed id and oversized limit", method: http.MethodGet, target: "/api/v1/admin/households/not-a-uuid/accounts?limit=500"},
 		{name: "get account malformed ids", method: http.MethodGet, target: "/api/v1/admin/households/not-a-uuid/accounts/not-a-uuid"},
@@ -536,4 +558,150 @@ func TestAdminListDirectorySearchAndPaging(t *testing.T) {
 		t.Fatalf("parameter=%v body=%s", problem["parameter"], w.Body)
 	}
 	requireCalls(t, service, "RequireInstanceAdmin")
+}
+
+func TestAdminCreateHouseholdStatusLocationAndETag(t *testing.T) {
+	created := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	service := &instanceAdminFake{
+		household: household.AdminHousehold{ID: adminHouseholdID, Name: "Veselí", Timezone: "Europe/Prague", CreatedAt: created.In(time.FixedZone("UTC+2", 2*60*60))},
+		version:   1,
+	}
+	body := `{"name":"  Veselí  ","timezone":"Europe/Prague","adminUserId":"` + adminTargetUserID + `"}`
+	w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", body,
+		map[string]string{"Idempotency-Key": "create-key"})
+	requireStatus(t, w, http.StatusCreated)
+	if got := w.Header().Get("Location"); got != "/api/v1/admin/households/"+adminHouseholdID {
+		t.Fatalf("location=%q body=%s", got, w.Body)
+	}
+	if got := w.Header().Get("ETag"); got != `"1"` {
+		t.Fatalf("etag=%q body=%s", got, w.Body)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content-type=%q", got)
+	}
+	var got apimodel.AdminHousehold
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := apimodel.AdminHousehold{Id: adminHouseholdID, Name: "Veselí", Timezone: "Europe/Prague", CreatedAt: created}
+	if !equalJSON(got, want) {
+		t.Fatalf("body=%s", w.Body)
+	}
+	if got.CreatedAt.Location() != time.UTC {
+		t.Fatalf("createdAt=%s", got.CreatedAt)
+	}
+	if keys := jsonKeys(t, w.Body.Bytes()); !slices.Equal(keys, []string{"createdAt", "id", "name", "timezone"}) {
+		t.Fatalf("keys=%v body=%s", keys, w.Body)
+	}
+	if service.lastKey != "create-key" || service.lastName != "  Veselí  " || service.lastTimezone != "Europe/Prague" || service.lastTarget != adminTargetUserID {
+		t.Fatalf("service key=%q name=%q timezone=%q admin=%q", service.lastKey, service.lastName, service.lastTimezone, service.lastTarget)
+	}
+	requireCalls(t, service, "RequireInstanceAdmin", "CreateHousehold")
+}
+
+func TestAdminCreateHouseholdIdempotencyKeyErrors(t *testing.T) {
+	body := `{"name":"Home","timezone":"Europe/Prague","adminUserId":"` + adminTargetUserID + `"}`
+	t.Run("missing", func(t *testing.T) {
+		service := &instanceAdminFake{}
+		w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", body, nil)
+		requireProblem(t, w, http.StatusBadRequest, "idempotency_key_required")
+		requireCalls(t, service, "RequireInstanceAdmin")
+	})
+	t.Run("repeated", func(t *testing.T) {
+		service := &instanceAdminFake{}
+		r := adminRouter(service, "instance-admin", true)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/households", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Add("Idempotency-Key", "one")
+		req.Header.Add("Idempotency-Key", "two")
+		r.ServeHTTP(w, req)
+		requireProblem(t, w, http.StatusBadRequest, "invalid_idempotency_key")
+		requireCalls(t, service, "RequireInstanceAdmin")
+	})
+	for _, key := range []string{" ", "", strings.Repeat("a", 129), "café"} {
+		t.Run("invalid "+key, func(t *testing.T) {
+			service := &instanceAdminFake{}
+			w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", body,
+				map[string]string{"Idempotency-Key": key})
+			requireProblem(t, w, http.StatusBadRequest, "invalid_idempotency_key")
+			requireCalls(t, service, "RequireInstanceAdmin")
+		})
+	}
+	// The key is evaluated before the body: malformed JSON with no key is a key
+	// error, and with a valid key it is a body error.
+	service := &instanceAdminFake{}
+	w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", `{"name":`,
+		map[string]string{"Idempotency-Key": "valid-key"})
+	requireProblem(t, w, http.StatusBadRequest, "invalid_request")
+	requireCalls(t, service, "RequireInstanceAdmin")
+}
+
+func TestAdminCreateHouseholdRequiredBodyFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing admin user", body: `{"name":"Home","timezone":"UTC"}`},
+		{name: "null admin user", body: `{"name":"Home","timezone":"UTC","adminUserId":null}`},
+		{name: "missing name", body: `{"timezone":"UTC","adminUserId":"` + adminTargetUserID + `"}`},
+		{name: "null timezone", body: `{"name":"Home","timezone":null,"adminUserId":"` + adminTargetUserID + `"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &instanceAdminFake{}
+			w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", tc.body,
+				map[string]string{"Idempotency-Key": "required-fields"})
+			requireProblem(t, w, http.StatusBadRequest, "invalid_request")
+			requireCalls(t, service, "RequireInstanceAdmin")
+		})
+	}
+}
+
+func TestAdminGetHouseholdBodyShape(t *testing.T) {
+	created := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	service := &instanceAdminFake{household: household.AdminHousehold{ID: adminHouseholdID, Name: "Home", Timezone: "UTC", CreatedAt: created}, version: 3}
+	w := serve(t, adminRouter(service, "instance-admin", true), http.MethodGet, "/api/v1/admin/households/"+adminHouseholdID, "", nil)
+	requireStatus(t, w, http.StatusOK)
+	if got := w.Header().Get("ETag"); got != `"3"` {
+		t.Fatalf("etag=%q body=%s", got, w.Body)
+	}
+	if keys := jsonKeys(t, w.Body.Bytes()); !slices.Equal(keys, []string{"createdAt", "id", "name", "timezone"}) {
+		t.Fatalf("keys=%v body=%s", keys, w.Body)
+	}
+	if service.lastHousehold != adminHouseholdID {
+		t.Fatalf("service household=%q", service.lastHousehold)
+	}
+	requireCalls(t, service, "RequireInstanceAdmin", "GetHousehold")
+}
+
+func TestAdminCreateHouseholdErrorMapping(t *testing.T) {
+	body := `{"name":"Home","timezone":"UTC","adminUserId":"` + adminTargetUserID + `"}`
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+		field  string
+	}{
+		{name: "name", err: &household.ValidationError{Field: "name", Code: "invalid_length"}, status: 422, code: "invalid_length", field: "name"},
+		{name: "timezone", err: &household.ValidationError{Field: "timezone", Code: "invalid_iana_timezone"}, status: 422, code: "invalid_iana_timezone", field: "timezone"},
+		{name: "admin user", err: &household.ValidationError{Field: "adminUserId", Code: "invalid_reference"}, status: 422, code: "invalid_reference", field: "adminUserId"},
+		{name: "key reused", err: household.ErrIdempotencyKeyReused, status: 422, code: "idempotency_key_reused"},
+		{name: "raced escape", err: household.ErrCreationKeyRaced, status: 503, code: "unavailable"},
+		{name: "unknown", err: errors.New("account lookup unavailable"), status: 503, code: "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &instanceAdminFake{err: tc.err}
+			w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", body,
+				map[string]string{"Idempotency-Key": "mapping-key"})
+			problem := requireProblem(t, w, tc.status, tc.code)
+			if tc.field == "" {
+				if _, present := problem["field"]; present {
+					t.Fatalf("unexpected field body=%s", w.Body)
+				}
+			} else if problem["field"] != tc.field || problem["title"] != "Validation Failed" {
+				t.Fatalf("validation body=%s", w.Body)
+			}
+		})
+	}
 }

@@ -16,6 +16,14 @@ type Household struct {
 	Version   int64
 }
 
+type HouseholdCreation struct {
+	HouseholdID        pgtype.UUID
+	ActorUserID        pgtype.UUID
+	CreationKey        string
+	RequestFingerprint []byte
+	CreatedAt          pgtype.Timestamptz
+}
+
 type HouseholdInvitation struct {
 	ID              pgtype.UUID
 	HouseholdID     pgtype.UUID

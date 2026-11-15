@@ -1575,6 +1575,55 @@ paths:
                 originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    post:
+      operationId: createAdminHousehold
+      summary: Create a household with its first administrator
+      description: 'Instance administrator only (ADR 0021). Creates a household and, in the same transaction, the admin membership of the named existing account, so the household has an administrator from its first commit. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes) scoped to the calling administrator. An identical retry returns 201 with the current household representation, the original Location and the current version ETag; reusing the key for a different name, timezone or adminUserId returns 422 idempotency_key_reused. Field validation runs in the order name, timezone, adminUserId. An unknown or inaccessible account is 503, never 404.'
+      tags: [Admin]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Case-sensitive visible ASCII key, 1–128 bytes. Reuse the same key only for retries of the same create intent.
+          schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]{1,128}$' }
+          example: household-create-0198a2f0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAdminHouseholdRequest' }
+            example: { name: Veselí, timezone: Europe/Prague, adminUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62 }
+      responses:
+        '201':
+          description: Household created, or an identical retry replaying the current representation of the original household.
+          headers:
+            Location: { description: Canonical URL of the created household., schema: { type: string, pattern: '^/api/v1/admin/households/[0-9a-fA-F-]{36}$' }, example: /api/v1/admin/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61 }
+            ETag: { description: Strong entity tag derived from the household resource version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHousehold' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, name: Veselí, timezone: Europe/Prague, createdAt: '2026-10-06T10:00:00Z' }
+        '400': { description: 'Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values for required fields, wrong value types, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, examples: { missing_key: { value: { type: 'about:blank', title: Bad Request, status: 400, code: idempotency_key_required } }, invalid_key: { value: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_idempotency_key } }, invalid_request: { value: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before the key, body or any lookup), or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'Field validation failed, or Idempotency-Key was reused for a different intent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/AdminHouseholdCreateProblem' }, examples: { validation: { value: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: name } }, key_reused: { value: { type: 'about:blank', title: Unprocessable Entity, status: 422, code: idempotency_key_reused } } } } } }
+        '503': { description: 'Persistence unavailable, or the named administrator account is unknown or inaccessible.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/admin/accounts:
     get:
       operationId: listAdminAccounts
@@ -1612,6 +1661,41 @@ paths:
                 originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/households/{householdId}:
+    get:
+      operationId: getAdminHousehold
+      summary: Read any household
+      description: 'Instance administrator only (ADR 0021); membership of the household is not required. Returns the household representation without household content. The path identifier is validated as a canonical UUID; a malformed or unknown identifier is 404. The ETag is the strong, quoted decimal household resource version.'
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminHouseholdId' }
+      responses:
+        '200':
+          description: Household.
+          headers:
+            ETag: { description: Strong entity tag derived from the household resource version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHousehold' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, name: Veselí, timezone: Europe/Prague, createdAt: '2026-10-06T10:00:00Z' }
+        '400': { description: 'Malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any household lookup), or Origin is malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404': { description: 'Household is unknown or the identifier is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/admin/households/{householdId}/accounts:
     get:
       operationId: listAdminHouseholdAccounts
@@ -2900,6 +2984,14 @@ components:
       properties:
         items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/AdminHousehold' } }
         nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
+    CreateAdminHouseholdRequest:
+      type: object
+      additionalProperties: false
+      required: [name, timezone, adminUserId]
+      properties:
+        name: { type: string, description: '1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Invalid values are 422 invalid_length or invalid_characters with field name.' }
+        timezone: { type: string, description: 'Named IANA timezone, at most 128 characters. An unknown name is 422 invalid_iana_timezone with field timezone.' }
+        adminUserId: { type: string, description: 'userId of an existing installation account that becomes the household''s first admin. A malformed identifier is 422 invalid_reference with field adminUserId; an unknown or inaccessible account is 503.' }
     DirectoryAccount:
       type: object
       additionalProperties: false
@@ -3094,6 +3186,18 @@ components:
           properties:
             field: { type: string, enum: [name, type, linkedUserId] }
             code: { type: string, enum: [invalid_characters, invalid_length, invalid_type, invalid_reference, requires_person, idempotency_key_reused] }
+          if: { properties: { code: { const: idempotency_key_reused } }, required: [code] }
+          then: { not: { required: [field] } }
+          else: { required: [field] }
+    AdminHouseholdCreateProblem:
+      description: Admin household creation 422. Field validation problems carry field; idempotency_key_reused omits field.
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [code]
+          properties:
+            field: { type: string, enum: [name, timezone, adminUserId] }
+            code: { type: string, enum: [invalid_length, invalid_characters, invalid_iana_timezone, invalid_reference, idempotency_key_reused] }
           if: { properties: { code: { const: idempotency_key_reused } }, required: [code] }
           then: { not: { required: [field] } }
           else: { required: [field] }
