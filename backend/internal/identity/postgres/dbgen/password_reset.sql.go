@@ -201,10 +201,14 @@ func (q *Queries) LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (
 }
 
 const outstandingPasswordResetsByUserIDs = `-- name: OutstandingPasswordResetsByUserIDs :many
-SELECT target_user_id::text AS user_id, created_at, expires_at
-FROM password_reset_tokens
-WHERE household_id=$1 AND target_user_id = ANY($2::uuid[])
-  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $3
+SELECT t.target_user_id::text AS user_id, t.created_at, t.expires_at
+FROM password_reset_tokens t
+WHERE t.target_user_id = ANY($2::uuid[])
+  AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > $3
+  AND EXISTS (
+    SELECT 1 FROM household_memberships a
+    WHERE a.user_id = t.created_by_user_id AND a.household_id = $1 AND a.role = 'admin'
+  )
 `
 
 type OutstandingPasswordResetsByUserIDsParams struct {
@@ -219,6 +223,10 @@ type OutstandingPasswordResetsByUserIDsRow struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
+// A link replaces the account-wide password, so it is reported whichever
+// household it was issued through, but only when its issuer currently
+// administers the household asking: any other link is void at redemption and
+// would disclose another household's activity (ADR 0017, #478).
 func (q *Queries) OutstandingPasswordResetsByUserIDs(ctx context.Context, arg OutstandingPasswordResetsByUserIDsParams) ([]OutstandingPasswordResetsByUserIDsRow, error) {
 	rows, err := q.db.Query(ctx, outstandingPasswordResetsByUserIDs, arg.HouseholdID, arg.Column2, arg.ExpiresAt)
 	if err != nil {
@@ -282,25 +290,6 @@ type RevokeOutstandingPasswordResetsForTargetParams struct {
 
 func (q *Queries) RevokeOutstandingPasswordResetsForTarget(ctx context.Context, arg RevokeOutstandingPasswordResetsForTargetParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeOutstandingPasswordResetsForTarget, arg.TargetUserID, arg.RevokedAt)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const revokeOutstandingPasswordResetsInHousehold = `-- name: RevokeOutstandingPasswordResetsInHousehold :execrows
-UPDATE password_reset_tokens SET revoked_at=$3
-WHERE household_id=$1 AND target_user_id=$2 AND used_at IS NULL AND revoked_at IS NULL
-`
-
-type RevokeOutstandingPasswordResetsInHouseholdParams struct {
-	HouseholdID  pgtype.UUID
-	TargetUserID pgtype.UUID
-	RevokedAt    pgtype.Timestamptz
-}
-
-func (q *Queries) RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, arg RevokeOutstandingPasswordResetsInHouseholdParams) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeOutstandingPasswordResetsInHousehold, arg.HouseholdID, arg.TargetUserID, arg.RevokedAt)
 	if err != nil {
 		return 0, err
 	}

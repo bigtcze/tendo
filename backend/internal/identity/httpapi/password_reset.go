@@ -28,7 +28,7 @@ var passwordResetRedeemFields = map[string]httpx.Field{
 }
 
 type passwordResetService interface {
-	IssuePasswordReset(context.Context, string, string, string) (identity.PasswordResetIssued, error)
+	IssuePasswordResetAdmitted(context.Context, string, string, string, func(string) bool) (identity.PasswordResetIssued, error)
 	RevokePasswordReset(context.Context, string, string, string) error
 	RedeemPasswordReset(context.Context, string, string) (string, error)
 }
@@ -72,14 +72,13 @@ func (h *PasswordResetHandler) issue(w http.ResponseWriter, r *http.Request) {
 		rateLimited(w)
 		return
 	}
-	if !h.targetLimit.admitAttempt(chi.URLParam(r, "userId")) {
-		rateLimited(w)
-		return
-	}
 	if _, ok = httpx.ReadObjectAllowEmpty(w, r, map[string]httpx.Field{}, passwordResetBodyLimit); !ok {
 		return
 	}
-	issued, err := h.service.IssuePasswordReset(r.Context(), actor, chi.URLParam(r, "householdId"), chi.URLParam(r, "userId"))
+	// The per-target budget is charged by the service only after the caller is
+	// authorized for this target, keyed by the canonical account ID, so
+	// refused or differently cased requests cannot exhaust a victim's budget.
+	issued, err := h.service.IssuePasswordResetAdmitted(r.Context(), actor, chi.URLParam(r, "householdId"), chi.URLParam(r, "userId"), h.targetLimit.admitAttempt)
 	if err != nil {
 		writePasswordResetError(w, err)
 		return
@@ -139,7 +138,7 @@ func writePasswordResetError(w http.ResponseWriter, err error) {
 		httpx.ProblemResponse(w, http.StatusConflict, "password_reset_not_permitted")
 	case errors.Is(err, identity.ErrNoLocalPassword):
 		httpx.ProblemResponse(w, http.StatusConflict, "no_local_password")
-	case errors.Is(err, security.ErrPasswordWorkLimit):
+	case errors.Is(err, security.ErrPasswordWorkLimit), errors.Is(err, identity.ErrPasswordResetThrottled):
 		rateLimited(w)
 	case errors.As(err, &validation):
 		httpx.ValidationProblemResponse(w, validation.Field, validation.Code)

@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,8 +141,8 @@ func (s *passwordResetTxStub) GetMembership(_ context.Context, userID, _ string)
 func (s *passwordResetTxStub) FindUserLogin(context.Context, string) (string, error) {
 	return "target_login", nil
 }
-func (s *passwordResetTxStub) LockPasswordResetTarget(context.Context, string) (string, error) {
-	return "target_login", nil
+func (s *passwordResetTxStub) LockPasswordResetTarget(_ context.Context, userID string) (string, error) {
+	return strings.ToLower(userID), nil
 }
 func (s *passwordResetTxStub) PasswordResetPermitted(context.Context, string, string) (bool, error) {
 	return !s.notPermitted, nil
@@ -150,9 +151,6 @@ func (s *passwordResetTxStub) HasLocalCredential(context.Context, string) (bool,
 	return true, nil
 }
 func (s *passwordResetTxStub) RevokeOutstandingPasswordResets(context.Context, string, time.Time) error {
-	return nil
-}
-func (s *passwordResetTxStub) RevokeOutstandingPasswordResetsInHousehold(context.Context, string, string, time.Time) error {
 	return nil
 }
 func (s *passwordResetTxStub) CreatePasswordReset(context.Context, CreatePasswordResetInput) (PasswordResetRecord, error) {
@@ -233,5 +231,39 @@ func TestPasswordResetRedeemWithoutAccountAuthorityIsInvalid(t *testing.T) {
 	}
 	if _, err = service.IssuePasswordReset(context.Background(), "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"); !errors.Is(err, ErrPasswordResetNotPermitted) {
 		t.Fatalf("issue without account authority error=%v", err)
+	}
+}
+
+// The per-target issuance budget is asked only after every authorization check
+// has passed, with the canonical account ID, so a refused caller never spends
+// a target's budget and a case-variant ID cannot open a second bucket.
+func TestPasswordResetIssueAdmitsOnlyAuthorizedIssuance(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	actor, house, target := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "0198A2F0-7C1E-7A53-9B0E-5D3F2C1A4B62"
+	tx := &passwordResetTxStub{record: PasswordResetRecord{CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, notPermitted: true}
+	service, err := NewPasswordResetService(&passwordResetTxRepoStub{tx: tx}, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	admit := func(id string) bool { asked = append(asked, id); return false }
+	if _, err = service.IssuePasswordResetAdmitted(context.Background(), actor, house, target, admit); !errors.Is(err, ErrPasswordResetNotPermitted) {
+		t.Fatalf("refused issue error=%v", err)
+	}
+	if _, err = service.IssuePasswordResetAdmitted(context.Background(), actor, house, actor, admit); !errors.Is(err, ErrCannotResetSelf) {
+		t.Fatalf("self issue error=%v", err)
+	}
+	if len(asked) != 0 {
+		t.Fatalf("refused attempts spent the budget: %v", asked)
+	}
+	tx.notPermitted = false
+	if _, err = service.IssuePasswordResetAdmitted(context.Background(), actor, house, target, admit); !errors.Is(err, ErrPasswordResetThrottled) {
+		t.Fatalf("throttled issue error=%v", err)
+	}
+	if len(asked) != 1 || asked[0] != strings.ToLower(target) {
+		t.Fatalf("budget keys=%v, want the canonical target ID once", asked)
+	}
+	if _, err = service.IssuePasswordResetAdmitted(context.Background(), actor, house, target, func(string) bool { return true }); err != nil {
+		t.Fatalf("admitted issue error=%v", err)
 	}
 }

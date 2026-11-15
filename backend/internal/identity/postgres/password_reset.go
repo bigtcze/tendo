@@ -72,9 +72,13 @@ func (r *PasswordResetRepository) FindPasswordReset(ctx context.Context, digest 
 	return findPasswordReset(ctx, identitydb.New(r.pool), digest, false)
 }
 
-// PasswordResetsByUserIDs returns the usable outstanding reset facts for the
-// Admin center. A user ID missing from the map means "no outstanding reset":
-// only rows that exist and are usable are returned.
+// PasswordResetsByUserIDs returns the outstanding reset facts for the Admin
+// center of one household. A link replaces the account-wide password, so it is
+// shown whichever household it was issued through, but only when its issuer is
+// currently an admin of this household: redemption re-checks that the issuer
+// administers every household of the target, so a link from anyone else is
+// already void and showing it would reveal another household's activity. A
+// user ID missing from the map means "no usable outstanding reset".
 func (r *PasswordResetRepository) PasswordResetsByUserIDs(ctx context.Context, householdID string, userIDs []string) (map[string]household.PasswordReset, error) {
 	var house pgtype.UUID
 	if err := house.Scan(householdID); err != nil {
@@ -134,7 +138,7 @@ func (t *passwordResetTx) LockPasswordResetTarget(ctx context.Context, userValue
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", identity.ErrNotFound
 	}
-	return row.Login, err
+	return row.ID, err
 }
 
 func (t *passwordResetTx) PasswordResetPermitted(ctx context.Context, actorValue, targetValue string) (bool, error) {
@@ -158,19 +162,6 @@ func (t *passwordResetTx) HasLocalCredential(ctx context.Context, userValue stri
 		return false, identity.ErrNotFound
 	}
 	return t.q.HasLocalCredential(ctx, user)
-}
-
-func (t *passwordResetTx) RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, householdValue, userValue string, now time.Time) error {
-	var user, house pgtype.UUID
-	if err := user.Scan(userValue); err != nil {
-		return identity.ErrNotFound
-	}
-	if err := house.Scan(householdValue); err != nil {
-		return household.ErrNotFound
-	}
-	return ignoreRows(t.q.RevokeOutstandingPasswordResetsInHousehold(ctx, identitydb.RevokeOutstandingPasswordResetsInHouseholdParams{
-		HouseholdID: house, TargetUserID: user, RevokedAt: ts(now),
-	}))
 }
 
 func ignoreRows(_ int64, err error) error { return err }

@@ -83,7 +83,8 @@ drift and one path would eventually keep a session or a reset link alive.
 - **Lock order is `user_accounts` (`FOR NO KEY UPDATE`) →
   `password_reset_tokens` → `local_credentials` → `user_sessions`, always.**
   Issuing a reset link locks the target account row first, then revokes the
-  target's previous link rows. The change and the operator reset revoke the
+  target's previous link rows; cancelling a link takes the same account-row
+  lock before revoking, so it serializes with issuance (ADR 0017). The change and the operator reset revoke the
   account's links, then take the credential row `FOR UPDATE`, then delete and
   re-insert sessions. The change takes its only lock on the account row — the
   foreign-key `KEY SHARE` — at that final session insert, not at the start: it

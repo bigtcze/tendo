@@ -448,7 +448,7 @@ export interface paths {
         post: operations["issueHouseholdAccountPasswordReset"];
         /**
          * Cancel an outstanding password reset link
-         * @description Household admin only and idempotent: 204 also when there is nothing to cancel. Self-targeting returns 409 cannot_reset_self. OIDC-only targets are accepted because there is no link to cancel.
+         * @description Household admin only and idempotent: 204 also when there is nothing to cancel. Cancels the account's outstanding link whichever household or co-admin issued it, because the link replaces the account-wide password and cancelling never grants access (ADR 0017). A cancel that overlaps a concurrent issue for the same account also revokes the link that issue creates. Self-targeting returns 409 cannot_reset_self. OIDC-only targets are accepted because there is no link to cancel.
          */
         delete: operations["revokeHouseholdAccountPasswordReset"];
         options?: never;
@@ -917,7 +917,7 @@ export interface components {
             login: string;
             role: components["schemas"]["AccountRole"];
             signInMethods: components["schemas"]["AccountSignInMethods"];
-            /** @description Outstanding admin-issued reset link for this account, or null when there is no usable link. Expired, revoked and used links are never reported. */
+            /** @description Outstanding admin-issued reset link for this account, or null when there is no usable link. A link is reported when its issuer currently administers this household, whichever household it was issued through, so co-admins see each other's links; a link from someone with no admin role here stays hidden. Only createdAt and expiresAt are exposed. Expired, revoked and used links are never reported. */
             passwordReset: components["schemas"]["AccountPasswordReset"] | null;
         };
         AccountList: {
@@ -6539,7 +6539,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Issuance rate limit exceeded: at most 10 requests per client address per minute, and at most 5 links issued for the same target account per hour. */
+            /** @description Issuance rate limit exceeded: at most 10 requests per client address per minute, and at most 5 links issued for the same target account per hour. The per-target budget counts only requests that pass every authorization check above, keyed by the account rather than by the spelling of userId, so refused requests never use up another admin's budget. Retry-After is a hint and can be shorter than the remaining per-target window. */
             429: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

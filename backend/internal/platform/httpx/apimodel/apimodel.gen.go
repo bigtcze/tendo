@@ -975,7 +975,7 @@ type AcceptInvitationRequest struct {
 type Account struct {
 	Login string `json:"login"`
 
-	// PasswordReset Outstanding admin-issued reset link for this account, or null when there is no usable link. Expired, revoked and used links are never reported.
+	// PasswordReset Outstanding admin-issued reset link for this account, or null when there is no usable link. A link is reported when its issuer currently administers this household, whichever household it was issued through, so co-admins see each other's links; a link from someone with no admin role here stays hidden. Only createdAt and expiresAt are exposed. Expired, revoked and used links are never reported.
 	PasswordReset *AccountPasswordReset `json:"passwordReset"`
 	Role          AccountRole           `json:"role"`
 	SignInMethods AccountSignInMethods  `json:"signInMethods"`
