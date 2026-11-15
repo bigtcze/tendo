@@ -63,8 +63,9 @@ describe('installation household list', () => {
     expect(second.querySelector('[data-install-household-meta]')).toHaveTextContent(/Nov 1, 2026/);
     expect(screen.getByRole('heading', { level: 2, name: 'Households' })).toBeVisible();
     expect(screen.getByRole('main')).toHaveTextContent('Every household in this installation. Open one to see who belongs to it.');
-    // Read-only: the only controls on the page are the pager's own.
-    expect(within(screen.getByRole('main')).queryAllByRole('button')).toHaveLength(0);
+    // The list's only action starts a household; the rows themselves stay plain drill-down links.
+    expect(within(screen.getByRole('main')).getAllByRole('button')).toHaveLength(1);
+    expect(within(screen.getByRole('main')).getByRole('button', { name: 'Create household' })).toBeEnabled();
   });
 
   it('says there are no households as plain muted text', async () => {

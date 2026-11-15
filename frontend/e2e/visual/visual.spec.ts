@@ -43,6 +43,14 @@ async function openAdd(page: Page, label: string) {
   await expect(dialog.getByRole('textbox').first()).toBeFocused();
   return dialog;
 }
+// The Create dialog focuses its name field after showModal; wait for it so capture()'s blur cannot race it.
+async function openCreate(page: Page) {
+  await page.getByRole('main').getByRole('button', { name: en['install.create.action'], exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel(en['install.create.name'], { exact: true })).toBeFocused();
+  return dialog;
+}
 async function captureScreen(page: Page, base: string, fullPage = false) {
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -722,6 +730,24 @@ test('Installation households and one household’s accounts with their actions'
   // The created line renders the pinned server timestamp (the test clock only drives item dates), so a baseline
   // that depends on it cannot go stale, and this assertion fails if the pin is dropped.
   await expect(ownRow).toContainText(en['install.created'].replace('{date}', 'May 14, 2026'));
+
+  // The create dialog starts a household from this list: a name, the zone its dates follow and the account that
+  // administers it. The seeded installation's directory is small and ordered by login, so the search settles on one
+  // stable account; a chosen account keeps Create enabled, which is the state this baseline shows. Cancel leaves the
+  // list exactly as it was found.
+  const createDialog = await openCreate(page);
+  await createDialog.getByLabel(en['install.create.name'], { exact: true }).fill('Created household');
+  const createSearch = createDialog.getByLabel(en['install.add.query'], { exact: true });
+  await createSearch.fill(REFERENCE_MEMBER_LOGIN);
+  await createSearch.press('Enter');
+  const createChoice = createDialog.getByRole('radio', { name: REFERENCE_MEMBER_LOGIN, exact: true });
+  await expect(createChoice).toBeVisible();
+  await createChoice.check();
+  await expect(createDialog.getByRole('button', { name: en['install.create.submit'], exact: true })).toBeEnabled();
+  await capture(page, 'admin-households-create-390', 390, 900, false);
+  await capture(page, 'admin-households-create-1440', 1440, 900, false);
+  await createDialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await darkScreen(browser, statePath, '/admin/households', 'admin-households');
 
   // The drill-down: opening a row is a plain navigation, so the heading carries the household's name.

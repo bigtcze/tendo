@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  assignAdminHouseholdAccount, changeAdminHouseholdAccountRole, listAdminDirectory, listAdminHouseholdAccounts,
-  listAdminHouseholds, readAdminHouseholdAccount, removeAdminHouseholdAccount,
+  assignAdminHouseholdAccount, changeAdminHouseholdAccountRole, createAdminHousehold, listAdminDirectory,
+  listAdminHouseholdAccounts, listAdminHouseholds, readAdminHouseholdAccount, removeAdminHouseholdAccount,
   type AdminHousehold, type AdminHouseholdAccount,
 } from './instanceAdminApi';
 import { HOUSEHOLD_ID, installFakeServer, json } from '../../test/fakeServer';
@@ -200,5 +200,55 @@ describe('installation household account actions', () => {
     await expect(assignAdminHouseholdAccount(HOUSEHOLD_ID, userId, 'member')).resolves.toEqual({ kind: 'error' });
     await expect(changeAdminHouseholdAccountRole(HOUSEHOLD_ID, userId, 'member', '"1"')).resolves.toEqual({ kind: 'error' });
     await expect(removeAdminHouseholdAccount(HOUSEHOLD_ID, userId, '"1"')).resolves.toEqual({ kind: 'error' });
+  });
+});
+
+describe('installation household creation API', () => {
+  const createPath = 'POST /api/v1/admin/households';
+  const body = { name: 'Chata', timezone: 'Europe/Prague', adminUserId: userId };
+
+  it('sends the intent with its Idempotency-Key and returns the created household', async () => {
+    const fake = installFakeServer({ [createPath]: json(201, household) });
+    await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual({ kind: 'created', household });
+    expect(fake.requests[0].headers.get('Idempotency-Key')).toBe('intent-1');
+    expect(JSON.parse(fake.requests[0].body)).toEqual(body);
+  });
+
+  it('names the field and the reason a 422 refused', async () => {
+    for (const [field, code] of [
+      ['name', 'invalid_length'],
+      ['name', 'invalid_characters'],
+      ['timezone', 'invalid_iana_timezone'],
+      ['adminUserId', 'invalid_reference'],
+    ] as const) {
+      installFakeServer({ [createPath]: json(422, { type: 'about:blank', title: 'x', status: 422, field, code }) });
+      await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual({ kind: 'invalid', field, code });
+    }
+    // A 422 whose field or code this client does not know is not a field answer: it stays a plain failure.
+    installFakeServer({ [createPath]: json(422, { status: 422, field: 'role', code: 'invalid_length' }) });
+    await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual({ kind: 'error' });
+    installFakeServer({ [createPath]: json(422, { status: 422, field: 'name', code: 'unknown_code' }) });
+    await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual({ kind: 'error' });
+  });
+
+  it('reads a reused key as its own answer rather than a field refusal', async () => {
+    installFakeServer({ [createPath]: problem(422, 'idempotency_key_reused') });
+    await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual({ kind: 'keyReused' });
+  });
+
+  it('maps every refusal and an unreachable server to the common states', async () => {
+    for (const [status, code, expected] of [
+      [401, undefined, { kind: 'unauthenticated' }],
+      [403, 'instance_admin_required', { kind: 'forbidden' }],
+      [403, 'forbidden_origin', { kind: 'rejected' }],
+      [400, 'invalid_forwarded_request', { kind: 'rejected' }],
+      [404, 'not_found', { kind: 'notFound' }],
+      [503, 'unavailable', { kind: 'error' }],
+    ] as const) {
+      installFakeServer({ [createPath]: problem(status, code) });
+      await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual(expected);
+    }
+    installFakeServer({ [createPath]: () => Promise.reject(new Error('offline')) });
+    await expect(createAdminHousehold(body, 'intent-1')).resolves.toEqual({ kind: 'error' });
   });
 });

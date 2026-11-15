@@ -14,6 +14,7 @@ import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { InstallationHouseholdsScreen } from '../features/installation/InstallationHouseholdsScreen';
 import { InstallationHouseholdScreen, type SelfChangeKind } from '../features/installation/InstallationHouseholdScreen';
+import type { AdminHousehold } from '../features/installation/instanceAdminApi';
 import { rereadInstanceAdminSession } from '../features/installation/installationSession';
 import { ScreenTransitionContext } from './Heading';
 import { HouseholdSwitchProvider } from './HouseholdSwitchProvider';
@@ -45,8 +46,9 @@ export function SignedInApp(props: Props) {
   const { route, session, navigation, sessionActions } = props;
   const { t } = useI18n();
   const [announcement, setAnnouncement] = useState('');
-  // The installation Admin center's notice about the viewer's own membership. It lives here, above the household
-  // keys, because a re-read session can move the default household and remount the screen that reported it.
+  // The installation Admin center's notice about the viewer's own membership, or about a household just created. It
+  // lives here, above the household keys, because a re-read session can move the default household and remount the
+  // screen that reported it.
   const [installHandoff, setInstallHandoff] = useState<InstallHandoff | null>(null);
   const clearInstallHandoff = useCallback(() => setInstallHandoff(null), []);
   const householdId = session.defaultHouseholdId;
@@ -238,9 +240,40 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
       });
     },
   };
+  /**
+   * A household was just created, with the viewer themselves or someone else as its first administrator. The reader
+   * lands on the new household, which carries the notice like any page the shell opens on their behalf.
+   *
+   * A first administrator who is the viewer may also have just been given their first household, so the session is
+   * read again before moving: only a fresh session can say where Home opens now, and setting the notice in the same
+   * step as the adopted session keeps it with the page even when that read remounts the subtree. Someone else's
+   * membership moves nothing about the session, so that path goes straight to the new household.
+   */
+  const onCreated = (created: AdminHousehold, asSelf: boolean) => {
+    const notice: NoticeSpec = { key: 'install.notice.created', params: { household: created.name }, tone: 'success' };
+    if (!asSelf) {
+      install.setHandoff({ householdId: created.id, notice });
+      navigation.openAdminHousehold(created.id, created.name);
+      return;
+    }
+    void rereadInstanceAdminSession({
+      viewerId: session.userId,
+      onSession: (next) => {
+        install.setHandoff({ householdId: created.id, notice });
+        sessionActions.updateSession(next);
+        navigation.openAdminHousehold(created.id, created.name);
+      },
+      onSignedOut: sessionActions.sessionEnded,
+      // A create can hand a household-less shell its first household, so a read that failed is not trusted.
+      onError: sessionActions.retry,
+      onReboot: sessionActions.retry,
+    });
+  };
   const householdList = () => <InstallationHouseholdsScreen
     {...shared}
+    viewerId={session.userId}
     onOpenHousehold={navigation.openAdminHousehold}
+    onCreated={onCreated}
   />;
   if (route.kind === 'adminHouseholds') return householdList();
   if (route.kind === 'admin') {
@@ -286,9 +319,9 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
     name={name}
     viewerId={session.userId}
     {...shared}
-    selfNotice={handoff}
+    handoffNotice={handoff}
     onSelfChange={onSelfChange}
-    onSelfNoticeDone={install.clearHandoff}
+    onHandoffDone={install.clearHandoff}
     onBack={navigation.openAdminHouseholds}
   />;
 }

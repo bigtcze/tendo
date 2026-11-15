@@ -3,13 +3,16 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { NavLink } from '../../app/NavLink';
+import { Button } from '../../components/ui/button';
 import { CursorPager } from '../../components/ui/cursor-pager';
 import { ListSkeleton } from '../../components/ui/list-skeleton';
 import { LoadError } from '../../components/ui/load-error';
 import { useI18n, type Translate } from '../../i18n';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
+import { CreateHouseholdDialog } from './CreateHouseholdDialog';
 import type { AdminHousehold } from './instanceAdminApi';
 import { InstallationOnlyAdmins } from './InstallationStates';
+import { useHouseholdCreate } from './useHouseholdCreate';
 import { useAdminHouseholdList } from './useInstanceAdminList';
 
 const ROW_LINK = [
@@ -26,14 +29,24 @@ function formatCreated(iso: string, locale: string): string {
  * shows only what a household is (name, timezone, when it was created) and never its contents, so opening one is
  * a plain drill-down, not a household switch.
  */
-export function InstallationHouseholdsScreen({ login, onSignedOut, onForbidden, onOpenHousehold }: {
+export function InstallationHouseholdsScreen({ login, viewerId, onSignedOut, onForbidden, onOpenHousehold, onCreated }: {
   login: string;
+  viewerId: string;
   onSignedOut: () => void;
   onForbidden: () => void;
   onOpenHousehold: (householdId: string, name: string) => void;
+  /** The household exists now: the shell says so and opens it, naming the viewer's own first membership honestly. */
+  onCreated: (household: AdminHousehold, asSelf: boolean) => void;
 }) {
   const { t, locale } = useI18n();
   const list = useAdminHouseholdList({ onSignedOut, onForbidden });
+  const create = useHouseholdCreate({
+    viewerId,
+    onSignedOut,
+    // An authoritative refusal says the grant hint is stale: drop the rows and let the shell re-read the session.
+    onForbidden: () => { list.markForbidden(); onForbidden(); },
+    onCreated,
+  });
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
@@ -57,13 +70,16 @@ export function InstallationHouseholdsScreen({ login, onSignedOut, onForbidden, 
         pageFailure={list.pageFailure !== null}
         onRetryPage={list.retryPage}
         onOpen={onOpenHousehold}
+        onCreate={create.start}
+        createBusy={create.busy}
         t={t}
       /> : null}
+      <CreateHouseholdDialog create={create} />
     </section>
   </Layout>;
 }
 
-function Households({ households, locale, stack, nextCursor, busy, headingRef, onPrevious, onNext, pageFailure, onRetryPage, onOpen, t }: {
+function Households({ households, locale, stack, nextCursor, busy, headingRef, onPrevious, onNext, pageFailure, onRetryPage, onOpen, onCreate, createBusy, t }: {
   households: AdminHousehold[];
   locale: string;
   stack: string[];
@@ -75,13 +91,20 @@ function Households({ households, locale, stack, nextCursor, busy, headingRef, o
   pageFailure: boolean;
   onRetryPage: () => void;
   onOpen: (householdId: string, name: string) => void;
+  onCreate: (trigger: HTMLElement) => void;
+  /** The create dialog's own work: the trigger never waits for the list reloading behind it. */
+  createBusy: boolean;
   t: Translate;
 }) {
   return <>
     <section aria-labelledby="install-households-heading" className="mt-6 sm:mt-8">
-      <h2 id="install-households-heading" ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">
-        {t('install.title')}
-      </h2>
+      {/* One primary action, on the heading's line; a phone wraps it under the title rather than squeezing both. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 id="install-households-heading" ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">
+          {t('install.title')}
+        </h2>
+        <Button disabled={createBusy} onClick={(event) => onCreate(event.currentTarget)}>{t('install.create.action')}</Button>
+      </div>
       <p className="mt-1 max-w-prose text-small text-muted">{t('install.explained')}</p>
       {households.length
         ? <ul aria-labelledby="install-households-heading" className="mt-3 divide-y divide-line border-t border-line">
