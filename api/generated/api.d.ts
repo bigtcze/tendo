@@ -473,7 +473,11 @@ export interface paths {
          */
         get: operations["listAdminHouseholds"];
         put?: never;
-        post?: never;
+        /**
+         * Create a household with its first administrator
+         * @description Instance administrator only (ADR 0021). Creates a household and, in the same transaction, the admin membership of the named existing account, so the household has an administrator from its first commit. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes) scoped to the calling administrator. An identical retry returns 201 with the original household, Location and ETag; reusing the key for a different name, timezone or adminUserId returns 422 idempotency_key_reused. Field validation runs in the order name, timezone, adminUserId. An unknown or inaccessible account is 503, never 404.
+         */
+        post: operations["createAdminHousehold"];
         delete?: never;
         options?: never;
         head?: never;
@@ -492,6 +496,26 @@ export interface paths {
          * @description Instance administrator only (ADR 0020). Returns accounts ordered by case-folded login, then identifier, optionally filtered by q: a case-insensitive literal substring of the login (wildcards have no special meaning). Only the identifier and login are returned, so an existing account can be assigned to a household.
          */
         get: operations["listAdminAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/households/{householdId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read any household
+         * @description Instance administrator only (ADR 0021); membership of the household is not required. Returns the household representation without household content. The path identifier is validated as a canonical UUID; a malformed or unknown identifier is 404. The ETag is the strong, quoted decimal household resource version.
+         */
+        get: operations["getAdminHousehold"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1040,6 +1064,14 @@ export interface components {
             /** @description Opaque cursor for the next page; null on the last page. */
             nextCursor: string | null;
         };
+        CreateAdminHouseholdRequest: {
+            /** @description 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Invalid values are 422 invalid_length or invalid_characters with field name. */
+            name: string;
+            /** @description Named IANA timezone, at most 128 characters. An unknown name is 422 invalid_iana_timezone with field timezone. */
+            timezone: string;
+            /** @description userId of an existing installation account that becomes the household's first admin. A malformed identifier is 422 invalid_reference with field adminUserId; an unknown or inaccessible account is 503. */
+            adminUserId: string;
+        };
         DirectoryAccount: {
             /** Format: uuid */
             userId: string;
@@ -1205,6 +1237,13 @@ export interface components {
             field?: "name" | "type" | "linkedUserId";
             /** @enum {string} */
             code: "invalid_characters" | "invalid_length" | "invalid_type" | "invalid_reference" | "requires_person" | "idempotency_key_reused";
+        };
+        /** @description Admin household creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
+        AdminHouseholdCreateProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field?: "name" | "timezone" | "adminUserId";
+            /** @enum {string} */
+            code: "invalid_length" | "invalid_characters" | "invalid_iana_timezone" | "invalid_reference" | "idempotency_key_reused";
         };
         /** @description Item creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
         ItemCreateProblem: components["schemas"]["Problem"] & {
@@ -7248,6 +7287,196 @@ export interface operations {
             };
         };
     };
+    createAdminHousehold: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Case-sensitive visible ASCII key, 1–128 bytes. Reuse the same key only for retries of the same create intent.
+                 * @example household-create-0198a2f0
+                 */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "name": "Veselí",
+                 *       "timezone": "Europe/Prague",
+                 *       "adminUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateAdminHouseholdRequest"];
+            };
+        };
+        responses: {
+            /** @description Household created, or an identical retry replaying the original household. */
+            201: {
+                headers: {
+                    /**
+                     * @description Canonical URL of the created household.
+                     * @example /api/v1/admin/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                     */
+                    Location?: string;
+                    /**
+                     * @description Strong entity tag derived from the household resource version.
+                     * @example "1"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *       "name": "Veselí",
+                     *       "timezone": "Europe/Prague",
+                     *       "createdAt": "2026-10-06T10:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminHousehold"];
+                };
+            };
+            /** @description Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values for required fields, wrong value types, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller does not currently hold the instance-administrator grant (checked before the key, body or any lookup), or Origin is missing, malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Field validation failed, or Idempotency-Key was reused for a different intent. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["AdminHouseholdCreateProblem"];
+                };
+            };
+            /** @description Persistence unavailable, or the named administrator account is unknown or inaccessible. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listAdminAccounts: {
         parameters: {
             query?: {
@@ -7362,6 +7591,159 @@ export interface operations {
                 };
             };
             /** @description Persistence or identity lookup unavailable, including a missing sign-in-method fact. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAdminHousehold: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. The instance-administrator grant authorizes access; membership is not required.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["AdminHouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Household. */
+            200: {
+                headers: {
+                    /**
+                     * @description Strong entity tag derived from the household resource version.
+                     * @example "1"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *       "name": "Veselí",
+                     *       "timezone": "Europe/Prague",
+                     *       "createdAt": "2026-10-06T10:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminHousehold"];
+                };
+            };
+            /** @description Malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any household lookup), or Origin is malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household is unknown or the identifier is malformed. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

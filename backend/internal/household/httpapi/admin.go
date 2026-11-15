@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
@@ -11,9 +12,17 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+var createHouseholdFields = map[string]httpx.Field{
+	"name":        {Kind: httpx.KindString, Required: true},
+	"timezone":    {Kind: httpx.KindString, Required: true},
+	"adminUserId": {Kind: httpx.KindString, Required: true},
+}
+
 type instanceAdminService interface {
 	RequireInstanceAdmin(ctx context.Context, actorID string) error
 	ListHouseholds(ctx context.Context, actorID, cursor string, limit int) ([]household.AdminHousehold, string, error)
+	CreateHousehold(ctx context.Context, actorID, key, name, timezone, adminUserID string) (household.AdminHousehold, int64, error)
+	GetHousehold(ctx context.Context, actorID, householdID string) (household.AdminHousehold, int64, error)
 	ListDirectory(ctx context.Context, actorID, search, cursor string, limit int) ([]household.DirectoryAccount, string, error)
 	ListAccounts(ctx context.Context, actorID, householdID, cursor string, limit int) ([]household.AdminAccount, string, error)
 	GetAccount(ctx context.Context, actorID, householdID, targetUserID string) (household.AdminAccount, error)
@@ -41,6 +50,8 @@ func (h *AdminHandler) Register(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(h.auth, noStore, h.requireInstanceAdmin)
 		r.Get("/api/v1/admin/households", h.listHouseholds)
+		r.Post("/api/v1/admin/households", h.createHousehold)
+		r.Get("/api/v1/admin/households/{householdId}", h.getHousehold)
 		r.Get("/api/v1/admin/accounts", h.listDirectory)
 		r.Get("/api/v1/admin/households/{householdId}/accounts", h.listAccounts)
 		r.Get("/api/v1/admin/households/{householdId}/accounts/{userId}", h.getAccount)
@@ -99,12 +110,51 @@ func (h *AdminHandler) listHouseholds(w http.ResponseWriter, r *http.Request) {
 	}
 	out := apimodel.AdminHouseholdList{Items: make([]apimodel.AdminHousehold, 0, len(households))}
 	for _, house := range households {
-		out.Items = append(out.Items, apimodel.AdminHousehold{Id: house.ID, Name: house.Name, Timezone: house.Timezone, CreatedAt: house.CreatedAt.UTC()})
+		out.Items = append(out.Items, adminHouseholdDTO(house))
 	}
 	if next != "" {
 		out.NextCursor = &next
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *AdminHandler) createHousehold(w http.ResponseWriter, r *http.Request) {
+	keys := r.Header.Values("Idempotency-Key")
+	if len(keys) == 0 {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
+		return
+	}
+	if len(keys) != 1 || !validCreationKey(keys[0]) {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
+		return
+	}
+	values, ok := httpx.ReadObject(w, r, createHouseholdFields, accountBodyLimit)
+	if !ok {
+		return
+	}
+	house, version, err := h.service.CreateHousehold(r.Context(), h.actor(r), keys[0],
+		values["name"].(string), values["timezone"].(string), values["adminUserId"].(string))
+	if err != nil {
+		writeAdminError(w, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/admin/households/"+strings.ToLower(house.ID))
+	w.Header().Set("ETag", httpx.ETag(version))
+	httpx.WriteJSON(w, http.StatusCreated, adminHouseholdDTO(house))
+}
+
+func (h *AdminHandler) getHousehold(w http.ResponseWriter, r *http.Request) {
+	house, version, err := h.service.GetHousehold(r.Context(), h.actor(r), chi.URLParam(r, "householdId"))
+	if err != nil {
+		writeAdminError(w, err)
+		return
+	}
+	w.Header().Set("ETag", httpx.ETag(version))
+	httpx.WriteJSON(w, http.StatusOK, adminHouseholdDTO(house))
+}
+
+func adminHouseholdDTO(house household.AdminHousehold) apimodel.AdminHousehold {
+	return apimodel.AdminHousehold{Id: house.ID, Name: house.Name, Timezone: house.Timezone, CreatedAt: house.CreatedAt.UTC()}
 }
 
 func (h *AdminHandler) listDirectory(w http.ResponseWriter, r *http.Request) {
@@ -224,11 +274,26 @@ func adminAccountDTO(account household.AdminAccount) apimodel.AdminAccount {
 	}
 }
 
+// validCreationKey mirrors the subject create rule: 1–128 visible ASCII bytes.
+func validCreationKey(key string) bool {
+	if len(key) < 1 || len(key) > 128 {
+		return false
+	}
+	for i := range key {
+		if key[i] < '!' || key[i] > '~' {
+			return false
+		}
+	}
+	return true
+}
+
 func writeAdminError(w http.ResponseWriter, err error) {
 	var validation *household.ValidationError
 	switch {
 	case errors.Is(err, household.ErrInstanceAdminRequired):
 		httpx.ProblemResponse(w, http.StatusForbidden, "instance_admin_required")
+	case errors.Is(err, household.ErrIdempotencyKeyReused):
+		httpx.ProblemResponse(w, http.StatusUnprocessableEntity, "idempotency_key_reused")
 	case errors.Is(err, household.ErrNotFound):
 		httpx.ProblemResponse(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, household.ErrPreconditionFailed):
