@@ -475,7 +475,7 @@ export interface paths {
         put?: never;
         /**
          * Create a household with its first administrator
-         * @description Instance administrator only (ADR 0021). Creates a household and, in the same transaction, the admin membership of the named existing account, so the household has an administrator from its first commit. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes) scoped to the calling administrator. An identical retry returns 201 with the original household, Location and ETag; reusing the key for a different name, timezone or adminUserId returns 422 idempotency_key_reused. Field validation runs in the order name, timezone, adminUserId. An unknown or inaccessible account is 503, never 404.
+         * @description Instance administrator only (ADR 0021). Creates a household and, in the same transaction, the admin membership of the named existing account, so the household has an administrator from its first commit. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes) scoped to the calling administrator. An identical retry returns 201 with the current household representation, the original Location and the current version ETag; reusing the key for a different name, timezone or adminUserId returns 422 idempotency_key_reused. Field validation runs in the order name, timezone, adminUserId. An unknown or inaccessible account is 503, never 404.
          */
         post: operations["createAdminHousehold"];
         delete?: never;
@@ -7318,7 +7318,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Household created, or an identical retry replaying the original household. */
+            /** @description Household created, or an identical retry replaying the current representation of the original household. */
             201: {
                 headers: {
                     /**
