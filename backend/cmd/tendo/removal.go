@@ -26,8 +26,10 @@ func newInstanceAdminCenter(pool *pgxpool.Pool, logins household.LoginLookup, si
 		Persons: func(tx householddb.DBTX) household.AssignmentPersonProvisioner {
 			return subjectpostgres.NewMemberPersonProvisioner(tx)
 		},
+	}, func(tx householddb.DBTX) household.AccountDirectory {
+		return identitypostgres.NewAccountDirectory(tx)
 	})
-	return household.NewInstanceAdminCenter(repository, identitypostgres.NewAccountDirectory(pool), logins, signIn, time.Now)
+	return household.NewInstanceAdminCenter(repository, logins, signIn, time.Now)
 }
 
 // newMemberRemovalService wires each module's transactional removal effect

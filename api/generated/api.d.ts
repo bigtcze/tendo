@@ -7198,7 +7198,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign. */
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -7332,7 +7332,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign. */
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -7475,7 +7475,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign. */
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -7633,7 +7633,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign. */
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

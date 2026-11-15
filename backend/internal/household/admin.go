@@ -3,6 +3,7 @@ package household
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/ids"
@@ -105,10 +106,12 @@ type AssignmentEffects struct {
 }
 
 // InstanceAdminEffects carries both effect groups an instance-admin
-// transaction may need.
+// transaction may need, plus the identity-owned account directory read on the
+// same transaction, so the directory page is read under the grant check.
 type InstanceAdminEffects struct {
 	Removal    MemberRemovalEffects
 	Assignment AssignmentEffects
+	Directory  AccountDirectory
 }
 
 // InstanceAdminTransaction is the persistence surface of the instance-admin
@@ -146,17 +149,16 @@ type InstanceAdminCenterRepository interface {
 // accounts. It never reads or returns household content.
 type InstanceAdminCenter struct {
 	repository InstanceAdminCenterRepository
-	directory  AccountDirectory
 	logins     LoginLookup
 	signIn     SignInMethodsLookup
 	clock      func() time.Time
 }
 
-func NewInstanceAdminCenter(repository InstanceAdminCenterRepository, directory AccountDirectory, logins LoginLookup, signIn SignInMethodsLookup, clock func() time.Time) *InstanceAdminCenter {
+func NewInstanceAdminCenter(repository InstanceAdminCenterRepository, logins LoginLookup, signIn SignInMethodsLookup, clock func() time.Time) *InstanceAdminCenter {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &InstanceAdminCenter{repository: repository, directory: directory, logins: logins, signIn: signIn, clock: clock}
+	return &InstanceAdminCenter{repository: repository, logins: logins, signIn: signIn, clock: clock}
 }
 
 // RequireInstanceAdmin is the transport pre-check: it lets the HTTP adapter
@@ -207,20 +209,22 @@ func (s *InstanceAdminCenter) ListHouseholds(ctx context.Context, actorID, curso
 func (s *InstanceAdminCenter) ListDirectory(ctx context.Context, actorID, search, cursor string, limit int) ([]DirectoryAccount, string, error) {
 	bounded, cancel := context.WithTimeout(ctx, instanceAdminCenterBudget)
 	defer cancel()
-	if s.directory == nil {
-		return nil, "", errors.New("account directory unavailable")
-	}
-	err := s.repository.WithInstanceAdminTransaction(bounded, func(tx InstanceAdminTransaction, _ InstanceAdminEffects) error {
-		return s.gate(bounded, tx, actorID)
+	var accounts []DirectoryAccount
+	var page DirectoryPage
+	err := s.repository.WithInstanceAdminTransaction(bounded, func(tx InstanceAdminTransaction, effects InstanceAdminEffects) error {
+		if err := s.gate(bounded, tx, actorID); err != nil {
+			return err
+		}
+		if effects.Directory == nil {
+			return errors.New("account directory unavailable")
+		}
+		var err error
+		if page, err = directoryPage(search, cursor, clampLimit(limit)); err != nil {
+			return err
+		}
+		accounts, err = effects.Directory.ListDirectoryAccounts(bounded, page)
+		return err
 	})
-	if err != nil {
-		return nil, "", err
-	}
-	page, err := directoryPage(search, cursor, clampLimit(limit))
-	if err != nil {
-		return nil, "", err
-	}
-	accounts, err := s.directory.ListDirectoryAccounts(bounded, page)
 	if err != nil {
 		return nil, "", err
 	}
@@ -308,6 +312,8 @@ func (s *InstanceAdminCenter) AssignAccount(ctx context.Context, actorID, househ
 		if !ids.IsCanonicalUUID(householdID) || !ids.IsCanonicalUUID(targetUserID) {
 			return ErrNotFound
 		}
+		// Identity facts are keyed by the stored lowercase spelling.
+		targetUserID = strings.ToLower(targetUserID)
 		if err := tx.LockHousehold(bounded, householdID); err != nil {
 			return err
 		}

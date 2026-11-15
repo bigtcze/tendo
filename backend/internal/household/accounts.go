@@ -257,7 +257,8 @@ func changeRoleLocked(ctx context.Context, tx RoleChangeTransaction, householdID
 	}); err != nil {
 		return AccountRecord{}, err
 	}
-	return AccountRecord{UserID: targetUserID, Role: role, Version: version}, nil
+	// current.UserID is the stored spelling; the caller's may differ in case.
+	return AccountRecord{UserID: current.UserID, Role: role, Version: version}, nil
 }
 
 // decorate joins identity-owned login, sign-in and outstanding-reset facts.

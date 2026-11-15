@@ -27,10 +27,11 @@ type InstanceAdminCenterRepository struct {
 	pool       accountPool
 	removal    MemberRemovalEffectFactories
 	assignment AssignmentEffectFactories
+	directory  func(dbgen.DBTX) household.AccountDirectory
 }
 
-func NewInstanceAdminCenterRepository(pool accountPool, removal MemberRemovalEffectFactories, assignment AssignmentEffectFactories) *InstanceAdminCenterRepository {
-	return &InstanceAdminCenterRepository{pool: pool, removal: removal, assignment: assignment}
+func NewInstanceAdminCenterRepository(pool accountPool, removal MemberRemovalEffectFactories, assignment AssignmentEffectFactories, directory func(dbgen.DBTX) household.AccountDirectory) *InstanceAdminCenterRepository {
+	return &InstanceAdminCenterRepository{pool: pool, removal: removal, assignment: assignment, directory: directory}
 }
 
 func (r *InstanceAdminCenterRepository) WithInstanceAdminTransaction(ctx context.Context, work func(household.InstanceAdminTransaction, household.InstanceAdminEffects) error) error {
@@ -62,6 +63,9 @@ func (r *InstanceAdminCenterRepository) effects(tx dbgen.DBTX) (household.Instan
 	if r.assignment.Accounts == nil || r.assignment.Defaults == nil || r.assignment.Persons == nil {
 		return household.InstanceAdminEffects{}, errors.New("assignment effects unavailable")
 	}
+	if r.directory == nil {
+		return household.InstanceAdminEffects{}, errors.New("account directory unavailable")
+	}
 	return household.InstanceAdminEffects{
 		Removal: removal,
 		Assignment: household.AssignmentEffects{
@@ -69,6 +73,7 @@ func (r *InstanceAdminCenterRepository) effects(tx dbgen.DBTX) (household.Instan
 			Defaults: r.assignment.Defaults(tx),
 			Persons:  r.assignment.Persons(tx),
 		},
+		Directory: r.directory(tx),
 	}, nil
 }
 

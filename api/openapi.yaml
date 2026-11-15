@@ -1565,7 +1565,7 @@ paths:
         '400': { description: 'Invalid query (invalid_query naming limit, cursor), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403':
-          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign.'
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:
@@ -1602,7 +1602,7 @@ paths:
         '400': { description: 'Invalid query (invalid_query naming limit, cursor or q), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403':
-          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign.'
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:
@@ -1635,7 +1635,7 @@ paths:
         '400': { description: 'Invalid query (invalid_query naming limit, cursor), or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403':
-          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign.'
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:
@@ -1671,7 +1671,7 @@ paths:
         '400': { description: 'Malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403':
-          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, malformed, duplicated, or foreign.'
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body, household or account lookup), or Origin is malformed, duplicated, or foreign.'
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:

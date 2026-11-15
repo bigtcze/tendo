@@ -58,12 +58,14 @@ func newAdminCenterFixture(t *testing.T, ctx context.Context, admin, app *pgxpoo
 		Persons: func(tx householddb.DBTX) household.AssignmentPersonProvisioner {
 			return subjectpostgres.NewMemberPersonProvisioner(tx)
 		},
+	}, func(tx householddb.DBTX) household.AccountDirectory {
+		return identitypostgres.NewAccountDirectory(tx)
 	})
 	identity := identitypostgres.New(app, nil)
 	return &adminCenterFixture{
 		removalFixture: newRemovalFixture(t, ctx, admin, app),
 		center: household.NewInstanceAdminCenter(
-			repository, identitypostgres.NewAccountDirectory(app), identity, identity, clock),
+			repository, identity, identity, clock),
 		accounts: AccountServiceFor(app, identity, identity, emptyResetLookup{}, clock),
 	}
 }
@@ -630,6 +632,39 @@ func TestInstanceAdminCenterAgainstPostgres(t *testing.T) {
 		}
 		f.requireMembership(house, admin, household.RoleAdmin, 1)
 		f.requireMembership(house, member, household.RoleMember, 1)
+	})
+
+	t.Run("uppercase target identifiers commit once and answer with the stored spelling", func(t *testing.T) {
+		f.prepare()
+		actor := f.newUserWithLogin("upper_admin")
+		f.grantInstanceAdmin(actor)
+		house := f.newHousehold("upper house")
+		houseAdmin := f.newUserWithLogin("upper_house_admin")
+		f.join(houseAdmin, house, household.RoleAdmin)
+		target := f.newUserWithLogin("upper_target")
+
+		assigned, created, err := f.center.AssignAccount(ctx, actor, house, strings.ToUpper(target), household.RoleMember)
+		if err != nil || !created {
+			t.Fatalf("uppercase assign created=%t err=%v", created, err)
+		}
+		if assigned.UserID != target || assigned.Login != "upper_target" || assigned.Version != 1 {
+			t.Fatalf("uppercase assign account=%+v", assigned)
+		}
+		if got := f.assignmentCount(house); got != 1 {
+			t.Fatalf("uppercase assign audit rows=%d want 1", got)
+		}
+
+		promoted, err := f.center.ChangeRole(ctx, actor, house, strings.ToUpper(target), household.RoleAdmin, 1)
+		if err != nil || promoted.UserID != target || promoted.Login != "upper_target" || promoted.Version != 2 {
+			t.Fatalf("uppercase instance-admin promote=%+v err=%v", promoted, err)
+		}
+		demoted, err := f.accounts.ChangeRole(ctx, houseAdmin, house, strings.ToUpper(target), household.RoleMember, 2)
+		if err != nil || demoted.UserID != target || demoted.Login != "upper_target" || demoted.Version != 3 {
+			t.Fatalf("uppercase household-admin demote=%+v err=%v", demoted, err)
+		}
+		if got := f.roleChangeCount(house); got != 2 {
+			t.Fatalf("uppercase role change audit rows=%d want 2", got)
+		}
 	})
 
 	t.Run("assignment validation and unknown targets are uniform", func(t *testing.T) {
