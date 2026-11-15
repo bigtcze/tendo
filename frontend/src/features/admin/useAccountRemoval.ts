@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { readAccount, readViewerMembership, removeAccount, type AccountRemoval as RemovalResult, type AccountRole } from './adminApi';
-import type { NoticeSpec } from './useRoleChange';
+import type { MembershipRead, MemberTarget, NoticeSpec } from './useRoleChange';
 
 /** One membership on its way out: enough to name it and to tell the viewer's own row from someone else's. */
-export type RemovalTarget = { userId: string; login: string; role: AccountRole };
+export type RemovalTarget = MemberTarget;
+
+export type RemovalOutcome =
+  | { kind: 'ok' }
+  | { kind: 'lastAdmin' | 'stale' | 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
 
 type Outcomes = {
-  householdId: string;
   viewerId: string;
   onSignedOut: () => void;
   onNotice: (notice: NoticeSpec) => void;
@@ -15,6 +17,10 @@ type Outcomes = {
   onForbidden: () => void;
   /** The viewer's own membership is gone; the shell reads the fresh session and opens Home. */
   onSelfLeft: (alreadyGone: boolean) => void;
+  /** A fresh membership version for the target; the caller owns which route reads it (own leave included). */
+  read: (target: RemovalTarget, self: boolean) => Promise<MembershipRead>;
+  /** Removes the membership with exactly the tag the read returned. */
+  remove: (userId: string, etag: string) => Promise<RemovalOutcome>;
 };
 
 /** The target left or was removed elsewhere: they are gone, so the screen shows what the server holds now. */
@@ -33,7 +39,7 @@ function announceReadFailure(read: { kind: 'unauthenticated' | 'forbidden' | 'no
 }
 
 /** The server's answer, spoken after the dialog closes: success reloads, a refusal explains, nothing is guessed. */
-function announceRemoval(result: RemovalResult, out: Outcomes, self: boolean, login: string): void {
+function announceRemoval(result: RemovalOutcome, out: Outcomes, self: boolean, login: string): void {
   if (result.kind === 'ok') {
     if (self) { out.onSelfLeft(false); return; }
     out.onNotice({ key: 'admin.notice.removed', params: { login }, tone: 'success' });
@@ -57,10 +63,10 @@ function announceRemoval(result: RemovalResult, out: Outcomes, self: boolean, lo
 
 /**
  * One removal, or the viewer's own leave: read a fresh membership version, quote it exactly in the
- * DELETE, and only then change anything on screen. An admin removing someone else reads that account
- * (an admin-only route); leaving reads the household's own viewerMembershipVersion, because a plain
- * member may not call the account route. Every refusal ends the dialog and speaks through the screen's
- * live region; nothing is removed locally before the server answers 204.
+ * DELETE, and only then change anything on screen. The routes are injected, so the household Admin center
+ * (which reads the household's own viewerMembershipVersion for a plain member's leave) and the installation
+ * Admin center share one state machine. Every refusal ends the dialog and speaks through the screen's live
+ * region; nothing is removed locally before the server answers 204.
  */
 export function useAccountRemoval(outcomes: Outcomes) {
   const [pending, setPending] = useState<RemovalTarget | null>(null);
@@ -101,15 +107,13 @@ export function useAccountRemoval(outcomes: Outcomes) {
       setBusy(false);
       setPending(null);
     };
-    const read = self
-      ? await readViewerMembership(out.householdId)
-      : await readAccount(out.householdId, target.userId);
+    const read = await out.read(target, self);
     if (read.kind !== 'ok') {
       finish();
       announceReadFailure(read, out, self);
       return;
     }
-    const result = await removeAccount(out.householdId, target.userId, read.etag);
+    const result = await out.remove(target.userId, read.etag);
     finish();
     announceRemoval(result, out, self, target.login);
   }

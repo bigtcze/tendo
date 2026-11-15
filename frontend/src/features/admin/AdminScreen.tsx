@@ -6,13 +6,16 @@ import { useI18n } from '../../i18n';
 import { AdminAccountList } from './AdminAccountList';
 import { AdminIntro, AdminLoadError, AdminListSkeleton, AdminOnlyAdmins, formatResetExpiry } from './AdminStates';
 import { AdminSectionSwitcher } from './AdminSectionSwitcher';
+import { changeAccountRole, readAccount, readViewerMembership, removeAccount } from './adminApi';
 import { PasswordResetDialog } from './PasswordResetDialog';
 import { RemoveAccountDialog } from './RemoveAccountDialog';
 import { RoleChangeDialog } from './RoleChangeDialog';
 import { useAccountList } from './useAccountList';
-import { useAccountRemoval } from './useAccountRemoval';
-import { usePasswordReset } from './usePasswordReset';
-import { useRoleChange, type NoticeSpec } from './useRoleChange';
+import { useAccountRemoval, type AccountRemoval } from './useAccountRemoval';
+import { usePasswordReset, type PasswordReset } from './usePasswordReset';
+import { useRoleChange, type NoticeSpec, type RoleChange } from './useRoleChange';
+
+type ChangeState = Pick<RoleChange, 'pending' | 'busy' | 'triggerRef' | 'confirm' | 'cancel'>;
 
 /**
  * Admin center. The account list itself is the authorization probe: the server decides, and a member's
@@ -34,15 +37,21 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut, onSelfL
   // An authoritative `admin_required` means the viewerRole hint may be stale (another admin demoted the viewer),
   // so re-read the household: the rail entry and the Account admin card follow the real role.
   const forbidden = () => { list.markForbidden(); household?.refresh(); };
-  const shared = {
-    householdId, onSignedOut, onNotice: setNotice, onReload: list.reload, onAccount: list.replaceAccount, onForbidden: forbidden,
-  };
-
-  const change = useRoleChange({ ...shared, viewerId, onSelfDemoted: forbidden });
-  const reset = usePasswordReset(shared);
+  // The routes are injected, so the installation Admin center reuses both state machines with its own reads.
+  const change = useRoleChange({
+    viewerId, onSignedOut, onNotice: setNotice, onReload: list.reload, onAccount: list.replaceItem,
+    onForbidden: forbidden, onSelfDemoted: forbidden,
+    read: (userId) => readAccount(householdId, userId),
+    change: (userId, role, etag) => changeAccountRole(householdId, userId, role, etag),
+  });
+  const reset = usePasswordReset({
+    householdId, onSignedOut, onNotice: setNotice, onReload: list.reload, onAccount: list.replaceItem, onForbidden: forbidden,
+  });
   const removal = useAccountRemoval({
-    householdId, onSignedOut, viewerId, onNotice: setNotice, onReload: list.reload, onForbidden: forbidden,
+    viewerId, onSignedOut, onNotice: setNotice, onReload: list.reload, onForbidden: forbidden,
     onSelfLeft: (alreadyGone) => { if (householdName !== null) onSelfLeft(householdName, alreadyGone); },
+    read: (target, self) => (self ? readViewerMembership(householdId) : readAccount(householdId, target.userId)),
+    remove: (userId, etag) => removeAccount(householdId, userId, etag),
   });
   const busy = list.busy || change.busy || reset.busy || removal.busy;
 
@@ -73,6 +82,19 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut, onSelfL
         {list.pageFailure ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retryPage} t={t} /> : null}
       </> : null}
     </section>
+    <AdminDialogs viewerId={viewerId} householdName={householdName} change={change} reset={reset} removal={removal} />
+  </Layout>;
+}
+
+/** The three dialogs this screen can open; the hooks above own every outcome they can announce. */
+function AdminDialogs({ viewerId, householdName, change, reset, removal }: {
+  viewerId: string;
+  householdName: string | null;
+  change: ChangeState;
+  reset: PasswordReset;
+  removal: AccountRemoval;
+}) {
+  return <>
     <RoleChangeDialog
       pending={change.pending}
       viewerId={viewerId}
@@ -99,5 +121,5 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut, onSelfL
       onConfirm={() => { void removal.confirm(); }}
       onCancel={removal.cancel}
     />}
-  </Layout>;
+  </>;
 }

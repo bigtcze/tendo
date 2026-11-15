@@ -1,28 +1,44 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MessageKey } from '../../i18n';
-import { changeAccountRole, readAccount, type Account, type AccountRole } from './adminApi';
+import type { AccountRole } from './adminApi';
 
 export type NoticeTone = 'neutral' | 'success';
 export type NoticeSpec = { key: MessageKey; params?: Record<string, string>; tone: NoticeTone };
-export type PendingChange = { account: Account; nextRole: AccountRole };
 
-type Outcomes = {
-  householdId: string;
+/** What a role change and a removal need to know about one membership row, in both Admin centers. */
+export type MemberTarget = { userId: string; login: string; role: AccountRole };
+export type PendingChange<A extends MemberTarget = MemberTarget> = { account: A; nextRole: AccountRole };
+
+export type MembershipRead =
+  | { kind: 'ok'; etag: string }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+export type RoleChangeOutcome<A extends MemberTarget> =
+  | { kind: 'ok'; account: A }
+  | { kind: 'lastAdmin' | 'stale' | 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+type Outcomes<A extends MemberTarget> = {
   viewerId: string;
   onSignedOut: () => void;
   onNotice: (notice: NoticeSpec) => void;
   onReload: () => void;
-  onAccount: (account: Account) => void;
+  onAccount: (account: A) => void;
   onForbidden: () => void;
   onSelfDemoted: () => void;
+  /** A fresh membership version for one target; the caller owns which route reads it. */
+  read: (userId: string) => Promise<MembershipRead>;
+  /** Applies the role with exactly the tag the read returned. */
+  change: (userId: string, role: AccountRole, etag: string) => Promise<RoleChangeOutcome<A>>;
 };
 
 /**
  * One role change: read the account for a fresh membership version, then quote it exactly in the PATCH.
- * Every outcome ends the dialog and speaks through the screen's live region; nothing changes locally on a refusal.
+ * Every outcome ends the dialog and speaks through the screen's live region; nothing changes locally on a
+ * refusal. The routes themselves are injected, so the household and the installation Admin centers share the
+ * same state machine.
  */
-export function useRoleChange(outcomes: Outcomes) {
-  const [pending, setPending] = useState<PendingChange | null>(null);
+export function useRoleChange<A extends MemberTarget = MemberTarget>(outcomes: Outcomes<A>) {
+  const [pending, setPending] = useState<PendingChange<A> | null>(null);
   const [busy, setBusy] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const busyRef = useRef(false);
@@ -37,7 +53,7 @@ export function useRoleChange(outcomes: Outcomes) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  function request(account: Account, trigger: HTMLElement) {
+  function request(account: A, trigger: HTMLElement) {
     if (busyRef.current) return;
     triggerRef.current = trigger;
     setPending({ account, nextRole: account.role === 'admin' ? 'member' : 'admin' });
@@ -50,7 +66,7 @@ export function useRoleChange(outcomes: Outcomes) {
   async function confirm() {
     if (!pending || busyRef.current) return;
     const { account, nextRole } = pending;
-    const { householdId, viewerId, onSignedOut, onNotice, onReload, onAccount, onForbidden, onSelfDemoted } = outcomesRef.current;
+    const { viewerId, onSignedOut, onNotice, onReload, onAccount, onForbidden, onSelfDemoted, read, change } = outcomesRef.current;
     busyRef.current = true;
     setBusy(true);
     const finish = () => {
@@ -60,16 +76,16 @@ export function useRoleChange(outcomes: Outcomes) {
       setPending(null);
     };
     const self = account.userId === viewerId;
-    const read = await readAccount(householdId, account.userId);
-    if (read.kind !== 'ok') {
+    const current = await read(account.userId);
+    if (current.kind !== 'ok') {
       finish();
-      if (read.kind === 'unauthenticated') onSignedOut();
-      else if (read.kind === 'forbidden') onForbidden();
-      else if (read.kind === 'notFound') { onNotice({ key: 'admin.error.noLongerMember', tone: 'neutral' }); onReload(); }
+      if (current.kind === 'unauthenticated') onSignedOut();
+      else if (current.kind === 'forbidden') onForbidden();
+      else if (current.kind === 'notFound') { onNotice({ key: 'admin.error.noLongerMember', tone: 'neutral' }); onReload(); }
       else onNotice({ key: 'admin.error.action', tone: 'neutral' });
       return;
     }
-    const result = await changeAccountRole(householdId, account.userId, nextRole, read.etag);
+    const result = await change(account.userId, nextRole, current.etag);
     finish();
     const login = account.login;
     if (result.kind === 'ok') {
@@ -97,4 +113,4 @@ export function useRoleChange(outcomes: Outcomes) {
   return { pending, busy, triggerRef, request, cancel, confirm };
 }
 
-export type RoleChange = ReturnType<typeof useRoleChange>;
+export type RoleChange = ReturnType<typeof useRoleChange<MemberTarget>>;

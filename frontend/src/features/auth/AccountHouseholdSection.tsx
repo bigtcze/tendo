@@ -4,6 +4,7 @@ import { NoticeRegion } from '../../components/ui/notice';
 import { useHouseholdData } from '../../app/HouseholdData';
 import { useI18n } from '../../i18n';
 import type { AccountRole } from '../admin/adminApi';
+import { readViewerMembership, removeAccount } from '../admin/adminApi';
 import { RemoveAccountDialog } from '../admin/RemoveAccountDialog';
 import { useAccountRemoval } from '../admin/useAccountRemoval';
 import type { NoticeSpec } from '../admin/useRoleChange';
@@ -20,7 +21,6 @@ function MembershipSection({ session, household, role, refresh, onSignedOut, onS
   const { t } = useI18n();
   const [notice, setNotice] = useState<NoticeSpec | null>(null);
   const removal = useAccountRemoval({
-    householdId: household.id,
     viewerId: session.userId,
     onSignedOut,
     onNotice: setNotice,
@@ -30,6 +30,8 @@ function MembershipSection({ session, household, role, refresh, onSignedOut, onS
       setNotice({ key: 'admin.error.action', tone: 'neutral' });
     },
     onSelfLeft: (alreadyGone) => onSelfLeft(household.name, alreadyGone),
+    read: () => readViewerMembership(household.id),
+    remove: (userId, etag) => removeAccount(household.id, userId, etag),
   });
 
   return <section aria-labelledby="account-household-heading" className="border-t border-line pt-6">
