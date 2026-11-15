@@ -137,6 +137,16 @@ type InstanceAdminTransaction interface {
 	// its version. A concurrent duplicate surfaces as ErrAlreadyMember.
 	InsertMembership(ctx context.Context, householdID, userID, role string) (int64, error)
 	RecordMemberAssignment(ctx context.Context, assignment MemberAssignment) error
+	// InsertHousehold creates the household and returns it with its version.
+	InsertHousehold(ctx context.Context, name, timezone string, createdAt time.Time) (AdminHousehold, int64, error)
+	// InsertHouseholdCreation records the actor/key replay row. A concurrent
+	// duplicate for the same actor and key surfaces as ErrCreationKeyRaced.
+	InsertHouseholdCreation(ctx context.Context, creation HouseholdCreation) error
+	// FindHouseholdCreation returns the household and stored fingerprint for an
+	// actor/key pair, or ErrNotFound when the key was never used.
+	FindHouseholdCreation(ctx context.Context, actorID, key string) (AdminHousehold, int64, []byte, error)
+	// GetHousehold reads one household and its version by ID.
+	GetHousehold(ctx context.Context, householdID string) (AdminHousehold, int64, error)
 }
 
 type InstanceAdminCenterRepository interface {
@@ -318,7 +328,7 @@ func (s *InstanceAdminCenter) AssignAccount(ctx context.Context, actorID, househ
 			return err
 		}
 		var err error
-		record, created, err = s.assignLocked(bounded, tx, effects.Assignment, householdID, targetUserID, actorID, role)
+		record, created, err = s.assignLocked(bounded, tx, effects.Assignment, householdID, targetUserID, actorID, role, s.clock().UTC())
 		return err
 	})
 	if err != nil {
@@ -336,7 +346,7 @@ func (s *InstanceAdminCenter) AssignAccount(ctx context.Context, actorID, househ
 //  3. refuse a plain-member assignment into a household without an admin;
 //  4. insert the membership, provision the member person, set the account
 //     default only when it has none, and write the audit row.
-func (s *InstanceAdminCenter) assignLocked(ctx context.Context, tx InstanceAdminTransaction, effects AssignmentEffects, householdID, targetUserID, actorID, role string) (AccountRecord, bool, error) {
+func (s *InstanceAdminCenter) assignLocked(ctx context.Context, tx InstanceAdminTransaction, effects AssignmentEffects, householdID, targetUserID, actorID, role string, now time.Time) (AccountRecord, bool, error) {
 	if effects.Accounts == nil || effects.Defaults == nil || effects.Persons == nil {
 		return AccountRecord{}, false, errors.New("assignment effects unavailable")
 	}
@@ -375,7 +385,7 @@ func (s *InstanceAdminCenter) assignLocked(ctx context.Context, tx InstanceAdmin
 	}
 	if err := tx.RecordMemberAssignment(ctx, MemberAssignment{
 		HouseholdID: householdID, TargetUserID: targetUserID, ActorUserID: actorID,
-		Role: role, ActorAuthority: AuthorityInstanceAdmin, AssignedAt: s.clock().UTC(),
+		Role: role, ActorAuthority: AuthorityInstanceAdmin, AssignedAt: now,
 	}); err != nil {
 		return AccountRecord{}, false, err
 	}
