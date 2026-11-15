@@ -11,6 +11,67 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const findHouseholdCreation = `-- name: FindHouseholdCreation :one
+SELECT h.id::text AS id, h.name, h.timezone, h.created_at, h.version, c.request_fingerprint
+FROM household_creations c JOIN households h ON h.id = c.household_id
+WHERE c.actor_user_id = $1 AND c.creation_key = $2
+`
+
+type FindHouseholdCreationParams struct {
+	ActorUserID pgtype.UUID
+	CreationKey string
+}
+
+type FindHouseholdCreationRow struct {
+	ID                 string
+	Name               string
+	Timezone           string
+	CreatedAt          pgtype.Timestamptz
+	Version            int64
+	RequestFingerprint []byte
+}
+
+// Replay lookup: returns the household and stored fingerprint for the actor's
+// key. A different fingerprint means the key was reused for another intent.
+func (q *Queries) FindHouseholdCreation(ctx context.Context, arg FindHouseholdCreationParams) (FindHouseholdCreationRow, error) {
+	row := q.db.QueryRow(ctx, findHouseholdCreation, arg.ActorUserID, arg.CreationKey)
+	var i FindHouseholdCreationRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Timezone,
+		&i.CreatedAt,
+		&i.Version,
+		&i.RequestFingerprint,
+	)
+	return i, err
+}
+
+const getHousehold = `-- name: GetHousehold :one
+SELECT id::text AS id, name, timezone, created_at, version FROM households WHERE id = $1
+`
+
+type GetHouseholdRow struct {
+	ID        string
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+	Version   int64
+}
+
+func (q *Queries) GetHousehold(ctx context.Context, id pgtype.UUID) (GetHouseholdRow, error) {
+	row := q.db.QueryRow(ctx, getHousehold, id)
+	var i GetHouseholdRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Timezone,
+		&i.CreatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const householdExists = `-- name: HouseholdExists :one
 SELECT EXISTS (SELECT 1 FROM households WHERE id=$1) AS present
 `
@@ -38,6 +99,67 @@ func (q *Queries) InsertAssignedMembership(ctx context.Context, arg InsertAssign
 	var version int64
 	err := row.Scan(&version)
 	return version, err
+}
+
+const insertHousehold = `-- name: InsertHousehold :one
+INSERT INTO households(name, timezone, created_at) VALUES($1, $2, $3)
+RETURNING id::text AS id, name, timezone, created_at, version
+`
+
+type InsertHouseholdParams struct {
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+}
+
+type InsertHouseholdRow struct {
+	ID        string
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+	Version   int64
+}
+
+// The instance administrator creates the household empty and inserts its first
+// membership in the same transaction, so the at-least-one-admin invariant holds
+// from the first commit (ADR 0021).
+func (q *Queries) InsertHousehold(ctx context.Context, arg InsertHouseholdParams) (InsertHouseholdRow, error) {
+	row := q.db.QueryRow(ctx, insertHousehold, arg.Name, arg.Timezone, arg.CreatedAt)
+	var i InsertHouseholdRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Timezone,
+		&i.CreatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const insertHouseholdCreation = `-- name: InsertHouseholdCreation :exec
+INSERT INTO household_creations(household_id, actor_user_id, creation_key, request_fingerprint, created_at)
+VALUES($1, $2, $3, $4, $5)
+`
+
+type InsertHouseholdCreationParams struct {
+	HouseholdID        pgtype.UUID
+	ActorUserID        pgtype.UUID
+	CreationKey        string
+	RequestFingerprint []byte
+	CreatedAt          pgtype.Timestamptz
+}
+
+// Scoped to (actor, key) for the installation. A concurrent duplicate creates
+// nothing: the actor/key unique violation is the race signal (ADR 0021).
+func (q *Queries) InsertHouseholdCreation(ctx context.Context, arg InsertHouseholdCreationParams) error {
+	_, err := q.db.Exec(ctx, insertHouseholdCreation,
+		arg.HouseholdID,
+		arg.ActorUserID,
+		arg.CreationKey,
+		arg.RequestFingerprint,
+		arg.CreatedAt,
+	)
+	return err
 }
 
 const insertHouseholdMemberAssignment = `-- name: InsertHouseholdMemberAssignment :exec
