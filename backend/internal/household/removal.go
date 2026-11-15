@@ -192,35 +192,11 @@ func removeMembershipLocked(ctx context.Context, tx MemberRemovalTransaction, ef
 	if err := tx.LockMemberAccount(ctx, targetUserID); err != nil {
 		return err
 	}
-	membership, version, err := tx.LockMembership(ctx, householdID, targetUserID)
-	if errors.Is(err, ErrNotFound) {
-		return ErrNotFound
-	}
+	membership, err := lockRemovableMembership(ctx, tx, householdID, targetUserID, expectedVersion)
 	if err != nil {
 		return err
 	}
-	if version != expectedVersion {
-		return ErrPreconditionFailed
-	}
-	if membership.Role != RoleAdmin && membership.Role != RoleMember {
-		return errUnavailable
-	}
-	if membership.Role == RoleAdmin {
-		remaining, err := tx.CountAdminsExcluding(ctx, householdID, targetUserID)
-		if err != nil {
-			return err
-		}
-		if remaining == 0 {
-			return ErrLastAdmin
-		}
-	}
-	if err := effects.Items.ReleaseMemberResponsibility(ctx, householdID, targetUserID); err != nil {
-		return err
-	}
-	if err := effects.Subjects.UnlinkMemberPerson(ctx, householdID, targetUserID); err != nil {
-		return err
-	}
-	if err := effects.Resets.RevokeMemberPasswordResets(ctx, householdID, targetUserID); err != nil {
+	if err := releaseMemberEffects(ctx, effects, householdID, targetUserID); err != nil {
 		return err
 	}
 	if err := tx.DeleteMembership(ctx, householdID, targetUserID); err != nil {
@@ -233,4 +209,47 @@ func removeMembershipLocked(ctx context.Context, tx MemberRemovalTransaction, ef
 		HouseholdID: householdID, TargetUserID: targetUserID, ActorUserID: actorID,
 		PreviousRole: membership.Role, RemovedAt: clock().UTC(),
 	})
+}
+
+// lockRemovableMembership performs steps 3 and 4 of removeMembershipLocked:
+// it locks the target membership, checks the expected version and refuses to
+// remove the household's last admin.
+func lockRemovableMembership(ctx context.Context, tx MemberRemovalTransaction, householdID, targetUserID string, expectedVersion int64) (MembershipRecord, error) {
+	membership, version, err := tx.LockMembership(ctx, householdID, targetUserID)
+	if errors.Is(err, ErrNotFound) {
+		return MembershipRecord{}, ErrNotFound
+	}
+	if err != nil {
+		return MembershipRecord{}, err
+	}
+	if version != expectedVersion {
+		return MembershipRecord{}, ErrPreconditionFailed
+	}
+	switch membership.Role {
+	case RoleMember:
+		return membership, nil
+	case RoleAdmin:
+		remaining, err := tx.CountAdminsExcluding(ctx, householdID, targetUserID)
+		if err != nil {
+			return MembershipRecord{}, err
+		}
+		if remaining == 0 {
+			return MembershipRecord{}, ErrLastAdmin
+		}
+		return membership, nil
+	default:
+		return MembershipRecord{}, errUnavailable
+	}
+}
+
+// releaseMemberEffects performs steps 5 to 7 of removeMembershipLocked in
+// that order.
+func releaseMemberEffects(ctx context.Context, effects MemberRemovalEffects, householdID, targetUserID string) error {
+	if err := effects.Items.ReleaseMemberResponsibility(ctx, householdID, targetUserID); err != nil {
+		return err
+	}
+	if err := effects.Subjects.UnlinkMemberPerson(ctx, householdID, targetUserID); err != nil {
+		return err
+	}
+	return effects.Resets.RevokeMemberPasswordResets(ctx, householdID, targetUserID)
 }

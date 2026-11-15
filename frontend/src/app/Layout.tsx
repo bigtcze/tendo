@@ -85,8 +85,8 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
           <BrandMark />
           {/* The switch paints only once the household is known. A default that today's caller cannot reach cannot
               occur: `user_default_membership_fk` keeps `default_household_id` pointing at one of their own
-              memberships. When membership removal lands, that work owes this bar a fallback to the membership list
-              instead of leaving it without a switcher (ADR 0015, "Consequences"). */}
+              memberships, and membership removal moves or clears the default in the same transaction (ADR 0019), so
+              the bar never needs a fallback for an unreachable default; a cleared default is the no-household state. */}
           {readyHousehold && navigation ? (
             <>
               <span aria-hidden="true" className="hidden h-5 w-px shrink-0 bg-line sm:block" />

@@ -1,14 +1,24 @@
 import { Button } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
 import { signInMethod, type Account } from './adminApi';
+import type { RemovalTarget } from './useAccountRemoval';
+
+type ResetHandlers = {
+  self: boolean;
+  busy: boolean;
+  onReset: (account: Account, trigger: HTMLElement) => void;
+  onCancelReset: (account: Account) => void;
+  t: Translate;
+};
 
 /**
  * One flat account row, like a Members row: the login over one muted line that says the role and how the account
- * signs in, then the role and password actions. No avatar tile and no pill: the header already shows the viewer's
- * initial, and the role is a fact, not a badge. Password reset appears only for a local password that is not the
- * viewer's own; single sign-on accounts keep a short explanation instead so the missing action never looks broken.
+ * signs in, then the role, password and membership actions. No avatar tile and no pill: the header already shows the
+ * viewer's initial, and the role is a fact, not a badge. Password reset appears only for a local password that is not
+ * the viewer's own; single sign-on accounts keep a short explanation instead so the missing action never looks broken.
+ * Removal comes last and, on the viewer's own row, asks about leaving instead.
  */
-export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChange, onReset, onCancelReset, t }: {
+export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChange, onReset, onCancelReset, onRemove, t }: {
   account: Account;
   viewerId: string;
   busy: boolean;
@@ -16,6 +26,8 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
   onChange: (account: Account, trigger: HTMLElement) => void;
   onReset: (account: Account, trigger: HTMLElement) => void;
   onCancelReset: (account: Account) => void;
+  /** Absent while the shell cannot name the household, so a destructive action never runs on an unknown one. */
+  onRemove?: (target: RemovalTarget, trigger: HTMLElement) => void;
   t: Translate;
 }) {
   const isAdmin = account.role === 'admin';
@@ -42,20 +54,7 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
         : null}
     </div>
     <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-      {reset && !self
-        ? <Button variant="quiet" size="small" disabled={busy}
-          aria-label={t('admin.reset.cancelLabel', { login: account.login })}
-          onClick={() => onCancelReset(account)}>
-          {t('admin.reset.cancel')}
-        </Button>
-        : null}
-      {account.signInMethods.password && !self
-        ? <Button variant="secondary" size="small" disabled={busy}
-          aria-label={t(reset ? 'admin.reset.renewLabel' : 'admin.reset.actionLabel', { login: account.login })}
-          onClick={(event) => onReset(account, event.currentTarget)}>
-          {t(reset ? 'admin.reset.renew' : 'admin.reset.action')}
-        </Button>
-        : null}
+      <ResetControls account={account} self={self} busy={busy} onReset={onReset} onCancelReset={onCancelReset} t={t} />
       <Button
         variant="secondary"
         size="small"
@@ -65,6 +64,37 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
       >
         {t(isAdmin ? 'admin.action.demote' : 'admin.action.promote')}
       </Button>
+      {onRemove
+        ? <Button
+          variant="secondary"
+          size="small"
+          disabled={busy}
+          aria-label={t(self ? 'admin.action.leaveLabel' : 'admin.action.removeLabel', { login: account.login })}
+          onClick={(event) => onRemove({ userId: account.userId, login: account.login, role: account.role }, event.currentTarget)}
+        >
+          {t(self ? 'admin.action.leave' : 'admin.action.remove')}
+        </Button>
+        : null}
     </div>
   </li>;
+}
+
+/** Only a local password can be reset, and never the viewer's own; a pending reset can be cancelled instead. */
+function ResetControls({ account, self, busy, onReset, onCancelReset, t }: ResetHandlers & { account: Account }) {
+  const reset = account.passwordReset;
+  if (!account.signInMethods.password || self) return null;
+  return <>
+    {reset
+      ? <Button variant="quiet" size="small" disabled={busy}
+        aria-label={t('admin.reset.cancelLabel', { login: account.login })}
+        onClick={() => onCancelReset(account)}>
+        {t('admin.reset.cancel')}
+      </Button>
+      : null}
+    <Button variant="secondary" size="small" disabled={busy}
+      aria-label={t(reset ? 'admin.reset.renewLabel' : 'admin.reset.actionLabel', { login: account.login })}
+      onClick={(event) => onReset(account, event.currentTarget)}>
+      {t(reset ? 'admin.reset.renew' : 'admin.reset.action')}
+    </Button>
+  </>;
 }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  cancelPasswordReset, changeAccountRole, issuePasswordReset, listAccounts, readAccount, signInMethod, type Account,
+  cancelPasswordReset, changeAccountRole, issuePasswordReset, listAccounts, readAccount, removeAccount, signInMethod, type Account,
 } from './adminApi';
 import { HOUSEHOLD_ID, installFakeServer, json } from '../../test/fakeServer';
 
@@ -94,6 +94,31 @@ describe('adminApi', () => {
     await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rateLimited' });
     refuse(503, 'unavailable');
     await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'unavailable' });
+  });
+
+  it('removes a membership with the exact strong tag and separates the refusals', async () => {
+    const fake = installFakeServer({ [`DELETE ${base}/accounts/u-1`]: json(204) });
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'ok' });
+    expect(fake.requests[0].headers.get('If-Match')).toBe('"4"');
+
+    const refuse = (status: number, code?: string) => installFakeServer({ [`DELETE ${base}/accounts/u-1`]: problem(status, code) });
+    refuse(401);
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'unauthenticated' });
+    refuse(403, 'admin_required');
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'forbidden' });
+    refuse(403, 'forbidden_origin');
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'rejected' });
+    refuse(404, 'not_found');
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'notFound' });
+    refuse(409, 'last_admin');
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'lastAdmin' });
+    refuse(409, 'member_person_changed');
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'rejected' });
+    refuse(412, 'precondition_failed');
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'stale' });
+
+    installFakeServer({ [`DELETE ${base}/accounts/u-1`]: () => Promise.reject(new Error('offline')) });
+    await expect(removeAccount(HOUSEHOLD_ID, 'u-1', '"4"')).resolves.toEqual({ kind: 'error' });
   });
 
   it('cancels the outstanding link and treats an already empty reset as done', async () => {

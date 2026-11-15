@@ -3,8 +3,9 @@ import type { Translate } from '../../i18n';
 import { CursorPager } from '../../components/ui/cursor-pager';
 import { AdminAccountRow } from './AdminAccountRow';
 import type { Account } from './adminApi';
+import type { RemovalTarget } from './useAccountRemoval';
 
-export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, nextCursor, onPrevious, onNext, onChange, onReset, onCancelReset, formatExpiry, t }: {
+export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, nextCursor, onPrevious, onNext, onChange, onReset, onCancelReset, onRemove, formatExpiry, t }: {
   accounts: Account[];
   viewerId: string;
   busy: boolean;
@@ -16,6 +17,7 @@ export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, 
   onChange: (account: Account, trigger: HTMLElement) => void;
   onReset: (account: Account, trigger: HTMLElement) => void;
   onCancelReset: (account: Account) => void;
+  onRemove?: (target: RemovalTarget, trigger: HTMLElement) => void;
   formatExpiry: (iso: string) => string;
   t: Translate;
 }) {
@@ -25,7 +27,7 @@ export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, 
       ? <ul aria-labelledby="admin-accounts-heading" className="mt-2 divide-y divide-line border-t border-line">
         {accounts.map((account) => (
           <AdminAccountRow key={account.userId} account={account} viewerId={viewerId} busy={busy} formatExpiry={formatExpiry}
-            onChange={onChange} onReset={onReset} onCancelReset={onCancelReset} t={t} />
+            onChange={onChange} onReset={onReset} onCancelReset={onCancelReset} onRemove={onRemove} t={t} />
         ))}
       </ul>
       : <p className="mt-2 border-t border-line pt-3 text-body text-muted">{t('admin.list.empty')}</p>}

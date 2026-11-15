@@ -16,6 +16,7 @@ import (
 	itempostgres "github.com/bigtcze/tendo/backend/internal/item/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
+	subjectapp "github.com/bigtcze/tendo/backend/internal/subject"
 	subjectpostgres "github.com/bigtcze/tendo/backend/internal/subject/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -32,6 +33,10 @@ type removalFixture struct {
 	service     *household.MemberRemovalService
 	invitations *identityapp.InvitationService
 	resets      *identityapp.PasswordResetService
+	sessions    *identityapp.SessionService
+	changes     *identityapp.PasswordChangeService
+	subjects    *subjectapp.Service
+	memberships *household.MembershipService
 	seq         int
 }
 
@@ -70,7 +75,33 @@ func newRemovalFixture(t *testing.T, ctx context.Context, admin, app *pgxpool.Po
 		t.Fatal(err)
 	}
 	f.resets = resets
+	sessions, err := identityapp.NewSessionService(identitypostgres.New(app, nil), clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.sessions = sessions
+	changes, err := identityapp.NewPasswordChangeService(identitypostgres.NewPasswordChangeRepository(app), clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.changes = changes
+	f.memberships = MembershipServiceFor(app)
+	f.subjects = subjectapp.NewService(subjectpostgres.NewRepository(app), f.subjectAuthorizer, f.subjectAuthorizer)
 	return f
+}
+
+// subjectAuthorizer adapts the real membership lookup to the subject module's
+// authorization port, exactly as cmd/tendo wires it.
+func (f *removalFixture) subjectAuthorizer(ctx context.Context, userID, householdID string) error {
+	_, err := f.memberships.GetMembership(ctx, userID, householdID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, household.ErrNotFound):
+		return subjectapp.ErrNotFound
+	default:
+		return subjectapp.ErrUnavailable
+	}
 }
 
 func (f *removalFixture) reset() {
@@ -288,6 +319,54 @@ func (f *removalFixture) adminCount(householdID string) int {
 		f.t.Fatal(err)
 	}
 	return count
+}
+
+func (f *removalFixture) loginOf(userID string) string {
+	f.t.Helper()
+	var login string
+	if err := f.admin.QueryRow(f.ctx, `SELECT login FROM user_accounts WHERE id=$1::uuid`, userID).Scan(&login); err != nil {
+		f.t.Fatal(err)
+	}
+	return login
+}
+
+// resetLinkState reports how many reset links of one target exist in one
+// household and whether all of them are revoked.
+func (f *removalFixture) resetLinkState(householdID, targetUserID string) (int, bool) {
+	f.t.Helper()
+	var count int
+	var revoked bool
+	if err := f.admin.QueryRow(f.ctx, `SELECT count(*), coalesce(bool_and(revoked_at IS NOT NULL), false)
+		FROM password_reset_tokens WHERE household_id=$1::uuid AND target_user_id=$2::uuid`, householdID, targetUserID).Scan(&count, &revoked); err != nil {
+		f.t.Fatal(err)
+	}
+	return count, revoked
+}
+
+// danglingSubjectLinks counts subjects of the household whose linked account is
+// no longer a member, exactly what the removal's unlink must prevent.
+func (f *removalFixture) danglingSubjectLinks(householdID string) int {
+	f.t.Helper()
+	var count int
+	if err := f.admin.QueryRow(f.ctx, `SELECT count(*) FROM subjects s
+		WHERE s.household_id=$1::uuid AND s.linked_user_id IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM household_memberships m
+		    WHERE m.household_id=s.household_id AND m.user_id=s.linked_user_id)`, householdID).Scan(&count); err != nil {
+		f.t.Fatal(err)
+	}
+	return count
+}
+
+// expectRaceError fails with the PostgreSQL SQLSTATE when a race produced an
+// error the subtest does not allow, so a 40P01 deadlock is never swallowed.
+func expectRaceError(t *testing.T, round int, label string, err error, allowed ...error) {
+	t.Helper()
+	for _, candidate := range allowed {
+		if errors.Is(err, candidate) {
+			return
+		}
+	}
+	t.Fatalf("round %d %s: unexpected error (SQLSTATE %q): %v", round, label, pgCode(err), err)
 }
 
 // race starts every call at once and returns their results in input order.
@@ -815,6 +894,250 @@ func TestMemberRemovalRacesAgainstPostgres(t *testing.T) {
 			}
 			if *got != other {
 				t.Fatalf("round %d default=%s want %s", round, *got, other)
+			}
+		}
+	})
+
+	// Acceptance locks the invitation row and then the account row, so the
+	// removal revokes the target's invitations of this household first. The
+	// acceptance here joins another household, which the removal must not touch:
+	// both sides succeed, the target keeps only the new membership and the
+	// account default still points at a real membership.
+	t.Run("removal races invitation acceptance into another household", func(t *testing.T) {
+		for round := 0; round < 10; round++ {
+			house := f.newHousehold(fmt.Sprintf("invitation race house %d", round))
+			other := f.newHousehold(fmt.Sprintf("invitation race other %d", round))
+			actor, target, host := f.newUser(), f.newUser(), f.newUser()
+			f.join(actor, house, household.RoleAdmin)
+			f.join(target, house, household.RoleMember)
+			f.join(host, other, household.RoleAdmin)
+			f.setDefault(target, house)
+
+			invitation, err := f.invitations.CreateInvitation(ctx, host, other, fmt.Sprintf("removal-race-%d", round))
+			if err != nil {
+				t.Fatalf("round %d create invitation: %v", round, err)
+			}
+			var acceptance error
+			results := race(
+				func() error { return f.service.RemoveMember(ctx, actor, house, target, 1) },
+				func() error {
+					_, acceptance = f.invitations.AcceptInvitationExistingAccount(ctx, target, invitation.Token)
+					return acceptance
+				},
+			)
+			if results[0] != nil {
+				expectRaceError(t, round, "removal", results[0])
+			}
+			if results[1] != nil {
+				expectRaceError(t, round, "invitation acceptance", results[1])
+			}
+			if _, _, ok := f.membership(house, target); ok {
+				t.Fatalf("round %d removal left the target in the household", round)
+			}
+			role, _, joined := f.membership(other, target)
+			if acceptance == nil && (!joined || role != household.RoleMember) {
+				t.Fatalf("round %d acceptance succeeded but membership role=%q joined=%t", round, role, joined)
+			}
+			if acceptance != nil && joined {
+				t.Fatalf("round %d acceptance failed (%v) but the target joined anyway", round, acceptance)
+			}
+			got := f.defaultHousehold(target)
+			if got == nil {
+				t.Fatalf("round %d default household cleared although a membership remains", round)
+			}
+			if _, _, ok := f.membership(*got, target); !ok {
+				t.Fatalf("round %d default household %s is not an existing membership", round, *got)
+			}
+			if *got != other {
+				t.Fatalf("round %d default household=%s want %s", round, *got, other)
+			}
+			if audits := f.auditCount(house); audits != 1 {
+				t.Fatalf("round %d audit rows=%d want exactly the committed removal", round, audits)
+			}
+		}
+	})
+
+	// Transfer locks the membership row for the member before its subjects, the
+	// same row the removal locks FOR UPDATE. Whichever wins, no subject may stay
+	// linked to an account that is no longer a member, and a transfer that lost
+	// the race must refuse instead of writing a dangling link.
+	t.Run("removal races a member person transfer", func(t *testing.T) {
+		for round := 0; round < 10; round++ {
+			house := f.newHousehold(fmt.Sprintf("transfer race house %d", round))
+			actor, worker := f.newUser(), f.newUser()
+			f.join(actor, house, household.RoleAdmin)
+			f.join(worker, house, household.RoleMember)
+			current := f.addSubject(house, "race member person", worker)
+			candidate := f.addSubject(house, "race transfer candidate", "")
+
+			var transferErr error
+			results := race(
+				func() error { return f.service.RemoveMember(ctx, actor, house, worker, 1) },
+				func() error {
+					_, transferErr = f.subjects.Transfer(ctx, worker, house, worker, subjectapp.TransferRequest{
+						SubjectID: candidate, SubjectVersion: 1,
+						CurrentSubjectID: current, CurrentSubjectVersion: 1,
+					})
+					return transferErr
+				},
+			)
+			if results[0] != nil {
+				expectRaceError(t, round, "removal", results[0])
+			}
+			if transferErr != nil {
+				expectRaceError(t, round, "transfer", transferErr, subjectapp.ErrNotFound)
+			}
+			if _, _, ok := f.membership(house, worker); ok {
+				t.Fatalf("round %d removal left the target in the household", round)
+			}
+			if dangling := f.danglingSubjectLinks(house); dangling != 0 {
+				t.Fatalf("round %d subjects still linked to a non-member: %d", round, dangling)
+			}
+			if audits := f.auditCount(house); audits != 1 {
+				t.Fatalf("round %d audit rows=%d want 1", round, audits)
+			}
+		}
+	})
+
+	// Reset issue takes the account row, then the reset rows; the removal takes
+	// the account row before revoking this household's reset links. The two
+	// therefore serialize per target: a link issued here before the removal wins
+	// is revoked, one issued afterwards fails authorization. A link an admin of
+	// the other household issues after the removal must stay redeemable.
+	t.Run("removal races password reset issuance through both households", func(t *testing.T) {
+		const newPassword = "a brand new reset password"
+		for round := 0; round < 10; round++ {
+			house := f.newHousehold(fmt.Sprintf("reset race house %d", round))
+			other := f.newHousehold(fmt.Sprintf("reset race other %d", round))
+			actor, otherAdmin, target := f.newUser(), f.newUser(), f.newUser()
+			f.join(actor, house, household.RoleAdmin)
+			f.join(actor, other, household.RoleAdmin)
+			f.join(otherAdmin, other, household.RoleAdmin)
+			f.join(target, house, household.RoleMember)
+			f.join(target, other, household.RoleMember)
+			f.password(target)
+
+			var hereIssued, otherIssued identityapp.PasswordResetIssued
+			results := race(
+				func() error { return f.service.RemoveMember(ctx, actor, house, target, 1) },
+				func() error {
+					var err error
+					hereIssued, err = f.resets.IssuePasswordReset(ctx, actor, house, target)
+					return err
+				},
+				func() error {
+					var err error
+					otherIssued, err = f.resets.IssuePasswordReset(ctx, otherAdmin, other, target)
+					return err
+				},
+			)
+			if results[0] != nil {
+				expectRaceError(t, round, "removal", results[0])
+			}
+			if results[1] != nil {
+				expectRaceError(t, round, "reset issuance in the removal household", results[1], household.ErrNotFound)
+			}
+			if results[2] != nil {
+				expectRaceError(t, round, "reset issuance in the other household", results[2], identityapp.ErrPasswordResetNotPermitted)
+			}
+			if _, _, ok := f.membership(house, target); ok {
+				t.Fatalf("round %d removal left the target in the household", round)
+			}
+			if _, _, ok := f.membership(other, target); !ok {
+				t.Fatalf("round %d removal changed the other household membership", round)
+			}
+
+			hereCount, hereRevoked := f.resetLinkState(house, target)
+			switch {
+			case results[1] == nil:
+				if hereCount != 1 || !hereRevoked {
+					t.Fatalf("round %d issued link here count=%d revoked=%t", round, hereCount, hereRevoked)
+				}
+				if _, err := f.resets.RedeemPasswordReset(ctx, hereIssued.Token, newPassword); !errors.Is(err, identityapp.ErrInvalidPasswordReset) {
+					t.Fatalf("round %d removed household's link redeemed: %v", round, err)
+				}
+			case hereCount != 0:
+				t.Fatalf("round %d refused issuance still wrote %d links here", round, hereCount)
+			}
+
+			otherCount, otherRevoked := f.resetLinkState(other, target)
+			switch {
+			case results[2] == nil:
+				if otherCount != 1 || otherRevoked {
+					t.Fatalf("round %d issued link other count=%d revoked=%t", round, otherCount, otherRevoked)
+				}
+				login, err := f.resets.RedeemPasswordReset(ctx, otherIssued.Token, newPassword)
+				if err != nil {
+					t.Fatalf("round %d other household's link not redeemable: %v", round, err)
+				}
+				if login != f.loginOf(target) {
+					t.Fatalf("round %d redeemed login=%q", round, login)
+				}
+			case otherCount != 0:
+				t.Fatalf("round %d refused issuance still wrote %d links in the other household", round, otherCount)
+			}
+			if audits := f.auditCount(house); audits != 1 {
+				t.Fatalf("round %d audit rows=%d want 1", round, audits)
+			}
+		}
+	})
+
+	// The self-service change revokes reset links, takes the credential row and
+	// deletes sessions; the removal takes the account row and never a credential
+	// or session lock. Both must commit, because the account survives the
+	// membership removal (ADR 0018, ADR 0019).
+	t.Run("removal races the target changing their own password", func(t *testing.T) {
+		const (
+			oldPassword = "correct horse battery"
+			newPassword = "correct horse battery staple"
+		)
+		for round := 0; round < 10; round++ {
+			house := f.newHousehold(fmt.Sprintf("password race house %d", round))
+			actor, worker := f.newUser(), f.newUser()
+			f.join(actor, house, household.RoleAdmin)
+			f.join(worker, house, household.RoleMember)
+			f.password(worker)
+			login := f.loginOf(worker)
+
+			signedIn, err := f.sessions.Login(ctx, login, oldPassword)
+			if err != nil {
+				t.Fatalf("round %d sign in: %v", round, err)
+			}
+			var changed identityapp.Session
+			results := race(
+				func() error { return f.service.RemoveMember(ctx, actor, house, worker, 1) },
+				func() error {
+					var err error
+					changed, err = f.changes.ChangePassword(ctx, identityapp.ChangePasswordInput{
+						Principal:       signedIn.Principal,
+						SignInMethod:    signedIn.SignInMethod,
+						SessionToken:    signedIn.Token,
+						CurrentPassword: oldPassword,
+						NewPassword:     newPassword,
+					})
+					return err
+				},
+			)
+			if results[0] != nil {
+				expectRaceError(t, round, "removal", results[0])
+			}
+			if results[1] != nil {
+				expectRaceError(t, round, "password change", results[1])
+			}
+			if changed.Token == "" || changed.Token == signedIn.Token {
+				t.Fatalf("round %d password change did not rotate the caller session", round)
+			}
+			if _, _, ok := f.membership(house, worker); ok {
+				t.Fatalf("round %d removal left the target in the household", round)
+			}
+			if _, err := f.sessions.Login(ctx, login, newPassword); err != nil {
+				t.Fatalf("round %d new password does not sign in: %v", round, err)
+			}
+			if _, err := f.sessions.Login(ctx, login, oldPassword); !errors.Is(err, identityapp.ErrInvalidCredentials) {
+				t.Fatalf("round %d old password still signs in: %v", round, err)
+			}
+			if audits := f.auditCount(house); audits != 1 {
+				t.Fatalf("round %d audit rows=%d want 1", round, audits)
 			}
 		}
 	})

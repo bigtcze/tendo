@@ -71,6 +71,32 @@ export async function changeAccountRole(householdId: string, userId: string, rol
   return { kind: 'error' };
 }
 
+export type AccountRemoval =
+  | { kind: 'ok' }
+  | { kind: 'lastAdmin' }
+  | { kind: 'stale' }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+/**
+ * Removes one membership (the account's own is "leave"). Nothing comes back but the status, and the required
+ * If-Match quotes the same strong membership version a role change would: a stale tag changes nothing.
+ */
+export async function removeAccount(householdId: string, userId: string, etag: string): Promise<AccountRemoval> {
+  try {
+    const { error, response } = await api.DELETE(accountPath, {
+      params: { path: { householdId, userId }, header: { 'If-Match': etag } },
+    });
+    if (response.status === 204) return { kind: 'ok' };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 409 && problemCode(error) === 'last_admin') return { kind: 'lastAdmin' };
+    if (response.status === 409) return { kind: 'rejected' };
+    if (response.status === 412) return { kind: 'stale' };
+  } catch { /* fall through */ }
+  return { kind: 'error' };
+}
+
 export type PasswordResetIssue =
   | { kind: 'issued'; reset: PasswordResetCreated }
   | { kind: 'self' | 'noLocalPassword' | 'notPermitted' }
