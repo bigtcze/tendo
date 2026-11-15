@@ -72,13 +72,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
-		problem(w, http.StatusBadRequest, "idempotency_key_required")
-		return
-	}
-	if len(keys) != 1 || !validCreationKey(keys[0]) {
-		problem(w, http.StatusBadRequest, "invalid_idempotency_key")
+	key, ok := httpx.IdempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	values, ok := httpx.ReadObject(w, r, createFields, bodyLimit)
@@ -87,7 +82,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	householdID := chi.URLParam(r, "householdId")
 	name, typ, linkedUserID := createRequest(values)
-	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], name, typ, linkedUserID)
+	created, err := h.service.Create(r.Context(), userID, householdID, key, name, typ, linkedUserID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -210,18 +205,6 @@ func (h *Handler) transfer(w http.ResponseWriter, r *http.Request) {
 		Previous:        toJSON(result.Previous),
 		PreviousVersion: int(result.Previous.Version),
 	})
-}
-
-func validCreationKey(key string) bool {
-	if len(key) < 1 || len(key) > 128 {
-		return false
-	}
-	for i := range key {
-		if key[i] < '!' || key[i] > '~' {
-			return false
-		}
-	}
-	return true
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {

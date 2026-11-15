@@ -30,7 +30,7 @@ func (h *Handler) createCompletion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	key, ok := idempotencyKey(w, r)
+	key, ok := httpx.IdempotencyKey(w, r)
 	if !ok {
 		return
 	}

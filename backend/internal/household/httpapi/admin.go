@@ -119,20 +119,15 @@ func (h *AdminHandler) listHouseholds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) createHousehold(w http.ResponseWriter, r *http.Request) {
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
-		return
-	}
-	if len(keys) != 1 || !validCreationKey(keys[0]) {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
+	key, ok := httpx.IdempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	values, ok := httpx.ReadObject(w, r, createHouseholdFields, accountBodyLimit)
 	if !ok {
 		return
 	}
-	house, version, err := h.service.CreateHousehold(r.Context(), h.actor(r), keys[0],
+	house, version, err := h.service.CreateHousehold(r.Context(), h.actor(r), key,
 		values["name"].(string), values["timezone"].(string), values["adminUserId"].(string))
 	if err != nil {
 		writeAdminError(w, err)
@@ -272,19 +267,6 @@ func adminAccountDTO(account household.AdminAccount) apimodel.AdminAccount {
 		UserId: account.UserID, Login: account.Login, Role: apimodel.MemberRole(account.Role),
 		SignInMethods: apimodel.AccountSignInMethods{Password: account.SignInMethods.Password, Oidc: account.SignInMethods.OIDC},
 	}
-}
-
-// validCreationKey mirrors the subject create rule: 1–128 visible ASCII bytes.
-func validCreationKey(key string) bool {
-	if len(key) < 1 || len(key) > 128 {
-		return false
-	}
-	for i := range key {
-		if key[i] < '!' || key[i] > '~' {
-			return false
-		}
-	}
-	return true
 }
 
 func writeAdminError(w http.ResponseWriter, err error) {
