@@ -136,7 +136,22 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 		return householdpostgres.MembershipServiceFor(tx)
 	})
 	accountService := householdpostgres.AccountServiceFor(pool, identityRepository, identityRepository, passwordResetRepository, time.Now)
-	householdhttp.NewAccounts(accountService, sessionHandler.RequireSession, principalID).Register(routes)
+	memberRemovalService := household.NewMemberRemovalService(householdpostgres.NewMemberRemovalRepository(pool, householdpostgres.MemberRemovalEffectFactories{
+		Invitations: func(tx householddb.DBTX) household.InvitationRevoker { return identitypostgres.NewRemovalEffects(tx) },
+		Items: func(tx householddb.DBTX) household.ResponsibilityReleaser {
+			return itempostgres.NewResponsibilityReleaser(tx)
+		},
+		Subjects: func(tx householddb.DBTX) household.MemberPersonUnlinker {
+			return subjectpostgres.NewMemberPersonUnlinker(tx)
+		},
+		Resets: func(tx householddb.DBTX) household.PasswordResetRevoker {
+			return identitypostgres.NewRemovalEffects(tx)
+		},
+		Accounts: func(tx householddb.DBTX) household.DefaultHouseholdReassigner {
+			return identitypostgres.NewRemovalEffects(tx)
+		},
+	}), time.Now)
+	householdhttp.NewAccounts(household.NewAccountCenter(accountService, memberRemovalService), sessionHandler.RequireSession, principalID).Register(routes)
 	invitationRepo := identitypostgres.NewInvitationRepository(pool, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
 		return householdpostgres.MembershipServiceFor(tx, identityRepository)
 	}, memberPersonFactory)

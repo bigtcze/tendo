@@ -768,6 +768,16 @@ st,_,old_password,_=req('POST',member_login,{'Origin':origin},record=False)
 assert st==401 and old_password['code']=='invalid_credentials',('old password after reset',st,old_password)
 st,_,_,_=req('POST',{'login':'member_smoke','password':reset_password},{'Origin':origin},record=False)
 assert st==201,('new password after reset',st)
+# Membership removal: an admin removes another member. The membership and its
+# effects disappear, an audit row records who removed whom, and the removed
+# account's sessions are not revoked.
+st,freegh,free_account=areq('GET',accounts_base+'/'+free_user,ACC_ITEM,headers=cookie_header)
+assert st==200 and free_account['role']=='member',('free account read',st,free_account)
+st,_,removed_member=areq('DELETE',accounts_base+'/'+free_user,ACC_ITEM,headers={**owner_mut,'If-Match':freegh['ETag']})
+assert st==204 and removed_member is None,('remove member',st,removed_member)
+assert psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{household}' AND user_id='{free_user}'")=='0','removal left the membership'
+assert psql(f"SELECT count(*) FROM household_member_removals WHERE household_id='{household}' AND target_user_id='{free_user}' AND actor_user_id='{owner_account_id}' AND previous_role='member'")=='1','removal audit row'
+assert psql(f"SELECT count(*) FROM user_sessions WHERE user_id='{free_user}'")=='1','removal must not revoke sessions'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 fixtures.append({'path':'/api/v1/session','method':'delete','status':status,'headers':dict(h.items())})

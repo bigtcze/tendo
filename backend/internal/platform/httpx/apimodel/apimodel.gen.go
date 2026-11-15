@@ -1889,6 +1889,15 @@ type ListHouseholdAccountsParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// RemoveHouseholdAccountParams defines parameters for RemoveHouseholdAccount.
+type RemoveHouseholdAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+	IfMatch string `json:"If-Match"`
+}
+
 // GetHouseholdAccountParams defines parameters for GetHouseholdAccount.
 type GetHouseholdAccountParams struct {
 	// XRequestID Optional caller-supplied correlation ID.

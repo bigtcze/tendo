@@ -14,16 +14,28 @@ type Querier interface {
 	AddAdmin(ctx context.Context, arg AddAdminParams) error
 	AddInvitedMember(ctx context.Context, arg AddInvitedMemberParams) error
 	CountHouseholdAdmins(ctx context.Context, householdID pgtype.UUID) (int64, error)
+	CountHouseholdAdminsExcluding(ctx context.Context, arg CountHouseholdAdminsExcludingParams) (int64, error)
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (string, error)
+	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) error
 	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
 	GetMembershipAccount(ctx context.Context, arg GetMembershipAccountParams) (GetMembershipAccountRow, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
+	InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHouseholdMemberRemovalParams) error
 	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error
 	ListMemberHouseholds(ctx context.Context, arg ListMemberHouseholdsParams) ([]ListMemberHouseholdsRow, error)
 	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
 	ListMembershipAccounts(ctx context.Context, arg ListMembershipAccountsParams) ([]ListMembershipAccountsRow, error)
 	LockHouseholdForMembership(ctx context.Context, arg LockHouseholdForMembershipParams) (pgtype.UUID, error)
+	// FOR NO KEY UPDATE serializes account-level writes without conflicting with
+	// the snapshot/key-share locks a session insert or foreign key takes on the
+	// same row (ADR 0018, ADR 0019).
+	LockMemberAccountForRemoval(ctx context.Context, id pgtype.UUID) (string, error)
+	// FOR UPDATE, never FOR NO KEY UPDATE: a concurrent foreign-key insert that
+	// references this membership (item responsible, member person) takes a key
+	// share and must block until the removal commits, so it can no longer succeed
+	// against a membership that is about to disappear (ADR 0019).
+	LockMembershipForRemoval(ctx context.Context, arg LockMembershipForRemovalParams) (LockMembershipForRemovalRow, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (int64, error)
 }
 

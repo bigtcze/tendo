@@ -72,7 +72,11 @@ func NewRevocation(unexpired [][]byte) Revocation { return Revocation{unexpired:
 // transaction and in this order: reset links, then the credential row, then the
 // replacement. Admin reset redemption takes password_reset_tokens FOR UPDATE
 // before local_credentials, so taking them in the opposite order here would
-// deadlock the two flows against each other.
+// deadlock the two flows against each other. Household membership removal
+// (ADR 0019) locks user_accounts FOR NO KEY UPDATE and only then revokes the
+// member's reset links; that is compatible because the account lock is
+// compatible with the KEY SHARE a session insert takes, so it cannot close a
+// cycle with this protocol.
 type CredentialReplacementTransaction interface {
 	// RevokeOutstandingPasswordResets revokes every usable admin-issued reset
 	// link of the account, so a link issued before the change cannot replace

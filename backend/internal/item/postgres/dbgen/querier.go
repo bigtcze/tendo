@@ -24,6 +24,10 @@ type Querier interface {
 	ListItemsByAttention(ctx context.Context, arg ListItemsByAttentionParams) ([]ListItemsByAttentionRow, error)
 	LockItemForCompletion(ctx context.Context, arg LockItemForCompletionParams) (LockItemForCompletionRow, error)
 	MarkCompletionUndone(ctx context.Context, arg MarkCompletionUndoneParams) (int64, error)
+	// Removing a member releases their responsibility on every item of the
+	// household, archived and done items included. The item rows keep their
+	// subject, history and schedule; only the responsible member is cleared.
+	ReleaseItemsResponsibleByMember(ctx context.Context, arg ReleaseItemsResponsibleByMemberParams) error
 	SummarizeItems(ctx context.Context, arg SummarizeItemsParams) (SummarizeItemsRow, error)
 	UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateItemRow, error)
 	UpdateItemForCompletion(ctx context.Context, arg UpdateItemForCompletionParams) error

@@ -21,6 +21,7 @@ type accountService interface {
 	ListAccounts(context.Context, string, string, string, int) ([]household.Account, string, error)
 	GetAccount(context.Context, string, string, string) (household.Account, error)
 	ChangeRole(context.Context, string, string, string, string, int64) (household.Account, error)
+	RemoveMember(context.Context, string, string, string, int64) error
 }
 
 // AccountsHandler serves admin-only household member account resources.
@@ -38,6 +39,7 @@ func (h *AccountsHandler) Register(r chi.Router) {
 	r.With(h.auth).Get("/api/v1/households/{householdId}/accounts", h.list)
 	r.With(h.auth).Get("/api/v1/households/{householdId}/accounts/{userId}", h.get)
 	r.With(h.auth).Patch("/api/v1/households/{householdId}/accounts/{userId}", h.update)
+	r.With(h.auth).Delete("/api/v1/households/{householdId}/accounts/{userId}", h.remove)
 }
 
 func (h *AccountsHandler) list(w http.ResponseWriter, r *http.Request) {
