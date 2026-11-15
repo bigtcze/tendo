@@ -23,8 +23,6 @@ type Outcomes = {
   onSignedOut: () => void;
   /** An authoritative refusal of the installation grant: the shell re-reads the session. */
   onForbidden: () => void;
-  /** Read the list again: the household exists now, whatever this screen does next. */
-  onReload: () => void;
   /** The household exists; `asSelf` means the viewer is its first administrator, which the session read settles. */
   onCreated: (household: AdminHousehold, asSelf: boolean) => void;
 };
@@ -50,6 +48,11 @@ function clearField(set: (update: (current: CreateFailure | null) => CreateFailu
   set((current) => (current?.kind === 'field' && current.field === field ? null : current));
 }
 
+/** A failure with nothing to point at is answered by trying again; a refusal of a field stays until that field does. */
+function clearFailure(set: (update: (current: CreateFailure | null) => CreateFailure | null) => void) {
+  set((current) => (current?.kind === 'error' ? null : current));
+}
+
 /**
  * The one intent of the last attempt and the key it was sent with. An identical retry reuses the key; anything the
  * server fingerprints differently — the trimmed name, the timezone, the account — is a new intent and gets a new key.
@@ -68,7 +71,8 @@ function settleCreate(
 ): { closed: boolean; failure: CreateFailure | null } {
   switch (result.kind) {
     case 'created':
-      out.onReload();
+      // The household exists: no later press is this intent again, so the next one starts with a key of its own.
+      forgetIntent();
       out.onCreated(result.household, target.userId === out.viewerId);
       return { closed: true, failure: null };
     case 'invalid':
@@ -150,7 +154,8 @@ export function useHouseholdCreate(outcomes: Outcomes) {
     const needle = query.trim();
     // The server counts code points, so a search of 65 astral characters is refused here, not by the server.
     if (codePointLength(needle) > MAX_QUERY) { directory.refuse(needle); return; }
-    setFailure(null);
+    // A search answers a failure with nothing to point at, but never a refusal the server aimed at a field.
+    clearFailure(setFailure);
     directory.start(needle);
   }
 

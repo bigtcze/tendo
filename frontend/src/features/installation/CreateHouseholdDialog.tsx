@@ -81,6 +81,7 @@ function NameField({ create, error, uid, fieldRef }: FieldProps & { fieldRef: Re
       autoComplete="off"
       value={create.name}
       onChange={(event) => create.editName(event.target.value)}
+      disabled={create.busy}
       aria-invalid={error !== null}
       aria-describedby={describedBy(hintId, error ? errorId : undefined)}
     />
@@ -102,6 +103,7 @@ function TimezoneField({ create, error, uid, fieldRef }: FieldProps & { fieldRef
       id={id}
       value={create.timezone}
       onChange={(event) => create.editTimezone(event.target.value)}
+      disabled={create.busy}
       aria-invalid={error !== null}
       aria-describedby={describedBy(hintId, error ? errorId : undefined)}
     >

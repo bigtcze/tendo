@@ -56,9 +56,11 @@ export function AccountPicker({
   const inputRef = callerRef ?? ownRef;
   // Both an unusable search and a refused account land on the same field: it is where the reader has to answer.
   const answered = queryError || choiceError !== null;
+  // Only a refused search puts the reader on the field from here: an answer about the chosen account is the dialog's
+  // to focus, and a choice made afterwards must keep the focus the reader put on it.
   useEffect(() => {
-    if (refusals > 0 || choiceError !== null) inputRef.current?.focus();
-  }, [refusals, choiceError, inputRef]);
+    if (refusals > 0) inputRef.current?.focus();
+  }, [refusals, inputRef]);
 
   return <div className="min-w-0">
     <label htmlFor={inputId} className="block text-label font-semibold text-ink">{t('install.add.query')}</label>

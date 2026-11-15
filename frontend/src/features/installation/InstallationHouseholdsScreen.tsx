@@ -45,7 +45,6 @@ export function InstallationHouseholdsScreen({ login, viewerId, onSignedOut, onF
     onSignedOut,
     // An authoritative refusal says the grant hint is stale: drop the rows and let the shell re-read the session.
     onForbidden: () => { list.markForbidden(); onForbidden(); },
-    onReload: list.reload,
     onCreated,
   });
 

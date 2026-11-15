@@ -2271,7 +2271,7 @@ test.describe('Tendo production journey', () => {
       expect(directoryReads.some((entry) => entry.search.includes(`q=${firstAdminLogin}`)), 'the account search reached the installation directory').toBe(true);
       expect(observed.filter((entry) => entry.pathname === `/api/v1/households/${createdId}` || entry.pathname.startsWith(`/api/v1/households/${createdId}/`)), 'creating never opens the household it made').toEqual([]);
 
-      // 1d. The list behind the dialog was read again: the new household is there without a reload.
+      // 1d. Going back remounts the list, whose fresh read shows the new household.
       await page.getByRole('link', { name: en['install.household.back'], exact: true }).click();
       await expect(page).toHaveURL(/\/admin\/households$/);
       await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();

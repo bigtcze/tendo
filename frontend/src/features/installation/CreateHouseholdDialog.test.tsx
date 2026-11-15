@@ -18,6 +18,8 @@ const accountsPath = (id: string) => `GET /api/v1/admin/households/${id}/account
 const problem = (status: number, code?: string, field?: string) => json(status, {
   type: 'about:blank', title: 'x', status, ...(code ? { code } : {}), ...(field ? { field } : {}),
 });
+/** The calm failure with nothing to point at: the dialog stays and everything typed in it stays too. */
+const CALM_ERROR = 'The household couldn’t be created. Try again; if it keeps failing, choose another account.';
 
 const anna: DirectoryAccount = { userId: session().userId, login: 'anna' };
 const petr: DirectoryAccount = { userId: '0198a2f0-0000-7000-8000-000000000002', login: 'petr' };
@@ -136,8 +138,9 @@ describe('installation household creation', () => {
     const [post] = posts(fake);
     expect(JSON.parse(post.body)).toEqual({ name: 'Chata', timezone: 'UTC', adminUserId: petr.userId });
     expect(post.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
-    // The list behind the dialog is read again, and someone else's first membership says nothing about the session.
-    await waitFor(() => expect(listReads(fake)).toBe(2));
+    // The list behind the dialog is on its way out with it, so it is not read a second time; someone else's first
+    // membership says nothing about the session either.
+    expect(listReads(fake)).toBe(1);
     expect(sessionReads(fake)).toBe(1);
     expectNoHouseholdReads(fake, novo.id);
   });
@@ -182,6 +185,51 @@ describe('installation household creation', () => {
     expect(screen.getByRole('dialog')).toBeVisible();
   });
 
+  it('keeps what the server said about the name when the reader searches the directory', async () => {
+    renderAt({ [createPath]: problem(422, 'invalid_length', 'name') });
+    const { dialog } = await openDialog();
+    await fillForm(dialog);
+    await submit(dialog);
+
+    const name = nameField(dialog);
+    await waitFor(() => expect(name).toHaveAttribute('aria-invalid', 'true'));
+
+    // A search replaces the choices; it never answers for a field the server refused.
+    await search(dialog, 'pet');
+
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveAccessibleDescription(/wrong length/);
+    expect(within(dialog).getByRole('radio', { name: 'petr' })).toBeInTheDocument();
+  });
+
+  it('keeps the focus on a chosen account after a refused search and a refused account', async () => {
+    const fake = renderAt({
+      [directoryPath]: json(200, { items: [petr, jana], nextCursor: null }),
+      [createPath]: problem(422, 'invalid_reference', 'adminUserId'),
+    });
+    const { dialog } = await openDialog();
+    await userEvent.type(nameField(dialog), 'Chata');
+    await userEvent.selectOptions(zoneField(dialog), 'UTC');
+    // One refused search first, so the field is already the answer to it...
+    await search(dialog, 'a'.repeat(65));
+    const login = loginField(dialog);
+    await waitFor(() => expect(login).toHaveFocus());
+
+    await search(dialog, 'a');
+    await choose(dialog, 'petr');
+    await submit(dialog);
+    // ...then an account the server refused, which the dialog points the same field at.
+    await waitFor(() => expect(login).toHaveAttribute('aria-invalid', 'true'));
+    await waitFor(() => expect(login).toHaveFocus());
+
+    // Choosing again answers the account refusal; the search refusal behind it must not take the focus back.
+    const janaRadio = within(dialog).getByRole('radio', { name: 'jana' });
+    await userEvent.click(janaRadio);
+    await waitFor(() => expect(janaRadio).toHaveFocus());
+    expect(login).not.toHaveAttribute('aria-invalid', 'true');
+    expect(posts(fake)).toHaveLength(1);
+  });
+
   it('answers a too-long name locally without asking the server', async () => {
     const fake = renderAt({});
     const { dialog } = await openDialog();
@@ -208,7 +256,7 @@ describe('installation household creation', () => {
     await fillForm(dialog);
     await submit(dialog);
 
-    expect(await within(dialog).findByText('The household couldn’t be created. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText(CALM_ERROR)).toBeVisible();
     // The reader keeps the name, the zone and the account they picked, so trying again is one press away.
     expect(nameField(dialog)).toHaveValue('Chata');
     expect(zoneField(dialog)).toHaveValue('UTC');
@@ -226,7 +274,7 @@ describe('installation household creation', () => {
     const { dialog } = await openDialog();
     await fillForm(dialog);
     await submit(dialog);
-    expect(await within(dialog).findByText('The household couldn’t be created. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText(CALM_ERROR)).toBeVisible();
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -244,7 +292,7 @@ describe('installation household creation', () => {
     const { dialog } = await openDialog();
     await fillForm(dialog);
     await submit(dialog);
-    expect(await within(dialog).findByText('The household couldn’t be created. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText(CALM_ERROR)).toBeVisible();
 
     const zone = zoneField(dialog);
     const other = [...zone.options].map((option) => option.value).find((value) => value !== zone.value)!;
@@ -255,13 +303,46 @@ describe('installation household creation', () => {
     expect(keysOf(fake)[1]).not.toBe(keysOf(fake)[0]);
   });
 
+  it('starts a new intent with a new key when only the name changes', async () => {
+    const fake = renderAt({ [createPath]: problem(503) });
+    const { dialog } = await openDialog();
+    await fillForm(dialog);
+    await submit(dialog);
+    expect(await within(dialog).findByText(CALM_ERROR)).toBeVisible();
+
+    await userEvent.type(nameField(dialog), ' 2');
+    await submit(dialog);
+
+    await waitFor(() => expect(posts(fake)).toHaveLength(2));
+    expect(JSON.parse(posts(fake)[1].body).name).toBe('Chata 2');
+    expect(keysOf(fake)[1]).not.toBe(keysOf(fake)[0]);
+  });
+
+  it('starts a new intent with a new key when only the chosen account changes', async () => {
+    const fake = renderAt({
+      [directoryPath]: json(200, { items: [petr, jana], nextCursor: null }),
+      [createPath]: problem(503),
+    });
+    const { dialog } = await openDialog();
+    await fillForm(dialog);
+    await submit(dialog);
+    expect(await within(dialog).findByText(CALM_ERROR)).toBeVisible();
+
+    await choose(dialog, 'jana');
+    await submit(dialog);
+
+    await waitFor(() => expect(posts(fake)).toHaveLength(2));
+    expect(JSON.parse(posts(fake)[1].body).adminUserId).toBe(jana.userId);
+    expect(keysOf(fake)[1]).not.toBe(keysOf(fake)[0]);
+  });
+
   it('starts over with a new key when the server says the key was reused', async () => {
     const fake = renderAt({ [createPath]: problem(422, 'idempotency_key_reused') });
     const { dialog } = await openDialog();
     await fillForm(dialog);
     await submit(dialog);
 
-    expect(await within(dialog).findByText('The household couldn’t be created. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText(CALM_ERROR)).toBeVisible();
     expect(screen.getByRole('dialog')).toBeVisible();
 
     await submit(dialog);
@@ -346,6 +427,29 @@ describe('installation household creation', () => {
     // The household the server gave the viewer is adopted, and the screen mounts again carrying the notice with it.
     expect(await screen.findByRole('button', { name: 'Household: Chata' })).toBeVisible();
     expect(screen.getByText('Household Chata was created.')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Chata' })).toHaveFocus());
+  });
+
+  it('leaves the viewer’s own default household where it is when they become the new one’s first admin', async () => {
+    // The viewer already calls a household home; administering another one does not move it.
+    const fake = renderAt({
+      [`GET /api/v1/households/${novo.id}`]: json(200, {
+        id: novo.id, name: 'Chata', timezone: 'UTC', createdAt: novo.createdAt, viewerRole: 'admin', viewerMembershipVersion: 1,
+      }),
+      [directoryPath]: json(200, { items: [anna, petr], nextCursor: null }),
+      [createPath]: json(201, novo),
+      [accountsPath(novo.id)]: json(200, { items: [], nextCursor: null }),
+    });
+    const { dialog } = await openDialog();
+    await userEvent.type(nameField(dialog), 'Chata');
+    await userEvent.selectOptions(zoneField(dialog), 'UTC');
+    await search(dialog, 'ann');
+    await choose(dialog, 'anna');
+    await submit(dialog);
+
+    expect(await screen.findByText('Household Chata was created.')).toBeVisible();
+    await waitFor(() => expect(sessionReads(fake)).toBe(2));
+    expect(screen.getByRole('button', { name: 'Household: Veselí' })).toBeVisible();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Chata' })).toHaveFocus());
   });
 
