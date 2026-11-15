@@ -737,6 +737,26 @@ test('Installation households and one household’s accounts with their actions'
   await expect(accounts.getByRole('button', { name: en['admin.action.leaveLabel'].replace('{login}', OWNER_LOGIN), exact: true })).toBeVisible();
   await expect(accounts.getByRole('button', { name: en['admin.action.promoteLabel'].replace('{login}', REFERENCE_MEMBER_LOGIN), exact: true })).toBeVisible();
   await expect(accounts.getByRole('button', { name: en['admin.action.removeLabel'].replace('{login}', REFERENCE_MEMBER_LOGIN), exact: true })).toBeVisible();
+  // The third action opens the add dialog on the installation's account directory. The seeded visual installation has
+  // a small, fixed set of accounts, and the server orders them by login, so the empty search settles on stable rows;
+  // the capture waits for the count line and every row before it, and Cancel leaves the page as it was.
+  const addButton = page.getByRole('main').getByRole('button', { name: en['install.add.action'], exact: true });
+  await expect(addButton).toBeVisible();
+  const addDialog = await openAdd(page, en['install.add.action']);
+  const directoryResponse = await page.request.get('/api/v1/admin/accounts?limit=20');
+  expect(directoryResponse.status()).toBe(200);
+  const directory = (await directoryResponse.json() as { items: Array<{ login: string }> }).items;
+  expect(directory.length, 'the visual installation has a fixed, small account directory').toBeGreaterThan(0);
+  // The count names this page, not the whole match; the visual fixture's directory fits one page.
+  const addCountTemplate = directory.length === 1 ? en['install.add.count.one'] : en['install.add.count.other'];
+  await expect(addDialog.locator('[aria-live="polite"][aria-atomic="true"]')).toHaveText(addCountTemplate.replace('{count}', String(directory.length)));
+  const addChoices = addDialog.getByRole('listitem');
+  await expect(addChoices).toHaveCount(directory.length);
+  for (const [index, entry] of directory.entries()) await expect(addChoices.nth(index)).toHaveText(entry.login);
+  await capture(page, 'admin-households-add-390', 390, 900, false);
+  await capture(page, 'admin-households-add-1440', 1440, 900, false);
+  await addDialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await captureScreen(page, 'admin-households-detail', true);
 
   // Czech phone width after captureScreen left the page at 1440.

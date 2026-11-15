@@ -13,7 +13,7 @@ import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { InstallationHouseholdsScreen } from '../features/installation/InstallationHouseholdsScreen';
-import { InstallationHouseholdScreen } from '../features/installation/InstallationHouseholdScreen';
+import { InstallationHouseholdScreen, type SelfChangeKind } from '../features/installation/InstallationHouseholdScreen';
 import { rereadInstanceAdminSession } from '../features/installation/installationSession';
 import { ScreenTransitionContext } from './Heading';
 import { HouseholdSwitchProvider } from './HouseholdSwitchProvider';
@@ -252,7 +252,7 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
   const name = remembered?.userId === session.userId && remembered.householdId === route.householdId ? remembered.name : null;
   const target = route.householdId;
   /**
-   * The viewer changed their own membership in this household. The screen stays where it is — it never opens the
+   * The viewer's own membership in this household changed. The screen stays where it is — it never opens the
    * household or treats this as leaving it — but the server may have moved the default household, so the session is
    * read again for the same account.
    *
@@ -261,7 +261,7 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
    * the adopted session, so the remount and the notice happen together; and because the visit is still the current
    * one at that moment, a notice can never outlive the household page that reported it.
    */
-  const onSelfChange = (notice: NoticeSpec, kind: 'role' | 'removal') => {
+  const onSelfChange = (notice: NoticeSpec, kind: SelfChangeKind) => {
     void rereadInstanceAdminSession({
       viewerId: session.userId,
       onSession: (next) => {
@@ -270,10 +270,11 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
         sessionActions.updateSession(next);
       },
       onSignedOut: sessionActions.sessionEnded,
-      // A role change never moves the default household (ADR 0020), so a failed read changes nothing here. A removal
-      // does move it, and a shell that keeps trusting a household the viewer may have just left is worse than a
-      // re-boot from the server.
-      onError: kind === 'removal' ? sessionActions.retry : undefined,
+      // An assignment never takes a household away from the viewer (ADR 0020), so a failed read changes nothing about
+      // a membership they already had. It may, however, have given a household-less shell its first household, and a
+      // shell that keeps trusting "no household" is worse than a re-boot from the server. A role change can move
+      // nothing at all, so only a failure after an assignment or a removal re-boots.
+      onError: kind === 'role' ? undefined : sessionActions.retry,
       onReboot: sessionActions.retry,
     });
   };
