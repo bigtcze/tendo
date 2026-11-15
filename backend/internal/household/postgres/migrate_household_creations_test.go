@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // TestMigrationTwentySixUpDownAndPrivileges covers migration 026 (ADR 0021):
@@ -99,6 +101,14 @@ func TestMigrationTwentySixUpDownAndPrivileges(t *testing.T) {
 		`INSERT INTO household_creations(household_id,actor_user_id,creation_key,request_fingerprint,created_at)
 		 VALUES ($1::uuid,$2::uuid,'valid-key',$3,now())`, other, actor, fingerprint)
 	requireSQLState(t, "23505", err)
+
+	// The actor reference is NO ACTION: an account that still owns a creation
+	// row cannot be deleted, and the offending constraint is the creation FK.
+	_, err = admin.Exec(ctx, `DELETE FROM user_accounts WHERE id=$1::uuid`, actor)
+	var actorFK *pgconn.PgError
+	if !errors.As(err, &actorFK) || actorFK.Code != "23503" || actorFK.ConstraintName != "household_creations_actor_user_id_fkey" {
+		t.Fatalf("delete actor with creation row err=%v want 23503 household_creations_actor_user_id_fkey", err)
+	}
 
 	// The row goes with its household; the actor reference never cascades.
 	if _, err := admin.Exec(ctx, `DELETE FROM households WHERE id=$1::uuid`, other); err != nil {

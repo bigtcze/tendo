@@ -11,6 +11,8 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/ids"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (f *adminCenterFixture) householdTotal() int {
@@ -159,8 +161,24 @@ func TestInstanceAdminCreateHouseholdAgainstPostgres(t *testing.T) {
 			t.Fatalf("households after validation=%d want 0", got)
 		}
 		_, _, err := f.center.CreateHousehold(ctx, actor, "missing-admin", "Home", "UTC", "00000000-0000-7000-8000-000000000000")
-		if err == nil || errors.Is(err, household.ErrNotFound) {
-			t.Fatalf("unknown admin err=%v, want a generic non-404 failure", err)
+		if err == nil {
+			t.Fatal("unknown admin accepted")
+		}
+		for _, forbidden := range []error{
+			household.ErrNotFound,
+			household.ErrAlreadyMember,
+			household.ErrHouseholdRequiresAdmin,
+			household.ErrInstanceAdminRequired,
+			household.ErrIdempotencyKeyReused,
+			household.ErrPreconditionFailed,
+		} {
+			if errors.Is(err, forbidden) {
+				t.Fatalf("unknown admin err=%v must not match %v", err, forbidden)
+			}
+		}
+		var validation *household.ValidationError
+		if errors.As(err, &validation) {
+			t.Fatalf("unknown admin err=%v must not be a validation error", err)
 		}
 		if got := f.householdTotal(); got != 0 {
 			t.Fatalf("households after unknown admin=%d want 0", got)
@@ -184,32 +202,42 @@ func TestInstanceAdminCreateHouseholdAgainstPostgres(t *testing.T) {
 		}
 	})
 
-	t.Run("concurrent same key creates exactly one household", func(t *testing.T) {
+	t.Run("concurrent same key replays the committed winner", func(t *testing.T) {
 		f.prepare()
 		actor, firstAdmin := newAdmin()
-		ids2, versions := make([]string, 2), make([]int64, 2)
-		results := race(
-			func() error {
-				house, version, err := f.center.CreateHousehold(ctx, actor, "race-key", "Race", "UTC", firstAdmin)
-				ids2[0], versions[0] = house.ID, version
-				return err
-			},
-			func() error {
-				house, version, err := f.center.CreateHousehold(ctx, actor, "race-key", "Race", "UTC", firstAdmin)
-				ids2[1], versions[1] = house.ID, version
-				return err
-			},
-		)
-		for i, err := range results {
-			if err != nil {
-				t.Fatalf("round %d: %v", i, err)
-			}
-			if versions[i] != 1 {
-				t.Fatalf("round %d version=%d want 1", i, versions[i])
-			}
+		fingerprint := f.committedCreationFingerprint(actor, "probe-same", "Race", "UTC", firstAdmin)
+		if got := f.householdTotal(); got != 0 {
+			t.Fatalf("probe households=%d want 0", got)
 		}
-		if ids2[0] == "" || ids2[0] != ids2[1] {
-			t.Fatalf("ids=%v want the same household", ids2)
+
+		winnerTx, winner := f.holdCreationWinner(actor, "race-key", "Race", "UTC", fingerprint, firstAdmin)
+		defer rollbackAdminTx(t, winnerTx)
+
+		type createResult struct {
+			house   household.AdminHousehold
+			version int64
+			err     error
+		}
+		done := make(chan createResult, 1)
+		go func() {
+			house, version, err := f.center.CreateHousehold(ctx, actor, "race-key", "Race", "UTC", firstAdmin)
+			done <- createResult{house, version, err}
+		}()
+		f.awaitCreationInsertLock()
+		select {
+		case result := <-done:
+			t.Fatalf("create returned before the winner committed: %+v err=%v", result.house, result.err)
+		default:
+		}
+		if err := winnerTx.Commit(ctx); err != nil {
+			t.Fatalf("commit winning create: %v", err)
+		}
+		result := <-done
+		if result.err != nil {
+			t.Fatalf("losing create: %v", result.err)
+		}
+		if result.house.ID != winner || result.version != 1 {
+			t.Fatalf("replayed household=%s version=%d want winner %s version 1", result.house.ID, result.version, winner)
 		}
 		if got := f.householdTotal(); got != 1 {
 			t.Fatalf("households=%d want 1", got)
@@ -217,8 +245,59 @@ func TestInstanceAdminCreateHouseholdAgainstPostgres(t *testing.T) {
 		if got := f.creationTotal(); got != 1 {
 			t.Fatalf("creation rows=%d want 1", got)
 		}
-		if got := f.assignmentCount(ids2[0]); got != 1 {
+		if got := f.scalarInt(`SELECT count(*) FROM household_creations WHERE creation_key=$1`, "race-key"); got != 1 {
+			t.Fatalf("creation rows for the key=%d want 1", got)
+		}
+		if got := f.membershipCount(winner); got != 1 {
+			t.Fatalf("memberships=%d want the winner's single admin", got)
+		}
+		if got := f.userMembershipCount(winner, firstAdmin); got != 1 {
+			t.Fatalf("winner admin memberships=%d want 1", got)
+		}
+		if got := f.assignmentCount(winner); got != 1 {
 			t.Fatalf("assignment rows=%d want 1", got)
+		}
+		if got := f.totalAuditRows(); got != 1 {
+			t.Fatalf("audit rows=%d want only the winner's assignment", got)
+		}
+	})
+
+	t.Run("concurrent same key with another intent is rejected", func(t *testing.T) {
+		f.prepare()
+		actor, firstAdmin := newAdmin()
+		fingerprint := f.committedCreationFingerprint(actor, "probe-other", "Other", "UTC", firstAdmin)
+
+		winnerTx, winner := f.holdCreationWinner(actor, "race-key", "Other", "UTC", fingerprint, "")
+		defer rollbackAdminTx(t, winnerTx)
+
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := f.center.CreateHousehold(ctx, actor, "race-key", "Race", "UTC", firstAdmin)
+			done <- err
+		}()
+		f.awaitCreationInsertLock()
+		select {
+		case err := <-done:
+			t.Fatalf("create returned before the winner committed: %v", err)
+		default:
+		}
+		if err := winnerTx.Commit(ctx); err != nil {
+			t.Fatalf("commit winning create: %v", err)
+		}
+		if err := <-done; !errors.Is(err, household.ErrIdempotencyKeyReused) {
+			t.Fatalf("different intent err=%v want ErrIdempotencyKeyReused", err)
+		}
+		if got := f.householdTotal(); got != 1 {
+			t.Fatalf("households=%d want only the winner", got)
+		}
+		if got := f.creationTotal(); got != 1 {
+			t.Fatalf("creation rows=%d want only the winner", got)
+		}
+		if got := f.membershipCount(winner); got != 0 {
+			t.Fatalf("memberships=%d; the rejected intent must create none", got)
+		}
+		if got := f.assignmentCount(winner); got != 0 {
+			t.Fatalf("assignment rows=%d; the rejected intent must create none", got)
 		}
 	})
 
@@ -254,6 +333,45 @@ func TestInstanceAdminCreateHouseholdAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("another unique violation is not a race", func(t *testing.T) {
+		f.prepare()
+		actor, firstAdmin := newAdmin()
+		house, _, err := f.center.CreateHousehold(ctx, actor, "adapter-key", "Home", "UTC", firstAdmin)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		// A second creation row for the same household violates the primary key,
+		// not the actor/key unique constraint, so it must not be mapped to the
+		// replayable race signal.
+		var insertErr error
+		err = f.repository.WithInstanceAdminTransaction(ctx, func(tx household.InstanceAdminTransaction, _ household.InstanceAdminEffects) error {
+			insertErr = tx.InsertHouseholdCreation(ctx, household.HouseholdCreation{
+				HouseholdID:        house.ID,
+				ActorUserID:        actor,
+				CreationKey:        "adapter-fresh-key",
+				RequestFingerprint: make([]byte, 32),
+				CreatedAt:          time.Now().UTC(),
+			})
+			return insertErr
+		})
+		if err != nil && !errors.Is(err, insertErr) {
+			t.Fatalf("adapter transaction: %v", err)
+		}
+		if insertErr == nil {
+			t.Fatal("duplicate household creation accepted")
+		}
+		if errors.Is(insertErr, household.ErrCreationKeyRaced) {
+			t.Fatalf("primary-key violation mapped to ErrCreationKeyRaced: %v", insertErr)
+		}
+		var pgErr *pgconn.PgError
+		if !errors.As(insertErr, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "household_creations_pkey" {
+			t.Fatalf("insert err=%v want 23505 household_creations_pkey", insertErr)
+		}
+		if got := f.creationTotal(); got != 1 {
+			t.Fatalf("creation rows=%d want 1", got)
+		}
+	})
+
 	t.Run("get household not found", func(t *testing.T) {
 		f.prepare()
 		actor, _ := newAdmin()
@@ -263,4 +381,96 @@ func TestInstanceAdminCreateHouseholdAgainstPostgres(t *testing.T) {
 			}
 		}
 	})
+}
+
+// committedCreationFingerprint asks the real service to create a household with
+// the given intent, reads the production fingerprint it stored, then removes the
+// probe household. The create fingerprint does not include the key, so the
+// returned digest is exactly what a later create with the same actor, name,
+// timezone and admin would compute.
+func (f *adminCenterFixture) committedCreationFingerprint(actor, key, name, timezone, adminUserID string) []byte {
+	f.t.Helper()
+	house, _, err := f.center.CreateHousehold(f.ctx, actor, key, name, timezone, adminUserID)
+	if err != nil {
+		f.t.Fatalf("probe create: %v", err)
+	}
+	fingerprint := f.creationFingerprint(house.ID)
+	if _, err := f.admin.Exec(f.ctx, `UPDATE user_accounts SET default_household_id=NULL WHERE default_household_id=$1::uuid`, house.ID); err != nil {
+		f.t.Fatalf("clear probe default household: %v", err)
+	}
+	if _, err := f.admin.Exec(f.ctx, `DELETE FROM households WHERE id=$1::uuid`, house.ID); err != nil {
+		f.t.Fatalf("remove probe household: %v", err)
+	}
+	if got := f.creationTotal(); got != 0 {
+		f.t.Fatalf("probe creation rows=%d want 0", got)
+	}
+	return fingerprint
+}
+
+// holdCreationWinner opens an uncommitted transaction that has already committed
+// the same actor/key (and optionally a realistic first-admin membership and
+// assignment) so a concurrent create blocks on the actor/key unique index until
+// the caller commits. It returns the transaction and the winning household ID.
+func (f *adminCenterFixture) holdCreationWinner(actor, key, name, timezone string, fingerprint []byte, adminUserID string) (pgx.Tx, string) {
+	f.t.Helper()
+	tx, err := f.admin.Begin(f.ctx)
+	if err != nil {
+		f.t.Fatalf("begin winning create: %v", err)
+	}
+	var householdID string
+	if err := tx.QueryRow(f.ctx,
+		`INSERT INTO households(name, timezone, created_at) VALUES ($1, $2, now()) RETURNING id::text`,
+		name, timezone).Scan(&householdID); err != nil {
+		f.t.Fatalf("insert winning household: %v", err)
+	}
+	if _, err := tx.Exec(f.ctx,
+		`INSERT INTO household_creations(household_id, actor_user_id, creation_key, request_fingerprint, created_at)
+		 VALUES ($1::uuid, $2::uuid, $3, $4, now())`, householdID, actor, key, fingerprint); err != nil {
+		f.t.Fatalf("insert winning creation row: %v", err)
+	}
+	if adminUserID != "" {
+		if _, err := tx.Exec(f.ctx,
+			`INSERT INTO household_memberships(user_id, household_id, role) VALUES ($1::uuid, $2::uuid, 'admin')`,
+			adminUserID, householdID); err != nil {
+			f.t.Fatalf("insert winning membership: %v", err)
+		}
+		if _, err := tx.Exec(f.ctx,
+			`INSERT INTO household_member_assignments(household_id, target_user_id, actor_user_id, role, actor_authority, assigned_at)
+			 VALUES ($1::uuid, $2::uuid, $3::uuid, 'admin', $4, now())`,
+			householdID, adminUserID, actor, household.AuthorityInstanceAdmin); err != nil {
+			f.t.Fatalf("insert winning assignment: %v", err)
+		}
+	}
+	return tx, householdID
+}
+
+func rollbackAdminTx(t *testing.T, tx pgx.Tx) {
+	t.Helper()
+	rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = tx.Rollback(rollbackCtx)
+}
+
+// awaitCreationInsertLock waits until the concurrent create is blocked inserting
+// its creation row. Polling from the runtime pool sees the runtime session; the
+// admin pool cannot observe another role's sessions.
+func (f *adminCenterFixture) awaitCreationInsertLock() {
+	f.t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var waiting int
+		if err := f.app.QueryRow(f.ctx,
+			`SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()
+			 AND wait_event_type='Lock' AND pid<>pg_backend_pid()
+			 AND query LIKE '%INSERT INTO household_creations%'`).Scan(&waiting); err != nil {
+			f.t.Fatalf("poll creation lock waiters: %v", err)
+		}
+		if waiting > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			f.t.Fatal("concurrent create never blocked on the creation key")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }

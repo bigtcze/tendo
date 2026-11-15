@@ -637,6 +637,26 @@ func TestAdminCreateHouseholdIdempotencyKeyErrors(t *testing.T) {
 	requireCalls(t, service, "RequireInstanceAdmin")
 }
 
+func TestAdminCreateHouseholdRequiredBodyFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing admin user", body: `{"name":"Home","timezone":"UTC"}`},
+		{name: "null admin user", body: `{"name":"Home","timezone":"UTC","adminUserId":null}`},
+		{name: "missing name", body: `{"timezone":"UTC","adminUserId":"` + adminTargetUserID + `"}`},
+		{name: "null timezone", body: `{"name":"Home","timezone":null,"adminUserId":"` + adminTargetUserID + `"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &instanceAdminFake{}
+			w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, "/api/v1/admin/households", tc.body,
+				map[string]string{"Idempotency-Key": "required-fields"})
+			requireProblem(t, w, http.StatusBadRequest, "invalid_request")
+			requireCalls(t, service, "RequireInstanceAdmin")
+		})
+	}
+}
+
 func TestAdminGetHouseholdBodyShape(t *testing.T) {
 	created := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 	service := &instanceAdminFake{household: household.AdminHousehold{ID: adminHouseholdID, Name: "Home", Timezone: "UTC", CreatedAt: created}, version: 3}

@@ -25,8 +25,9 @@ import (
 // fixture so the household-admin path stays comparable in the same database.
 type adminCenterFixture struct {
 	*removalFixture
-	center   *household.InstanceAdminCenter
-	accounts *household.AccountService
+	center     *household.InstanceAdminCenter
+	accounts   *household.AccountService
+	repository *InstanceAdminCenterRepository
 }
 
 func newAdminCenterFixture(t *testing.T, ctx context.Context, admin, app *pgxpool.Pool) *adminCenterFixture {
@@ -66,7 +67,8 @@ func newAdminCenterFixture(t *testing.T, ctx context.Context, admin, app *pgxpoo
 		removalFixture: newRemovalFixture(t, ctx, admin, app),
 		center: household.NewInstanceAdminCenter(
 			repository, identity, identity, clock),
-		accounts: AccountServiceFor(app, identity, identity, emptyResetLookup{}, clock),
+		accounts:   AccountServiceFor(app, identity, identity, emptyResetLookup{}, clock),
+		repository: repository,
 	}
 }
 
