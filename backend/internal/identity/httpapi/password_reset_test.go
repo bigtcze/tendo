@@ -23,10 +23,21 @@ type passwordResetFakeService struct {
 	err    error
 	calls  int
 	last   string
+	// refuse makes issue fail authorization before the budget is consulted,
+	// as the real service does.
+	refuse error
 }
 
-func (f *passwordResetFakeService) IssuePasswordReset(context.Context, string, string, string) (identity.PasswordResetIssued, error) {
+// IssuePasswordResetAdmitted mirrors the real service contract: authorization
+// first, then the budget keyed by the canonical (lower-case) target ID.
+func (f *passwordResetFakeService) IssuePasswordResetAdmitted(_ context.Context, _, _, target string, admit func(string) bool) (identity.PasswordResetIssued, error) {
 	f.calls++
+	if f.refuse != nil {
+		return identity.PasswordResetIssued{}, f.refuse
+	}
+	if admit != nil && !admit(strings.ToLower(target)) {
+		return identity.PasswordResetIssued{}, identity.ErrPasswordResetThrottled
+	}
 	return f.issued, f.err
 }
 func (f *passwordResetFakeService) RevokePasswordReset(context.Context, string, string, string) error {
@@ -168,8 +179,8 @@ func TestPasswordResetIssueTargetThrottle(t *testing.T) {
 	if w.Header().Get("Retry-After") != "60" {
 		t.Fatalf("Retry-After=%q", w.Header().Get("Retry-After"))
 	}
-	if service.calls != passwordResetTargetLimit {
-		t.Fatalf("per-target limiter admitted calls=%d", service.calls)
+	if service.calls != passwordResetTargetLimit+1 {
+		t.Fatalf("service calls=%d", service.calls)
 	}
 	// The bucket belongs to the target, not to the client address: a different
 	// member can still be reset, and cancelling is never target-throttled.
@@ -276,4 +287,49 @@ func TestPasswordResetRedeemRejectsForeignOrigin(t *testing.T) {
 	if response.Code != http.StatusOK || service.calls != 1 {
 		t.Fatalf("same-origin status=%d calls=%d body=%s", response.Code, service.calls, response.Body.String())
 	}
+}
+
+// Refused issue attempts (another household's admin, self, no authority) must
+// not spend the target's hourly budget, so the admins who do hold authority
+// can still issue afterwards.
+func TestPasswordResetIssueTargetThrottleCountsOnlyAuthorizedIssuance(t *testing.T) {
+	service := &passwordResetFakeService{issued: identity.PasswordResetIssued{Token: strings.Repeat("A", 43)}}
+	router := passwordResetRouter(service, true)
+	path := "/api/v1/households/house/accounts/target/password-reset"
+	for _, refusal := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{identity.ErrPasswordResetNotPermitted, 409, "password_reset_not_permitted"},
+		{household.ErrAdminRequired, 403, "admin_required"},
+		{household.ErrNotFound, 404, "not_found"},
+		{identity.ErrNoLocalPassword, 409, "no_local_password"},
+	} {
+		service.refuse = refusal.err
+		assertPasswordResetProblem(t, req(router, http.MethodPost, path, `{}`, "application/json", nil), refusal.status, refusal.code)
+	}
+	service.refuse = nil
+	for n := 0; n < passwordResetTargetLimit; n++ {
+		if w := req(router, http.MethodPost, path, `{}`, "application/json", nil); w.Code != http.StatusCreated {
+			t.Fatalf("authorized issue %d after refusals status=%d body=%s", n, w.Code, w.Body.String())
+		}
+	}
+	// Nine requests so far, below the per-address limit of ten, so this 429 is
+	// the per-target budget and nothing else.
+	assertPasswordResetProblem(t, req(router, http.MethodPost, path, `{}`, "application/json", nil), 429, "rate_limited")
+}
+
+// The budget belongs to the account, not to the spelling of its ID in the URL.
+func TestPasswordResetIssueTargetThrottleIgnoresIDCase(t *testing.T) {
+	service := &passwordResetFakeService{issued: identity.PasswordResetIssued{Token: strings.Repeat("A", 43)}}
+	router := passwordResetRouter(service, true)
+	lower := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	for n := 0; n < passwordResetTargetLimit; n++ {
+		if w := req(router, http.MethodPost, "/api/v1/households/house/accounts/"+lower+"/password-reset", `{}`, "application/json", nil); w.Code != http.StatusCreated {
+			t.Fatalf("issue %d status=%d", n, w.Code)
+		}
+	}
+	w := req(router, http.MethodPost, "/api/v1/households/house/accounts/"+strings.ToUpper(lower)+"/password-reset", `{}`, "application/json", nil)
+	assertPasswordResetProblem(t, w, 429, "rate_limited")
 }

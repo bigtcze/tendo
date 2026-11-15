@@ -59,6 +59,10 @@ type Querier interface {
 	// that conflict (ADR 0018).
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
+	// A link replaces the account-wide password, so it is reported whichever
+	// household it was issued through, but only when its issuer currently
+	// administers the household asking: any other link is void at redemption and
+	// would disclose another household's activity (ADR 0017, #478).
 	OutstandingPasswordResetsByUserIDs(ctx context.Context, arg OutstandingPasswordResetsByUserIDsParams) ([]OutstandingPasswordResetsByUserIDsRow, error)
 	// A reset replaces the target's global credential, so the actor must
 	// administer every household the target belongs to, and only an instance
@@ -70,7 +74,6 @@ type Querier interface {
 	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	RevokeOutstandingPasswordResetsForTarget(ctx context.Context, arg RevokeOutstandingPasswordResetsForTargetParams) (int64, error)
-	RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, arg RevokeOutstandingPasswordResetsInHouseholdParams) (int64, error)
 	SetAccountDefaultHousehold(ctx context.Context, arg SetAccountDefaultHouseholdParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)

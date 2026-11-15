@@ -49,7 +49,7 @@ Each link:
 - sets the password and signs that person out everywhere, so they must sign in again,
 - is replaced when you reset the same person again, because only one link can be active at a time.
 
-Select **Cancel link** on an outstanding reset if it should no longer be used. The person cannot use a cancelled or replaced link; ask them to tell you if a link no longer works, then create a new one.
+Select **Cancel link** on an outstanding reset if it should no longer be used. The Admin center also shows a link that another administrator of this household created, even through another household this person belongs to, and you can cancel it. The person cannot use a cancelled or replaced link; ask them to tell you if a link no longer works, then create a new one.
 
 Password reset works only for accounts with a local password (password only, or password plus single sign-on). A member who signs in only with single sign-on cannot use it, because Tendo does not set passwords for those accounts. Administrators cannot reset their own password; to replace your own password, change it in **Your account** (see [your account](account.md#changing-your-password)) or ask another administrator for a reset link. If the only administrator forgets their password, whoever runs your Tendo installation can set a new one from the host; see [troubleshooting](../admin/troubleshooting.md#restore-a-forgotten-password-from-the-host).
 

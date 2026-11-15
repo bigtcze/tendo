@@ -44,8 +44,34 @@ in one household must not grant authority over data in another.
   concurrent issue. The residual window is a membership or instance-admin
   grant committing between the predicate read and the redeem commit, which is
   the same read-committed window ADR 0014 accepted for the issuer-role check.
-- Cancel (`DELETE`) is unchanged: revoking a link never grants access, so any
-  admin of the household may still cancel a link targeting its member.
+- Cancel (`DELETE`) revokes the target's outstanding link account-wide,
+  whichever household or co-admin issued it: the link replaces the shared
+  password, and revoking never grants access, so any admin of a household the
+  target belongs to may cancel it. Cancel runs the same prefix as issue (admin
+  of this household, not self, target account row locked
+  `FOR NO KEY UPDATE`, membership) before revoking, so a cancel that overlaps
+  a concurrent issue for the same account waits for it and also revokes the
+  link it created; without the account-row lock it could answer `204` while
+  the new link stayed usable. Cancelling a link that redemption would already
+  refuse (for example one whose issuer lost authority) is harmless.
+- Visibility: a household's account view reports a member's outstanding link
+  when its issuer currently administers that household, whichever household
+  it was issued through, so co-admins see and can cancel each other's links.
+  A link from someone with no admin role in the household stays hidden: it is
+  void at redemption anyway, and showing it would reveal another household's
+  activity. Only `createdAt` and `expiresAt` are exposed, never the issuer or
+  the issuing household.
+- Issuance throttle: the per-target hourly budget is charged inside the issue
+  transaction, after every authorization check above has passed, keyed by the
+  target's canonical account ID from the locked row. Refused requests (another
+  household's admin, self, no authority, no local password) and differently
+  cased spellings of the ID therefore cannot spend a target's budget. The
+  per-address limit still applies before the body is read.
+- Concurrent mutual resets: two co-admins resetting each other through
+  different households do not deadlock, because issue locks the target account
+  row `FOR NO KEY UPDATE` (ADR 0018), which does not conflict with the
+  foreign-key `KEY SHARE` the token insert takes on the issuer's row. No
+  ordered locking of both account rows is needed.
 
 ## Consequences
 
@@ -64,12 +90,6 @@ in one household must not grant authority over data in another.
 - The admin center (#454) must keep this predicate when it adds instance-wide
   account management, and must revoke or re-check outstanding links when it
   grants instance administrator or changes memberships.
-- Follow-ups not decided here: the per-target issuance throttle is consumed
-  before authorization, so an admin of another household can exhaust a target's
-  hourly budget; the Admin center of one household neither shows nor cancels a
-  link that a co-admin issued for the same person through another household,
-  although that link replaces the shared password; and two co-admins resetting
-  each other through different households at the same instant can deadlock
-  (issue locks the target user row and the token insert takes a key-share lock
-  on the issuer's user row), answered as `503` and safe to retry. The last
-  predates this ADR.
+- The throttle order, cross-household link visibility and cancel, and the
+  mutual-reset deadlock, left open when this ADR was first accepted, are
+  decided above (#478), each with a real-PostgreSQL or HTTP regression test.

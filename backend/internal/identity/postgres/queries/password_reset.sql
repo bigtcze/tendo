@@ -15,10 +15,6 @@ SELECT EXISTS(SELECT 1 FROM local_credentials WHERE user_id=$1);
 UPDATE password_reset_tokens SET revoked_at=$2
 WHERE target_user_id=$1 AND used_at IS NULL AND revoked_at IS NULL;
 
--- name: RevokeOutstandingPasswordResetsInHousehold :execrows
-UPDATE password_reset_tokens SET revoked_at=$3
-WHERE household_id=$1 AND target_user_id=$2 AND used_at IS NULL AND revoked_at IS NULL;
-
 -- name: CreatePasswordReset :one
 INSERT INTO password_reset_tokens(household_id,target_user_id,created_by_user_id,token_hash,created_at,expires_at)
 VALUES($1,$2,$3,$4,$5,$6)
@@ -40,10 +36,18 @@ WHERE id=$1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $2;
 SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1 FOR UPDATE;
 
 -- name: OutstandingPasswordResetsByUserIDs :many
-SELECT target_user_id::text AS user_id, created_at, expires_at
-FROM password_reset_tokens
-WHERE household_id=$1 AND target_user_id = ANY($2::uuid[])
-  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $3;
+-- A link replaces the account-wide password, so it is reported whichever
+-- household it was issued through, but only when its issuer currently
+-- administers the household asking: any other link is void at redemption and
+-- would disclose another household's activity (ADR 0017, #478).
+SELECT t.target_user_id::text AS user_id, t.created_at, t.expires_at
+FROM password_reset_tokens t
+WHERE t.target_user_id = ANY($2::uuid[])
+  AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > $3
+  AND EXISTS (
+    SELECT 1 FROM household_memberships a
+    WHERE a.user_id = t.created_by_user_id AND a.household_id = $1 AND a.role = 'admin'
+  );
 
 -- name: PasswordResetPermitted :one
 -- A reset replaces the target's global credential, so the actor must

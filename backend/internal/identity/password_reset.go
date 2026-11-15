@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
@@ -31,6 +32,10 @@ var (
 	ErrPasswordResetNotPermitted = errors.New("password reset not permitted")
 	// ErrNoLocalPassword means the target signs in only through OIDC.
 	ErrNoLocalPassword = errors.New("no local password")
+	// ErrPasswordResetThrottled means the per-target issuance budget is spent.
+	// It is decided only after full authorization, so a refused caller can
+	// never spend a target's budget (ADR 0017, #478).
+	ErrPasswordResetThrottled = errors.New("password reset throttled")
 	// ErrInvalidPasswordReset is the uniform answer for every unusable link:
 	// malformed, unknown, used, revoked, expired, or no longer authorized.
 	ErrInvalidPasswordReset = errors.New("invalid password reset")
@@ -69,6 +74,8 @@ type PasswordResetTransaction interface {
 	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
 	FindUserLogin(context.Context, string) (string, error)
+	// LockPasswordResetTarget locks the account row FOR NO KEY UPDATE and
+	// returns its canonical (lower-case) ID.
 	LockPasswordResetTarget(context.Context, string) (string, error)
 	// PasswordResetPermitted reports whether the actor (first argument) holds
 	// reset authority over the whole target account (second argument): admin of
@@ -76,7 +83,6 @@ type PasswordResetTransaction interface {
 	// the target is one.
 	PasswordResetPermitted(context.Context, string, string) (bool, error)
 	HasLocalCredential(context.Context, string) (bool, error)
-	RevokeOutstandingPasswordResetsInHousehold(context.Context, string, string, time.Time) error
 	CreatePasswordReset(context.Context, CreatePasswordResetInput) (PasswordResetRecord, error)
 	FindPasswordReset(context.Context, []byte, bool) (PasswordResetRecord, error)
 	CompletePasswordReset(context.Context, string, time.Time) (int64, error)
@@ -129,9 +135,20 @@ func validPasswordResetToken(token string) bool {
 }
 
 // IssuePasswordReset creates a single-use link for a local-password member of
-// the household. Any earlier outstanding link for the target is revoked first,
-// inside the same transaction, so a target never has two usable links.
+// the household without an issuance budget. It is a convenience for callers
+// that apply no per-target throttle (tests); the HTTP handler uses
+// IssuePasswordResetAdmitted.
 func (s *PasswordResetService) IssuePasswordReset(ctx context.Context, actorID, householdID, targetUserID string) (PasswordResetIssued, error) {
+	return s.IssuePasswordResetAdmitted(ctx, actorID, householdID, targetUserID, nil)
+}
+
+// IssuePasswordResetAdmitted creates a single-use link for a local-password
+// member of the household. Any earlier outstanding link for the target is
+// revoked first, inside the same transaction, so a target never has two usable
+// links. admit is the per-target issuance budget: it is asked only after every
+// authorization check has passed, with the target's canonical account ID, and
+// a refusal rolls back with ErrPasswordResetThrottled. A nil admit admits.
+func (s *PasswordResetService) IssuePasswordResetAdmitted(ctx context.Context, actorID, householdID, targetUserID string, admit func(string) bool) (PasswordResetIssued, error) {
 	bounded, cancel := context.WithTimeout(ctx, passwordResetRepositoryBudget)
 	defer cancel()
 	ctx = bounded
@@ -144,15 +161,19 @@ func (s *PasswordResetService) IssuePasswordReset(ctx context.Context, actorID, 
 	now := passwordResetNow(s.clock)
 	var issued PasswordResetIssued
 	err := s.repository.WithPasswordResetTransaction(ctx, func(tx PasswordResetTransaction) error {
-		if e := authorizePasswordResetIssue(ctx, tx, actorID, householdID, targetUserID); e != nil {
+		canonicalTarget, e := authorizePasswordResetIssue(ctx, tx, actorID, householdID, targetUserID)
+		if e != nil {
 			return e
+		}
+		if admit != nil && !admit(canonicalTarget) {
+			return ErrPasswordResetThrottled
 		}
 		raw := make([]byte, 32)
 		if _, e := rand.Read(raw); e != nil {
 			return errors.New("password reset token generation failed")
 		}
 		token := base64.RawURLEncoding.EncodeToString(raw)
-		if e := tx.RevokeOutstandingPasswordResets(ctx, targetUserID, now); e != nil {
+		if e = tx.RevokeOutstandingPasswordResets(ctx, targetUserID, now); e != nil {
 			return e
 		}
 		record, e := tx.CreatePasswordReset(ctx, CreatePasswordResetInput{
@@ -171,40 +192,60 @@ func (s *PasswordResetService) IssuePasswordReset(ctx context.Context, actorID, 
 // authorizePasswordResetIssue runs the issue checks in their contract order:
 // actor is a household admin, not self, target exists (locked to serialize
 // concurrent issuances) and is a member, the actor holds reset authority over
-// the whole account (ADR 0017), and only then the local-password fact.
-func authorizePasswordResetIssue(ctx context.Context, tx PasswordResetTransaction, actorID, householdID, targetUserID string) error {
-	if e := tx.RequireAdmin(ctx, actorID, householdID); e != nil {
-		return e
-	}
-	if targetUserID == actorID {
-		return ErrCannotResetSelf
-	}
-	if _, e := tx.LockPasswordResetTarget(ctx, targetUserID); e != nil {
-		return e
-	}
-	if _, e := tx.GetMembership(ctx, targetUserID, householdID); e != nil {
-		return e
+// the whole account (ADR 0017), and only then the local-password fact. It
+// returns the target's canonical account ID.
+func authorizePasswordResetIssue(ctx context.Context, tx PasswordResetTransaction, actorID, householdID, targetUserID string) (string, error) {
+	canonicalTarget, e := lockPasswordResetMember(ctx, tx, actorID, householdID, targetUserID)
+	if e != nil {
+		return "", e
 	}
 	permitted, e := tx.PasswordResetPermitted(ctx, actorID, targetUserID)
 	if e != nil {
-		return e
+		return "", e
 	}
 	if !permitted {
-		return ErrPasswordResetNotPermitted
+		return "", ErrPasswordResetNotPermitted
 	}
 	local, e := tx.HasLocalCredential(ctx, targetUserID)
 	if e != nil {
-		return e
+		return "", e
 	}
 	if !local {
-		return ErrNoLocalPassword
+		return "", ErrNoLocalPassword
 	}
-	return nil
+	return canonicalTarget, nil
 }
 
-// RevokePasswordReset cancels an outstanding link for a member of this
-// household. It is idempotent: cancelling when there is nothing to cancel is
-// not an error.
+// lockPasswordResetMember is the shared prefix of issue and cancel: the actor
+// administers the household, does not target themselves, and the target's
+// account row is locked before its membership is read. Issue and cancel take
+// the household row, then the account row, then link rows, in that order, so
+// they serialize per target without forming a lock cycle (ADR 0018).
+func lockPasswordResetMember(ctx context.Context, tx PasswordResetTransaction, actorID, householdID, targetUserID string) (string, error) {
+	if e := tx.RequireAdmin(ctx, actorID, householdID); e != nil {
+		return "", e
+	}
+	// IDs are case-insensitive UUIDs; the URL may spell the actor's own ID in
+	// upper case.
+	if strings.EqualFold(targetUserID, actorID) {
+		return "", ErrCannotResetSelf
+	}
+	canonicalTarget, e := tx.LockPasswordResetTarget(ctx, targetUserID)
+	if e != nil {
+		return "", e
+	}
+	if _, e = tx.GetMembership(ctx, targetUserID, householdID); e != nil {
+		return "", e
+	}
+	return canonicalTarget, nil
+}
+
+// RevokePasswordReset cancels the outstanding link of a member of this
+// household, whichever household it was issued through: the link replaces the
+// account-wide password, and revoking never grants access. It locks the
+// target's account row first, so a cancel that waited for a concurrent issue
+// also revokes the link that issue created. It is idempotent: cancelling when
+// there is nothing to cancel is not an error.
 func (s *PasswordResetService) RevokePasswordReset(ctx context.Context, actorID, householdID, targetUserID string) error {
 	bounded, cancel := context.WithTimeout(ctx, passwordResetRepositoryBudget)
 	defer cancel()
@@ -216,16 +257,10 @@ func (s *PasswordResetService) RevokePasswordReset(ctx context.Context, actorID,
 		return household.ErrNotFound
 	}
 	return s.repository.WithPasswordResetTransaction(ctx, func(tx PasswordResetTransaction) error {
-		if e := tx.RequireAdmin(ctx, actorID, householdID); e != nil {
+		if _, e := lockPasswordResetMember(ctx, tx, actorID, householdID, targetUserID); e != nil {
 			return e
 		}
-		if targetUserID == actorID {
-			return ErrCannotResetSelf
-		}
-		if _, e := tx.GetMembership(ctx, targetUserID, householdID); e != nil {
-			return e
-		}
-		return tx.RevokeOutstandingPasswordResetsInHousehold(ctx, householdID, targetUserID, passwordResetNow(s.clock))
+		return tx.RevokeOutstandingPasswordResets(ctx, targetUserID, passwordResetNow(s.clock))
 	})
 }
 
