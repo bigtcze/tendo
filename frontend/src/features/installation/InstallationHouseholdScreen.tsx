@@ -37,14 +37,14 @@ export type SelfChangeKind = 'role' | 'removal' | 'assignment';
  * A change to the viewer's own membership keeps this screen where it is: demoting themselves, or even removing
  * themselves from this household, costs no access to the Admin center, so it is not treated as leaving. The shell
  * still reads the session, because the server may have moved the viewer's default household — adding the viewer
- * themselves included; only when it did does this screen come back through a remount, and then `selfNotice` carries
+ * themselves included; only when it did does this screen come back through a remount, and then `handoffNotice` carries
  * the notice and the heading the focus.
  *
  * `name` is only what the list already showed on the way in; a direct load or a reload shows the generic heading
  * instead of reading the list again to find it.
  */
 export function InstallationHouseholdScreen({
-  householdId, defaultHouseholdId, name, viewerId, login, selfNotice, onSelfChange, onSelfNoticeDone,
+  householdId, defaultHouseholdId, name, viewerId, login, handoffNotice, onSelfChange, onHandoffDone,
   onSignedOut, onForbidden, onBack,
 }: {
   householdId: string;
@@ -53,18 +53,21 @@ export function InstallationHouseholdScreen({
   name: string | null;
   viewerId: string;
   login: string;
-  /** A notice handed back by the shell because a self change remounted this screen; spoken once, then cleared. */
-  selfNotice: NoticeSpec | null;
+  /**
+   * A notice handed back by the shell because an action elsewhere — a self change, or a household created here —
+   * remounted or opened this screen; spoken once, then cleared.
+   */
+  handoffNotice: NoticeSpec | null;
   /** A self change was accepted: the shell reads the session again, so it follows the households really held. */
   onSelfChange: (notice: NoticeSpec, kind: SelfChangeKind) => void;
-  onSelfNoticeDone: () => void;
+  onHandoffDone: () => void;
   onSignedOut: () => void;
   onForbidden: () => void;
   onBack: () => void;
 }) {
   const { t } = useI18n();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const { notice, announce } = useLiveNotice(selfNotice, headingRef, onSelfNoticeDone);
+  const { notice, announce } = useLiveNotice(handoffNotice, headingRef, onHandoffDone);
   const list = useAdminHouseholdAccounts(householdId, { onSignedOut, onForbidden });
   const { change, removal, busy } = useMembershipActions({
     householdId, defaultHouseholdId, viewerId, list, announce, onSelfChange, onSignedOut, onForbidden,
@@ -119,19 +122,20 @@ export function InstallationHouseholdScreen({
 }
 
 /**
- * The screen's live notice. A self change that moved the viewer's default household remounts this screen, so the
- * shell hands the notice back with `selfNotice`: it is this screen's first notice, and the heading takes the focus
- * the remount left on the document. Every other outcome is announced here directly.
+ * The screen's live notice. An action that opened this screen — a self change whose session read moved the default
+ * household, or a household just created — remounts or mounts it, so the shell hands the notice back with
+ * `handoffNotice`: it is this screen's first notice, and the heading takes the focus the change left on the document.
+ * Every other outcome is announced here directly.
  */
-function useLiveNotice(selfNotice: NoticeSpec | null, headingRef: RefObject<HTMLHeadingElement | null>, onDone: () => void) {
-  const [notice, setNotice] = useState<NoticeSpec | null>(selfNotice);
+function useLiveNotice(handoffNotice: NoticeSpec | null, headingRef: RefObject<HTMLHeadingElement | null>, onDone: () => void) {
+  const [notice, setNotice] = useState<NoticeSpec | null>(handoffNotice);
   useEffect(() => {
-    if (!selfNotice) return;
-    // The remount took the focus with the element it lived on; the heading says where the reader still is.
+    if (!handoffNotice) return;
+    // The change took the focus with the element it lived on; the heading says where the reader still is.
     const active = document.activeElement;
     if (active === null || active === document.body) headingRef.current?.focus();
     onDone();
-  }, [selfNotice, onDone, headingRef]);
+  }, [handoffNotice, onDone, headingRef]);
   return { notice, announce: setNotice };
 }
 

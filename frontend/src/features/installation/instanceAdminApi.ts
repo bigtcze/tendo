@@ -108,6 +108,55 @@ export type AdminAssignment =
   | { kind: 'requiresAdmin' }
   | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
 
+/** The fields `createAdminHousehold` validates, in the order the server answers them. */
+const createFields: readonly string[] = ['name', 'timezone', 'adminUserId'];
+const createCodes: readonly string[] = ['invalid_length', 'invalid_characters', 'invalid_iana_timezone', 'invalid_reference'];
+
+export type AdminHouseholdField = 'name' | 'timezone' | 'adminUserId';
+export type AdminHouseholdCode = 'invalid_length' | 'invalid_characters' | 'invalid_iana_timezone' | 'invalid_reference';
+
+export type AdminHouseholdCreate =
+  | { kind: 'created'; household: AdminHousehold }
+  /** One field the server refused; `code` says why and the field it names is where the reader has to answer. */
+  | { kind: 'invalid'; field: AdminHouseholdField; code: AdminHouseholdCode }
+  /** The key was already used for a different name, timezone or account: the caller must start a new intent. */
+  | { kind: 'keyReused' }
+  /** Anything else refused as a whole; a `404` is not in this route's contract but reads as a plain failure. */
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+/** A `422` whose field this client knows; anything else is not a field answer and stays a plain failure. */
+function invalidHousehold(error: unknown): Extract<AdminHouseholdCreate, { kind: 'invalid' }> | null {
+  const { field, code } = (error ?? {}) as { field?: unknown; code?: unknown };
+  if (typeof field !== 'string' || !createFields.includes(field)) return null;
+  if (typeof code !== 'string' || !createCodes.includes(code)) return null;
+  return { kind: 'invalid', field: field as AdminHouseholdField, code: code as AdminHouseholdCode };
+}
+
+/**
+ * Creates a household and its first admin membership in one call. The `Idempotency-Key` is the caller's promise that
+ * a retry of the same intent returns the household already created; a key reused for another intent is refused
+ * rather than answered with an unrelated household.
+ */
+export async function createAdminHousehold(
+  body: { name: string; timezone: string; adminUserId: string }, idempotencyKey: string,
+): Promise<AdminHouseholdCreate> {
+  try {
+    const { data, error, response } = await api.POST(householdsPath, {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+      body,
+    });
+    if (data && response.status === 201) return { kind: 'created', household: data };
+    if (response.status === 422) {
+      if (problemCode(error) === 'idempotency_key_reused') return { kind: 'keyReused' };
+      return invalidHousehold(error) ?? { kind: 'error' };
+    }
+    const refused = refusal(response.status, problemCode(error));
+    if (refused) return refused;
+    if (response.status >= 400 && response.status < 500) return { kind: 'rejected' };
+  } catch { /* the common unavailable state */ }
+  return { kind: 'error' };
+}
+
 /**
  * Puts an existing account into a household. `created` is a fresh membership and `unchanged` the server's
  * idempotent replay of the same role; an existing membership with another role needs the role change instead.
