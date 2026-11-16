@@ -18,6 +18,14 @@ var createHouseholdFields = map[string]httpx.Field{
 	"adminUserId": {Kind: httpx.KindString, Required: true},
 }
 
+// deleteAccountFields is the account deletion confirmation body. Both values
+// are required strings; the service owns identifier shape and the exact login
+// comparison.
+var deleteAccountFields = map[string]httpx.Field{
+	"userId":       {Kind: httpx.KindString, Required: true},
+	"confirmLogin": {Kind: httpx.KindString, Required: true},
+}
+
 type instanceAdminService interface {
 	RequireInstanceAdmin(ctx context.Context, actorID string) error
 	ListHouseholds(ctx context.Context, actorID, cursor string, limit int) ([]household.AdminHousehold, string, error)
@@ -29,6 +37,7 @@ type instanceAdminService interface {
 	AssignAccount(ctx context.Context, actorID, householdID, targetUserID, role string) (household.AdminAccount, bool, error)
 	ChangeRole(ctx context.Context, actorID, householdID, targetUserID, role string, expectedVersion int64) (household.AdminAccount, error)
 	RemoveAccount(ctx context.Context, actorID, householdID, targetUserID string, expectedVersion int64) error
+	DeleteAccount(ctx context.Context, actorID, targetUserID, confirmLogin string) error
 }
 
 // AdminHandler serves the instance-administrator household account center
@@ -58,6 +67,7 @@ func (h *AdminHandler) Register(r chi.Router) {
 		r.Put("/api/v1/admin/households/{householdId}/accounts/{userId}", h.assignAccount)
 		r.Patch("/api/v1/admin/households/{householdId}/accounts/{userId}", h.changeRole)
 		r.Delete("/api/v1/admin/households/{householdId}/accounts/{userId}", h.removeAccount)
+		r.Post("/api/v1/admin/account-deletions", h.deleteAccount)
 	})
 }
 
@@ -119,20 +129,15 @@ func (h *AdminHandler) listHouseholds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) createHousehold(w http.ResponseWriter, r *http.Request) {
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
-		return
-	}
-	if len(keys) != 1 || !validCreationKey(keys[0]) {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
+	key, ok := httpx.IdempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	values, ok := httpx.ReadObject(w, r, createHouseholdFields, accountBodyLimit)
 	if !ok {
 		return
 	}
-	house, version, err := h.service.CreateHousehold(r.Context(), h.actor(r), keys[0],
+	house, version, err := h.service.CreateHousehold(r.Context(), h.actor(r), key,
 		values["name"].(string), values["timezone"].(string), values["adminUserId"].(string))
 	if err != nil {
 		writeAdminError(w, err)
@@ -262,6 +267,20 @@ func (h *AdminHandler) removeAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// deleteAccount anonymizes one installation account (ADR 0022). The body
+// confirms the target's exact login; a successful deletion has no body.
+func (h *AdminHandler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	values, ok := httpx.ReadObject(w, r, deleteAccountFields, accountBodyLimit)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteAccount(r.Context(), h.actor(r), values["userId"].(string), values["confirmLogin"].(string)); err != nil {
+		writeAdminError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func writeAdminAccount(w http.ResponseWriter, status int, account household.AdminAccount) {
 	w.Header().Set("ETag", httpx.ETag(account.Version))
 	httpx.WriteJSON(w, status, adminAccountDTO(account))
@@ -272,19 +291,6 @@ func adminAccountDTO(account household.AdminAccount) apimodel.AdminAccount {
 		UserId: account.UserID, Login: account.Login, Role: apimodel.MemberRole(account.Role),
 		SignInMethods: apimodel.AccountSignInMethods{Password: account.SignInMethods.Password, Oidc: account.SignInMethods.OIDC},
 	}
-}
-
-// validCreationKey mirrors the subject create rule: 1–128 visible ASCII bytes.
-func validCreationKey(key string) bool {
-	if len(key) < 1 || len(key) > 128 {
-		return false
-	}
-	for i := range key {
-		if key[i] < '!' || key[i] > '~' {
-			return false
-		}
-	}
-	return true
 }
 
 func writeAdminError(w http.ResponseWriter, err error) {
@@ -300,6 +306,10 @@ func writeAdminError(w http.ResponseWriter, err error) {
 		httpx.ProblemResponse(w, http.StatusPreconditionFailed, "precondition_failed")
 	case errors.Is(err, household.ErrLastAdmin):
 		httpx.ProblemResponse(w, http.StatusConflict, "last_admin")
+	case errors.Is(err, household.ErrCannotDeleteSelf):
+		httpx.ProblemResponse(w, http.StatusConflict, "cannot_delete_self")
+	case errors.Is(err, household.ErrLastInstanceAdmin):
+		httpx.ProblemResponse(w, http.StatusConflict, "last_instance_admin")
 	case errors.Is(err, household.ErrAlreadyMember):
 		httpx.ProblemResponse(w, http.StatusConflict, "already_member")
 	case errors.Is(err, household.ErrHouseholdRequiresAdmin):

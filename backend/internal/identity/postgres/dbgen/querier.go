@@ -12,6 +12,12 @@ import (
 
 type Querier interface {
 	AcceptInvitation(ctx context.Context, arg AcceptInvitationParams) (int64, error)
+	// The tombstone keeps the row and its identifier so every history row still
+	// references a real account. The login becomes '~deleted-<32 hex>', which no
+	// login pattern accepts and which is unique by construction, so the partial
+	// unique index frees the old login. Email facts, the default household and
+	// every session are cleared; exactly one live row must change.
+	AnonymizeAccount(ctx context.Context, arg AnonymizeAccountParams) (int64, error)
 	CompletePasswordReset(ctx context.Context, arg CompletePasswordResetParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
 	ConsumeOIDCFlow(ctx context.Context, arg ConsumeOIDCFlowParams) (ConsumeOIDCFlowRow, error)
@@ -20,15 +26,36 @@ type Querier interface {
 	CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (CreatePasswordResetRow, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateUser(ctx context.Context, login string) (string, error)
+	// The local password goes first, in the ADR 0018 replacement order, so no
+	// password sign-in can begin before the sessions are gone.
+	DeleteAccountCredentials(ctx context.Context, userID pgtype.UUID) error
+	// The links themselves, so the identity signs in as unlinked next time.
+	DeleteAccountIdentities(ctx context.Context, userID pgtype.UUID) error
+	// Link flows of the account carry its session; they are useless once the
+	// identity rows and sessions are gone.
+	DeleteAccountOIDCFlows(ctx context.Context, userID pgtype.UUID) error
+	// Every session of the account, including one issued by an OIDC sign-in that
+	// committed just before this lock.
+	DeleteAccountSessions(ctx context.Context, userID pgtype.UUID) error
 	DeleteAllUserSessions(ctx context.Context, userID pgtype.UUID) ([]DeleteAllUserSessionsRow, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
 	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
+	// A session of a deleted account is inert even if a racing insert survived.
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
+	// The identity-owned side of a global account deletion (ADR 0022). Every
+	// statement runs inside the household-owned deletion transaction and follows
+	// the ADR 0019 global lock order.
+	// The unlocked pre-read of a live account's login. A missing or already
+	// tombstoned account is not found, so it can never be a deletion target.
+	FindDeletableAccount(ctx context.Context, id pgtype.UUID) (string, error)
 	FindInvitationByCreationKey(ctx context.Context, arg FindInvitationByCreationKeyParams) (FindInvitationByCreationKeyRow, error)
 	FindInvitationByToken(ctx context.Context, tokenHash []byte) (FindInvitationByTokenRow, error)
 	FindInvitationByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindInvitationByTokenForUpdateRow, error)
+	// A deleted account cannot sign in: its tombstone login is not found.
 	FindLogin(ctx context.Context, login string) (FindLoginRow, error)
+	// A deleted account is not found: its tombstone login is never a valid
+	// invitation target.
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
 	FindPasswordResetByToken(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenRow, error)
@@ -36,34 +63,48 @@ type Querier interface {
 	// Shared local-credential replacement protocol (ADR 0018). One implementation
 	// of "a password changed, sign the account out everywhere" is used by
 	// self-service change, admin reset redemption and the operator CLI.
+	// A deleted account is not found: its tombstone login cannot change a password.
 	FindUserAccountByLogin(ctx context.Context, login string) (string, error)
+	// A deleted account has no login to report: redemption answers it as an
+	// invalid link (ADR 0022).
 	FindUserLogin(ctx context.Context, id pgtype.UUID) (string, error)
 	GrantInstanceAdmin(ctx context.Context, userID pgtype.UUID) error
 	HasLocalCredential(ctx context.Context, userID pgtype.UUID) (bool, error)
 	InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) error
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
+	// The identity pairs whose advisory lock the deletion must take, so a
+	// concurrent OIDC sign-in either finishes before the transaction or sees the
+	// identity unlinked (ADR 0019 step 4).
+	ListAccountIdentityKeys(ctx context.Context, userID pgtype.UUID) ([]ListAccountIdentityKeysRow, error)
 	// Keyset on (lower(login), id), served by user_accounts_lower_login_id_idx.
 	// The search pattern arrives already escaped for LIKE with backslash.
+	// Deleted accounts are excluded: the tombstone login is not a directory entry.
 	ListDirectoryAccounts(ctx context.Context, arg ListDirectoryAccountsParams) ([]ListDirectoryAccountsRow, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	// Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
 	// assignment and an acceptance or removal of the same account serialize on the
-	// account row without conflicting with session foreign-key key shares.
+	// account row without conflicting with session foreign-key key shares. A
+	// deleted account is not found, so it is never assignable.
 	LockAssignableAccount(ctx context.Context, id pgtype.UUID) (string, error)
 	LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error)
+	// FOR NO KEY UPDATE, never FOR UPDATE: a session insert takes KEY SHARE here
+	// and must not be blocked into a deadlock (ADR 0018, ADR 0019 step 4).
+	LockDeletableAccount(ctx context.Context, id pgtype.UUID) (string, error)
 	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
 	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
 	// conflicting with the foreign-key KEY SHARE that inserting a session takes on
 	// the same row. A plain FOR UPDATE would let reset issuance and a password
-	// change deadlock (ADR 0018).
+	// change deadlock (ADR 0018). A deleted account is not found: no reset is ever
+	// issued against a tombstone.
 	LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (LockPasswordResetTargetRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
 	// The accept path only serializes writes to this account row (joining, default
 	// household) and never touches its credential or reset links, so it needs no
 	// exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
 	// UPDATE keeps concurrent acceptances and account deletion serialized without
-	// that conflict (ADR 0018).
+	// that conflict (ADR 0018). A deleted account is not found, so an invitation
+	// never revives a tombstone.
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	// A link replaces the account-wide password, so it is reported whichever
@@ -85,6 +126,10 @@ type Querier interface {
 	// deterministic; no membership leaves NULL.
 	ReassignDefaultHousehold(ctx context.Context, arg ReassignDefaultHouseholdParams) error
 	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
+	// Every outstanding reset link the account is party to, as target or issuer, in
+	// any household, stops working. The per-household revocations already ran; this
+	// catches links in households the account was never a member of.
+	RevokeAccountPasswordResets(ctx context.Context, arg RevokeAccountPasswordResetsParams) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	// Reset links the removed member is party to inside this household stop
 	// working: as a target they cannot be redeemed by an admin of a household they

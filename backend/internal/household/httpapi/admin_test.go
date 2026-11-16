@@ -24,6 +24,7 @@ const (
 	adminHouseholdID  = "6f0b6f1e-0f9a-4b1e-9e0f-1f2e3d4c5b6a"
 	adminTargetUserID = "8a7b6c5d-4e3f-4a1b-8c8d-7e6f5a4b3c2d"
 	adminAccountPath  = "/api/v1/admin/households/" + adminHouseholdID + "/accounts/" + adminTargetUserID
+	adminDeletionPath = "/api/v1/admin/account-deletions"
 )
 
 type instanceAdminFake struct {
@@ -50,6 +51,7 @@ type instanceAdminFake struct {
 	lastKey       string
 	lastName      string
 	lastTimezone  string
+	lastConfirm   string
 	lastLimit     int
 	lastExpected  int64
 }
@@ -116,6 +118,12 @@ func (f *instanceAdminFake) RemoveAccount(_ context.Context, _ string, household
 	return f.err
 }
 
+func (f *instanceAdminFake) DeleteAccount(_ context.Context, actorID, targetUserID, confirmLogin string) error {
+	f.record("DeleteAccount")
+	f.lastActor, f.lastTarget, f.lastConfirm = actorID, targetUserID, confirmLogin
+	return f.err
+}
+
 func adminRouter(service instanceAdminService, userID string, present bool) *chi.Mux {
 	r := chi.NewRouter()
 	NewAdmin(service, func(next http.Handler) http.Handler { return next }, func(context.Context) (string, bool) { return userID, present }).Register(r)
@@ -155,6 +163,7 @@ func adminRequests() []adminRequest {
 		{name: "assign account", method: http.MethodPut, target: adminAccountPath, body: `{"role":"admin"}`},
 		{name: "change role", method: http.MethodPatch, target: adminAccountPath, body: `{"role":"member"}`, headers: map[string]string{"If-Match": `"2"`}},
 		{name: "remove account", method: http.MethodDelete, target: adminAccountPath, headers: map[string]string{"If-Match": `"2"`}},
+		{name: "delete account", method: http.MethodPost, target: adminDeletionPath, body: `{"userId":"` + adminTargetUserID + `","confirmLogin":"bob"}`},
 	}
 }
 
@@ -266,6 +275,7 @@ func TestAdminRoutesInstanceAdminGatePrecedesValidation(t *testing.T) {
 		{name: "assign invalid role", method: http.MethodPut, target: adminAccountPath, body: `{"role":"wizard"}`},
 		{name: "change role without if-match", method: http.MethodPatch, target: adminAccountPath, body: `{"role":"wizard"}`},
 		{name: "remove without if-match", method: http.MethodDelete, target: adminAccountPath},
+		{name: "delete account invalid body", method: http.MethodPost, target: adminDeletionPath, body: `{"userId":`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := &instanceAdminFake{gateErr: household.ErrInstanceAdminRequired}
@@ -292,6 +302,7 @@ func TestAdminErrorMappingContract(t *testing.T) {
 		err    error
 		status int
 		code   string
+		field  string
 	}{
 		{name: "not found", method: http.MethodGet, target: adminAccountPath, err: household.ErrNotFound, status: 404, code: "not_found"},
 		{name: "precondition failed", method: http.MethodGet, target: adminAccountPath, err: household.ErrPreconditionFailed, status: 412, code: "precondition_failed"},
@@ -302,6 +313,13 @@ func TestAdminErrorMappingContract(t *testing.T) {
 		{name: "cursor validation", method: http.MethodGet, target: "/api/v1/admin/households?cursor=bad", err: &household.ValidationError{Field: "cursor", Code: "invalid_format"}, status: 400, code: "invalid_query"},
 		{name: "q validation", method: http.MethodGet, target: "/api/v1/admin/accounts?q=bad", err: &household.ValidationError{Field: "q", Code: "invalid_value"}, status: 400, code: "invalid_query"},
 		{name: "role validation", method: http.MethodPatch, target: adminAccountPath, body: `{"role":"wizard"}`, header: map[string]string{"If-Match": `"1"`}, err: &household.ValidationError{Field: "role", Code: "invalid_value"}, status: 422, code: "invalid_value"},
+		{name: "delete self", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: household.ErrCannotDeleteSelf, status: 409, code: "cannot_delete_self"},
+		{name: "delete last instance admin", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: household.ErrLastInstanceAdmin, status: 409, code: "last_instance_admin"},
+		{name: "delete last household admin", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: household.ErrLastAdmin, status: 409, code: "last_admin"},
+		{name: "delete contended", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: household.ErrAccountDeletionContended, status: 503, code: "unavailable"},
+		{name: "delete unknown account", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: household.ErrNotFound, status: 404, code: "not_found"},
+		{name: "delete target reference", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: &household.ValidationError{Field: "userId", Code: "invalid_reference"}, status: 422, code: "invalid_reference", field: "userId"},
+		{name: "delete confirmation", method: http.MethodPost, target: adminDeletionPath, body: deletionBody("bob"), err: &household.ValidationError{Field: "confirmLogin", Code: "mismatch"}, status: 422, code: "mismatch", field: "confirmLogin"},
 		{name: "unknown failure", method: http.MethodGet, target: adminAccountPath, err: errors.New("identity lookup unavailable"), status: 503, code: "unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -312,6 +330,9 @@ func TestAdminErrorMappingContract(t *testing.T) {
 				t.Fatalf("missing parameter body=%s", w.Body)
 			}
 			if tc.code == "invalid_value" && (problem["field"] != "role" || problem["title"] != "Validation Failed") {
+				t.Fatalf("validation body=%s", w.Body)
+			}
+			if tc.field != "" && (problem["field"] != tc.field || problem["title"] != "Validation Failed") {
 				t.Fatalf("validation body=%s", w.Body)
 			}
 			if len(service.calls) == 0 || service.calls[len(service.calls)-1] == "RequireInstanceAdmin" {
@@ -704,4 +725,93 @@ func TestAdminCreateHouseholdErrorMapping(t *testing.T) {
 			}
 		})
 	}
+}
+
+func deletionBody(confirmLogin string) string {
+	return `{"userId":"` + adminTargetUserID + `","confirmLogin":"` + confirmLogin + `"}`
+}
+
+// TestAdminDeleteAccountNoContent pins the 204 shape and that the transport
+// hands both values through untouched: the service owns identifier shape and
+// the exact login comparison.
+func TestAdminDeleteAccountNoContent(t *testing.T) {
+	service := &instanceAdminFake{}
+	r := adminRouter(service, "instance-admin", true)
+
+	w := serve(t, r, http.MethodPost, adminDeletionPath, deletionBody("bob"), nil)
+	requireStatus(t, w, http.StatusNoContent)
+	if w.Body.Len() != 0 {
+		t.Fatalf("body=%q", w.Body.String())
+	}
+	if got := w.Header().Get("ETag"); got != "" {
+		t.Fatalf("unexpected etag=%q", got)
+	}
+	requireCalls(t, service, "RequireInstanceAdmin", "DeleteAccount")
+	if service.lastActor != "instance-admin" || service.lastTarget != adminTargetUserID || service.lastConfirm != "bob" {
+		t.Fatalf("service actor=%q target=%q confirm=%q", service.lastActor, service.lastTarget, service.lastConfirm)
+	}
+
+	// No case folding, trimming or parsing on the way to the service.
+	service.calls = nil
+	verbatim := `{"userId":"` + strings.ToUpper(adminTargetUserID) + `","confirmLogin":" Bob "}`
+	w = serve(t, r, http.MethodPost, adminDeletionPath, verbatim, nil)
+	requireStatus(t, w, http.StatusNoContent)
+	if service.lastTarget != strings.ToUpper(adminTargetUserID) || service.lastConfirm != " Bob " {
+		t.Fatalf("service target=%q confirm=%q", service.lastTarget, service.lastConfirm)
+	}
+}
+
+// TestAdminDeleteAccountRejectsBodies pins the strict body rules: every
+// malformed shape is a 400 before the service runs.
+func TestAdminDeleteAccountRejectsBodies(t *testing.T) {
+	valid := deletionBody("bob")
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "malformed json", body: `{"userId":`},
+		{name: "not an object", body: `["bob"]`},
+		{name: "empty object", body: `{}`},
+		{name: "unknown key", body: `{"userId":"` + adminTargetUserID + `","confirmLogin":"bob","force":true}`},
+		{name: "duplicate key", body: `{"userId":"` + adminTargetUserID + `","userId":"` + adminTargetUserID + `","confirmLogin":"bob"}`},
+		{name: "missing user id", body: `{"confirmLogin":"bob"}`},
+		{name: "missing confirmation", body: `{"userId":"` + adminTargetUserID + `"}`},
+		{name: "null user id", body: `{"userId":null,"confirmLogin":"bob"}`},
+		{name: "null confirmation", body: `{"userId":"` + adminTargetUserID + `","confirmLogin":null}`},
+		{name: "numeric confirmation", body: `{"userId":"` + adminTargetUserID + `","confirmLogin":7}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &instanceAdminFake{}
+			w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, adminDeletionPath, tc.body, nil)
+			requireProblem(t, w, http.StatusBadRequest, "invalid_request")
+			requireCalls(t, service, "RequireInstanceAdmin")
+		})
+	}
+
+	t.Run("unsupported media type", func(t *testing.T) {
+		service := &instanceAdminFake{}
+		r := adminRouter(service, "instance-admin", true)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, adminDeletionPath, strings.NewReader(valid))
+		req.Header.Set("Content-Type", "text/plain")
+		r.ServeHTTP(w, req)
+		requireProblem(t, w, http.StatusUnsupportedMediaType, "unsupported_media_type")
+		requireCalls(t, service, "RequireInstanceAdmin")
+	})
+
+	t.Run("body too large", func(t *testing.T) {
+		service := &instanceAdminFake{}
+		r := adminRouter(service, "instance-admin", true)
+		body := `{"userId":"` + adminTargetUserID + `","confirmLogin":"` + strings.Repeat("a", accountBodyLimit) + `"}`
+		w := serve(t, r, http.MethodPost, adminDeletionPath, body, nil)
+		requireProblem(t, w, http.StatusRequestEntityTooLarge, "content_too_large")
+		requireCalls(t, service, "RequireInstanceAdmin")
+	})
+
+	t.Run("grant precedes body", func(t *testing.T) {
+		service := &instanceAdminFake{gateErr: household.ErrInstanceAdminRequired}
+		w := serve(t, adminRouter(service, "instance-admin", true), http.MethodPost, adminDeletionPath, `{"userId":`, nil)
+		requireProblem(t, w, http.StatusForbidden, "instance_admin_required")
+		requireCalls(t, service, "RequireInstanceAdmin")
+	})
 }

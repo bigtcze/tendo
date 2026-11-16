@@ -29,7 +29,13 @@ func newInstanceAdminCenter(pool *pgxpool.Pool, logins household.LoginLookup, si
 	}, func(tx householddb.DBTX) household.AccountDirectory {
 		return identitypostgres.NewAccountDirectory(tx)
 	})
-	return household.NewInstanceAdminCenter(repository, logins, signIn, time.Now)
+	// ADR 0022: the global account deletion shares the removal effects of ADR
+	// 0019 and the identity-owned account eraser on its own transaction.
+	deletions := household.NewAccountDeletionService(householdpostgres.NewAccountDeletionRepository(
+		pool, memberRemovalEffectFactories(), func(tx householddb.DBTX) household.AccountEraser {
+			return identitypostgres.NewAccountEraser(tx)
+		}), time.Now)
+	return household.NewInstanceAdminCenter(repository, logins, signIn, time.Now).WithAccountDeletion(deletions)
 }
 
 // newMemberRemovalService wires each module's transactional removal effect

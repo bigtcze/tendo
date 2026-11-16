@@ -27,6 +27,42 @@ func (e AccountRole) Valid() bool {
 	}
 }
 
+// Defines values for AdminAccountDeletionProblemCode.
+const (
+	AdminAccountDeletionProblemCodeInvalidReference AdminAccountDeletionProblemCode = "invalid_reference"
+	AdminAccountDeletionProblemCodeMismatch         AdminAccountDeletionProblemCode = "mismatch"
+)
+
+// Valid indicates whether the value is a known member of the AdminAccountDeletionProblemCode enum.
+func (e AdminAccountDeletionProblemCode) Valid() bool {
+	switch e {
+	case AdminAccountDeletionProblemCodeInvalidReference:
+		return true
+	case AdminAccountDeletionProblemCodeMismatch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminAccountDeletionProblemField.
+const (
+	ConfirmLogin AdminAccountDeletionProblemField = "confirmLogin"
+	UserId       AdminAccountDeletionProblemField = "userId"
+)
+
+// Valid indicates whether the value is a known member of the AdminAccountDeletionProblemField enum.
+func (e AdminAccountDeletionProblemField) Valid() bool {
+	switch e {
+	case ConfirmLogin:
+		return true
+	case UserId:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AdminHouseholdCreateProblemCode.
 const (
 	AdminHouseholdCreateProblemCodeIdempotencyKeyReused AdminHouseholdCreateProblemCode = "idempotency_key_reused"
@@ -1061,6 +1097,33 @@ type AdminAccount struct {
 	UserId        string               `json:"userId"`
 }
 
+// AdminAccountDeletionProblem Account deletion 422. Field validation problems carry field.
+type AdminAccountDeletionProblem struct {
+	Code                 AdminAccountDeletionProblemCode  `json:"code"`
+	Detail               *string                          `json:"detail,omitempty"`
+	Field                AdminAccountDeletionProblemField `json:"field"`
+	Instance             *string                          `json:"instance,omitempty"`
+	Status               int                              `json:"status"`
+	Title                string                           `json:"title"`
+	Type                 string                           `json:"type"`
+	AdditionalProperties map[string]interface{}           `json:"-"`
+}
+
+// AdminAccountDeletionProblemCode defines model for AdminAccountDeletionProblem.Code.
+type AdminAccountDeletionProblemCode string
+
+// AdminAccountDeletionProblemField defines model for AdminAccountDeletionProblem.Field.
+type AdminAccountDeletionProblemField string
+
+// AdminAccountDeletionRequest defines model for AdminAccountDeletionRequest.
+type AdminAccountDeletionRequest struct {
+	// ConfirmLogin The account's current login, repeated exactly. The comparison is case-sensitive and never trims surrounding white space; any other value is 422 mismatch with field confirmLogin and changes nothing.
+	ConfirmLogin string `json:"confirmLogin"`
+
+	// UserId Account to delete. A malformed identifier is 422 invalid_reference with field userId; an unknown or already deleted account is 404.
+	UserId string `json:"userId"`
+}
+
 // AdminAccountList defines model for AdminAccountList.
 type AdminAccountList struct {
 	Items []AdminAccount `json:"items"`
@@ -1154,7 +1217,7 @@ type CompletionList struct {
 
 // CompletionProblem defines model for CompletionProblem.
 type CompletionProblem struct {
-	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
+	// Code Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                 `json:"code,omitempty"`
 	Detail               *string                 `json:"detail,omitempty"`
 	Field                *CompletionProblemField `json:"field,omitempty"`
@@ -1598,7 +1661,7 @@ type PasswordResetRedeemed struct {
 
 // Problem defines model for Problem.
 type Problem struct {
-	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
+	// Code Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
@@ -1610,7 +1673,7 @@ type Problem struct {
 
 // QueryProblem defines model for QueryProblem.
 type QueryProblem struct {
-	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
+	// Code Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
@@ -1889,6 +1952,12 @@ type RequestId = string
 
 // SubjectId defines model for SubjectId.
 type SubjectId = string
+
+// CreateAdminAccountDeletionParams defines parameters for CreateAdminAccountDeletion.
+type CreateAdminAccountDeletionParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
 
 // ListAdminAccountsParams defines parameters for ListAdminAccounts.
 type ListAdminAccountsParams struct {
@@ -2427,6 +2496,9 @@ type GetReadinessParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// CreateAdminAccountDeletionJSONRequestBody defines body for CreateAdminAccountDeletion for application/json ContentType.
+type CreateAdminAccountDeletionJSONRequestBody = AdminAccountDeletionRequest
+
 // CreateAdminHouseholdJSONRequestBody defines body for CreateAdminHousehold for application/json ContentType.
 type CreateAdminHouseholdJSONRequestBody = CreateAdminHouseholdRequest
 
@@ -2492,6 +2564,154 @@ type UpdateSessionJSONRequestBody = UpdateSessionRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// Getter for additional properties for AdminAccountDeletionProblem. Returns the specified
+// element and whether it was found
+func (a AdminAccountDeletionProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for AdminAccountDeletionProblem
+func (a *AdminAccountDeletionProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for AdminAccountDeletionProblem to handle AdditionalProperties
+func (a *AdminAccountDeletionProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for AdminAccountDeletionProblem to handle AdditionalProperties
+func (a AdminAccountDeletionProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for AdminHouseholdCreateProblem. Returns the specified
 // element and whether it was found

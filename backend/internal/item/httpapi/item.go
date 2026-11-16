@@ -53,7 +53,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.ProblemResponse(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	key, ok := idempotencyKey(w, r)
+	key, ok := httpx.IdempotencyKey(w, r)
 	if !ok {
 		return
 	}
@@ -76,21 +76,6 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", location)
 	w.Header().Set("ETag", httpx.ETag(created.Version))
 	httpx.WriteJSON(w, http.StatusCreated, toJSON(created))
-}
-
-// idempotencyKey reads the single required Idempotency-Key header shared by
-// item create and completion create. On failure it writes the 400 problem.
-func idempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
-		return "", false
-	}
-	if len(keys) != 1 || !item.ValidateIdempotencyKey(keys[0]) {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
-		return "", false
-	}
-	return keys[0], true
 }
 
 // list validates transport structure in the documented order: shared list

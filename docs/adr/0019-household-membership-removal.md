@@ -127,6 +127,10 @@ the same protocol.
    last-instance-administrator guard.
 2. `households FOR NO KEY UPDATE`, ascending household id when one transaction
    touches several households.
+   - OIDC identity advisory locks (`pg_advisory_xact_lock`), ascending key, with
+     the sign-in path's key derivation — taken here by account deletion
+     ([ADR 0022](0022-global-account-deletion.md)), after every household lock
+     and before invitations.
 3. `household_invitations`.
 4. `user_accounts FOR NO KEY UPDATE` — never `FOR UPDATE`, because a session
    insert takes `KEY SHARE` there (ADR 0018).
@@ -138,7 +142,8 @@ the same protocol.
 Slice C (account deletion) must keep exactly these modes and must never run at
 `REPEATABLE READ`: every invariant it checks (last admin, last instance
 administrator) is answered by rows read under these locks, and a snapshot could
-return a stale answer that the locks were meant to prevent.
+return a stale answer that the locks were meant to prevent. ADR 0022 implements
+it with exactly this order.
 
 ## Consequences
 

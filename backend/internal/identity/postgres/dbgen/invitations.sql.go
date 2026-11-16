@@ -188,9 +188,11 @@ func (q *Queries) FindInvitationByTokenForUpdate(ctx context.Context, tokenHash 
 }
 
 const findLoginForInvitation = `-- name: FindLoginForInvitation :one
-SELECT id::text FROM user_accounts WHERE login=$1
+SELECT id::text FROM user_accounts WHERE login=$1 AND deleted_at IS NULL
 `
 
+// A deleted account is not found: its tombstone login is never a valid
+// invitation target.
 func (q *Queries) FindLoginForInvitation(ctx context.Context, login string) (string, error) {
 	row := q.db.QueryRow(ctx, findLoginForInvitation, login)
 	var id string
@@ -277,14 +279,15 @@ func (q *Queries) ListInvitations(ctx context.Context, arg ListInvitationsParams
 }
 
 const lockUserForInvitation = `-- name: LockUserForInvitation :one
-SELECT login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE
+SELECT login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE
 `
 
 // The accept path only serializes writes to this account row (joining, default
 // household) and never touches its credential or reset links, so it needs no
 // exclusion of the foreign-key KEY SHARE a session insert takes. FOR NO KEY
 // UPDATE keeps concurrent acceptances and account deletion serialized without
-// that conflict (ADR 0018).
+// that conflict (ADR 0018). A deleted account is not found, so an invitation
+// never revives a tombstone.
 func (q *Queries) LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, lockUserForInvitation, id)
 	var login string

@@ -1572,7 +1572,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
     post:
@@ -1618,7 +1618,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
         '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
@@ -1658,7 +1658,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/admin/households/{householdId}:
@@ -1692,7 +1692,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '404': { description: 'Household is unknown or the identifier is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
@@ -1726,7 +1726,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '404': { description: 'Household is unknown or the identifier is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
@@ -1762,7 +1762,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '404': { description: 'Household or target account is unknown or malformed, or the account is not a member of this household.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
@@ -1813,7 +1813,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '404': { description: 'Household or account is unknown, or an identifier is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '409':
           description: The account already belongs to the household with another role, or a plain member would join a household without an admin.
@@ -1872,7 +1872,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '404': { description: 'Household or target account is unknown or malformed, or the account is not a member of this household.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '409': { description: 'The change would remove the household''s last admin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: last_admin } } } }
         '412': { description: 'If-Match is malformed, weak, a list, or stale.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
@@ -1912,13 +1912,69 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
-                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
         '404': { description: 'Household or target account is unknown or malformed, or the account is not a member of this household.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '409': { description: 'The removal would leave the household without an admin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: last_admin } } } }
         '412': { description: 'If-Match is malformed, weak, a list, or stale.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '428': { description: 'If-Match is required.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
         '503': { description: 'Persistence or identity lookup unavailable, including a missing sign-in-method fact.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/account-deletions:
+    post:
+      operationId: createAdminAccountDeletion
+      summary: Delete an installation account
+      description: |
+        Instance administrator only (ADR 0022). Anonymizes the target account in place: the login is replaced by a tombstone that can never sign in again, and the email and default household are cleared. Every history row keeps its stable identifier, and the member person keeps its name but is unlinked. The same transaction deletes the local credential, every session and every OIDC link, revokes the outstanding password-reset links and the pending invitations the target created, removes every membership with the ADR 0019 effects, and revokes an instance-administrator grant together with its audit row. Nothing of the account's content is returned.
+        Evaluation order: the instance-administrator grant (403 before the body), the userId shape (422 invalid_reference), deleting oneself (409 cannot_delete_self), an unknown or already deleted account (404), the exact login confirmation (422 mismatch), leaving a household without an admin (409 last_admin), and leaving the installation without a live instance administrator (409 last_instance_admin). A refusal changes nothing. Repeated deletion of the same account is 404, so the route is naturally idempotent and takes no Idempotency-Key. A target that keeps joining households while the deletion locks them is answered 503 unavailable after bounded retries.
+      tags: [Admin]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminAccountDeletionRequest' }
+            example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, confirmLogin: bob }
+      responses:
+        '204':
+          description: Account deleted (anonymized in place). No response body.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+        '400': { description: 'Malformed JSON, unknown or duplicate keys, null values for required fields, wrong value types, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before the body or any lookup), or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '404': { description: 'The account is unknown or already deleted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '409':
+          description: 'The caller would delete their own account, the deletion would leave a household without an admin, or it would leave the installation without a live instance administrator. Nothing is changed.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                cannotDeleteSelf: { value: { type: 'about:blank', title: Conflict, status: 409, code: cannot_delete_self } }
+                lastAdmin: { value: { type: 'about:blank', title: Conflict, status: 409, code: last_admin } }
+                lastInstanceAdmin: { value: { type: 'about:blank', title: Conflict, status: 409, code: last_instance_admin } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422':
+          description: 'userId is not a canonical identifier, or confirmLogin does not match the current login exactly.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/AdminAccountDeletionProblem' }
+              examples:
+                invalidReference: { value: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_reference, field: userId } }
+                mismatch: { value: { type: 'about:blank', title: Validation Failed, status: 422, code: mismatch, field: confirmLogin } }
+        '503': { description: 'Persistence or identity lookup unavailable, or the account kept joining households while the deletion locked them.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/households:
     get:
       operationId: listHouseholds
@@ -2793,7 +2849,7 @@ components:
         status: { type: integer, minimum: 400, maximum: 599 }
         detail: { type: string }
         instance: { type: string, format: uri-reference }
-        code: { type: string, description: 'Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.' }
+        code: { type: string, description: 'Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.' }
       additionalProperties: true
     SetupStatus:
       type: object
@@ -3028,6 +3084,13 @@ components:
       required: [role]
       properties:
         role: { $ref: '#/components/schemas/AccountRole' }
+    AdminAccountDeletionRequest:
+      type: object
+      additionalProperties: false
+      required: [userId, confirmLogin]
+      properties:
+        userId: { type: string, format: uuid, x-go-type: string, description: 'Account to delete. A malformed identifier is 422 invalid_reference with field userId; an unknown or already deleted account is 404.' }
+        confirmLogin: { type: string, minLength: 1, maxLength: 64, description: 'The account''s current login, repeated exactly. The comparison is case-sensitive and never trims surrounding white space; any other value is 422 mismatch with field confirmLogin and changes nothing.' }
     InvitedAccount:
       type: object
       additionalProperties: false
@@ -3189,6 +3252,15 @@ components:
           if: { properties: { code: { const: idempotency_key_reused } }, required: [code] }
           then: { not: { required: [field] } }
           else: { required: [field] }
+    AdminAccountDeletionProblem:
+      description: Account deletion 422. Field validation problems carry field.
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [field, code]
+          properties:
+            field: { type: string, enum: [userId, confirmLogin] }
+            code: { type: string, enum: [invalid_reference, mismatch] }
     AdminHouseholdCreateProblem:
       description: Admin household creation 422. Field validation problems carry field; idempotency_key_reused omits field.
       allOf:

@@ -64,7 +64,7 @@ SELECT s.id::text AS id, u.id::text AS user_id, u.login, COALESCE(u.default_hous
   EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
   s.expires_at, s.sign_in_method
 FROM user_sessions s JOIN user_accounts u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at>$2
+WHERE s.token_hash=$1 AND s.expires_at>$2 AND u.deleted_at IS NULL
 `
 
 type FindActiveSessionParams struct {
@@ -82,6 +82,7 @@ type FindActiveSessionRow struct {
 	SignInMethod       string
 }
 
+// A session of a deleted account is inert even if a racing insert survived.
 func (q *Queries) FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error) {
 	row := q.db.QueryRow(ctx, findActiveSession, arg.TokenHash, arg.ExpiresAt)
 	var i FindActiveSessionRow
@@ -101,7 +102,7 @@ const findLogin = `-- name: FindLogin :one
 SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
   EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
   c.password_hash, c.credential_version
-FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1
+FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1 AND u.deleted_at IS NULL
 `
 
 type FindLoginRow struct {
@@ -113,6 +114,7 @@ type FindLoginRow struct {
 	CredentialVersion  int64
 }
 
+// A deleted account cannot sign in: its tombstone login is not found.
 func (q *Queries) FindLogin(ctx context.Context, login string) (FindLoginRow, error) {
 	row := q.db.QueryRow(ctx, findLogin, login)
 	var i FindLoginRow

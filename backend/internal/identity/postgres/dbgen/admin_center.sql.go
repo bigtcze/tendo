@@ -14,7 +14,8 @@ import (
 const listDirectoryAccounts = `-- name: ListDirectoryAccounts :many
 SELECT id::text AS id, login
 FROM user_accounts
-WHERE ($1::text = '' OR lower(login) LIKE '%' || lower($1::text) || '%' ESCAPE '\')
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR lower(login) LIKE '%' || lower($1::text) || '%' ESCAPE '\')
   AND ($2::uuid IS NULL OR (lower(login), id) > (lower($3::text), $2::uuid))
 ORDER BY lower(login), id
 LIMIT $4
@@ -34,6 +35,7 @@ type ListDirectoryAccountsRow struct {
 
 // Keyset on (lower(login), id), served by user_accounts_lower_login_id_idx.
 // The search pattern arrives already escaped for LIKE with backslash.
+// Deleted accounts are excluded: the tombstone login is not a directory entry.
 func (q *Queries) ListDirectoryAccounts(ctx context.Context, arg ListDirectoryAccountsParams) ([]ListDirectoryAccountsRow, error) {
 	rows, err := q.db.Query(ctx, listDirectoryAccounts,
 		arg.Pattern,
@@ -60,12 +62,13 @@ func (q *Queries) ListDirectoryAccounts(ctx context.Context, arg ListDirectoryAc
 }
 
 const lockAssignableAccount = `-- name: LockAssignableAccount :one
-SELECT login FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE
+SELECT login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE
 `
 
 // Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
 // assignment and an acceptance or removal of the same account serialize on the
-// account row without conflicting with session foreign-key key shares.
+// account row without conflicting with session foreign-key key shares. A
+// deleted account is not found, so it is never assignable.
 func (q *Queries) LockAssignableAccount(ctx context.Context, id pgtype.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, lockAssignableAccount, id)
 	var login string

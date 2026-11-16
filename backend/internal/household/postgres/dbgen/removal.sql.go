@@ -69,12 +69,13 @@ func (q *Queries) InsertHouseholdMemberRemoval(ctx context.Context, arg InsertHo
 }
 
 const lockMemberAccountForRemoval = `-- name: LockMemberAccountForRemoval :one
-SELECT id::text AS id FROM user_accounts WHERE id=$1 FOR NO KEY UPDATE
+SELECT id::text AS id FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE
 `
 
 // FOR NO KEY UPDATE serializes account-level writes without conflicting with
 // the snapshot/key-share locks a session insert or foreign key takes on the
-// same row (ADR 0018, ADR 0019).
+// same row (ADR 0018, ADR 0019). A deleted account is not found, so it can
+// never be a removal target.
 func (q *Queries) LockMemberAccountForRemoval(ctx context.Context, id pgtype.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, lockMemberAccountForRemoval, id)
 	var id_2 string

@@ -162,6 +162,7 @@ type InstanceAdminCenter struct {
 	logins     LoginLookup
 	signIn     SignInMethodsLookup
 	clock      func() time.Time
+	deletions  *AccountDeletionService
 }
 
 func NewInstanceAdminCenter(repository InstanceAdminCenterRepository, logins LoginLookup, signIn SignInMethodsLookup, clock func() time.Time) *InstanceAdminCenter {

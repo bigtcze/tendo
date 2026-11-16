@@ -189,9 +189,14 @@ func (q *Queries) InsertHouseholdMemberAssignment(ctx context.Context, arg Inser
 }
 
 const isInstanceAdmin = `-- name: IsInstanceAdmin :one
-SELECT EXISTS (SELECT 1 FROM instance_admins WHERE user_id=$1) AS granted
+SELECT EXISTS (
+  SELECT 1 FROM instance_admins g JOIN user_accounts u ON u.id = g.user_id
+  WHERE g.user_id = $1 AND u.deleted_at IS NULL
+) AS granted
 `
 
+// Only a grant whose account is still live confers authority: a deleted account
+// must not authorise instance-admin commands even if a grant row were left.
 func (q *Queries) IsInstanceAdmin(ctx context.Context, userID pgtype.UUID) (bool, error) {
 	row := q.db.QueryRow(ctx, isInstanceAdmin, userID)
 	var granted bool

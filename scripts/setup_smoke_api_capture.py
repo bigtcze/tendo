@@ -17,6 +17,7 @@ COVERAGE_SCOPE = ','.join((
     'listAdminAccounts', 'listAdminHouseholdAccounts',
     'getAdminHouseholdAccount', 'assignAdminHouseholdAccount',
     'updateAdminHouseholdAccountRole', 'removeAdminHouseholdAccount',
+    'createAdminAccountDeletion',
     'updateSubject', 'transferMemberPerson', 'createItem', 'listItems', 'createItemCompletion',
     'listItemCompletions', 'undoItemCompletion', 'getItemsSummary', 'getItem',
     'updateItem', 'listHouseholdAccounts', 'getHouseholdAccount',

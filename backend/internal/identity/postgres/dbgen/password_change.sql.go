@@ -42,12 +42,13 @@ func (q *Queries) DeleteAllUserSessions(ctx context.Context, userID pgtype.UUID)
 
 const findUserAccountByLogin = `-- name: FindUserAccountByLogin :one
 
-SELECT id::text AS user_id FROM user_accounts WHERE login=$1
+SELECT id::text AS user_id FROM user_accounts WHERE login=$1 AND deleted_at IS NULL
 `
 
 // Shared local-credential replacement protocol (ADR 0018). One implementation
 // of "a password changed, sign the account out everywhere" is used by
 // self-service change, admin reset redemption and the operator CLI.
+// A deleted account is not found: its tombstone login cannot change a password.
 func (q *Queries) FindUserAccountByLogin(ctx context.Context, login string) (string, error) {
 	row := q.db.QueryRow(ctx, findUserAccountByLogin, login)
 	var user_id string
