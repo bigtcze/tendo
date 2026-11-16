@@ -27,8 +27,6 @@ type deletionRecorder struct{ calls []string }
 
 func (r *deletionRecorder) record(call string) { r.calls = append(r.calls, call) }
 
-func (r *deletionRecorder) reset() { r.calls = nil }
-
 func (r *deletionRecorder) has(prefix string) bool {
 	return slices.ContainsFunc(r.calls, func(call string) bool { return strings.HasPrefix(call, prefix) })
 }
@@ -308,13 +306,6 @@ func requireDeletionCalls(t *testing.T, rec *deletionRecorder, want ...string) {
 	t.Helper()
 	if !slices.Equal(rec.calls, want) {
 		t.Fatalf("calls=%v\nwant=%v", rec.calls, want)
-	}
-}
-
-func requireDeletionPrefix(t *testing.T, rec *deletionRecorder, want ...string) {
-	t.Helper()
-	if len(rec.calls) < len(want) || !slices.Equal(rec.calls[:len(want)], want) {
-		t.Fatalf("calls=%v\nwant prefix=%v", rec.calls, want)
 	}
 }
 

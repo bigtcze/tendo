@@ -191,54 +191,13 @@ func (s *AccountDeletionService) deleteOnce(ctx context.Context, tx AccountDelet
 		effects.Removal.Subjects == nil || effects.Removal.Resets == nil {
 		return errors.New("account deletion effects unavailable")
 	}
-	if !ids.IsCanonicalUUID(actorID) {
-		return ErrInstanceAdminRequired
-	}
-	if err := tx.RequireInstanceAdminExclusive(ctx, actorID); err != nil {
-		return err
-	}
-	if !ids.IsCanonicalUUID(targetUserID) {
-		return &ValidationError{Field: "userId", Code: "invalid_reference"}
-	}
-	actor, target := strings.ToLower(actorID), strings.ToLower(targetUserID)
-	if actor == target {
-		return ErrCannotDeleteSelf
-	}
-	if _, err := effects.Account.FindDeletableAccount(ctx, target); err != nil {
-		return err
-	}
-	households, err := tx.ListUserHouseholds(ctx, target)
+	actor, target, err := authorizeDeletion(ctx, tx, effects.Account, actorID, targetUserID)
 	if err != nil {
 		return err
 	}
-	for _, householdID := range households {
-		if err := tx.LockHousehold(ctx, householdID); err != nil && !errors.Is(err, ErrNotFound) {
-			return err
-		}
-	}
-	if err := effects.Account.LockAccountIdentities(ctx, target); err != nil {
-		return err
-	}
-	for _, householdID := range households {
-		if err := effects.Removal.Invitations.RevokePendingInvitationsCreatedBy(ctx, householdID, target); err != nil {
-			return err
-		}
-	}
-	login, err := effects.Account.LockDeletableAccount(ctx, target)
+	memberships, err := lockDeletionTarget(ctx, tx, effects, target, confirmLogin)
 	if err != nil {
 		return err
-	}
-	if confirmLogin != login {
-		return &ValidationError{Field: "confirmLogin", Code: "mismatch"}
-	}
-	memberships, err := tx.LockUserMemberships(ctx, target)
-	if err != nil {
-		return err
-	}
-	for _, membership := range memberships {
-		if !slices.Contains(households, membership.HouseholdID) {
-			return errMembershipsGrew
-		}
 	}
 	grant, granted, err := s.checkDeletable(ctx, tx, target, memberships)
 	if err != nil {
@@ -259,6 +218,68 @@ func (s *AccountDeletionService) deleteOnce(ctx context.Context, tx AccountDelet
 		}
 	}
 	return eraseAccount(ctx, tx, effects.Account, target, actor, now)
+}
+
+// authorizeDeletion performs steps 1 and 2 of deleteOnce: the exclusive grant
+// gate, the userId shape, the self refusal and the unlocked target read. It
+// returns the lowercased actor and target.
+func authorizeDeletion(ctx context.Context, tx AccountDeletionTransaction, account AccountEraser, actorID, targetUserID string) (string, string, error) {
+	if !ids.IsCanonicalUUID(actorID) {
+		return "", "", ErrInstanceAdminRequired
+	}
+	if err := tx.RequireInstanceAdminExclusive(ctx, actorID); err != nil {
+		return "", "", err
+	}
+	if !ids.IsCanonicalUUID(targetUserID) {
+		return "", "", &ValidationError{Field: "userId", Code: "invalid_reference"}
+	}
+	actor, target := strings.ToLower(actorID), strings.ToLower(targetUserID)
+	if actor == target {
+		return "", "", ErrCannotDeleteSelf
+	}
+	if _, err := account.FindDeletableAccount(ctx, target); err != nil {
+		return "", "", err
+	}
+	return actor, target, nil
+}
+
+// lockDeletionTarget performs steps 3 to 7 of deleteOnce and returns the
+// memberships locked FOR UPDATE. errMembershipsGrew abandons the attempt.
+func lockDeletionTarget(ctx context.Context, tx AccountDeletionTransaction, effects AccountDeletionEffects, target, confirmLogin string) ([]AccountMembership, error) {
+	households, err := tx.ListUserHouseholds(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	for _, householdID := range households {
+		if err := tx.LockHousehold(ctx, householdID); err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+	}
+	if err := effects.Account.LockAccountIdentities(ctx, target); err != nil {
+		return nil, err
+	}
+	for _, householdID := range households {
+		if err := effects.Removal.Invitations.RevokePendingInvitationsCreatedBy(ctx, householdID, target); err != nil {
+			return nil, err
+		}
+	}
+	login, err := effects.Account.LockDeletableAccount(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	if confirmLogin != login {
+		return nil, &ValidationError{Field: "confirmLogin", Code: "mismatch"}
+	}
+	memberships, err := tx.LockUserMemberships(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	for _, membership := range memberships {
+		if !slices.Contains(households, membership.HouseholdID) {
+			return nil, errMembershipsGrew
+		}
+	}
+	return memberships, nil
 }
 
 // checkDeletable refuses leaving any household without an admin, then leaving
