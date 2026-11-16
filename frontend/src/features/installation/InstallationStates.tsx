@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import type { Translate } from '../../i18n';
 
 /** The one quiet secondary action on an installation screen: back to the household list. */
@@ -8,11 +9,14 @@ export const BACK_LINK = [
 
 /**
  * The installation grant is gone (or was never there). The server refused before any lookup, so nothing about a
- * household is shown: a plain section like the household Admin center's member view, not a card.
+ * household is shown: a plain section like the household Admin center's member view, not a card. The heading takes
+ * `tabIndex={-1}` so a screen whose grant is refused mid-action can place the reader on it instead of the page body.
  */
-export function InstallationOnlyAdmins({ t }: { t: Translate }) {
+export function InstallationOnlyAdmins({ t, headingRef }: { t: Translate; headingRef?: RefObject<HTMLHeadingElement | null> }) {
   return <section aria-labelledby="install-restricted-heading" className="mt-6 sm:mt-8">
-    <h2 id="install-restricted-heading" className="text-h2 text-ink">{t('install.onlyAdmins.title')}</h2>
+    <h2 id="install-restricted-heading" ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">
+      {t('install.onlyAdmins.title')}
+    </h2>
     <p className="mt-1 max-w-prose text-body text-muted">{t('install.onlyAdmins.body')}</p>
   </section>;
 }

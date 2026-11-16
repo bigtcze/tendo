@@ -2,40 +2,53 @@ import { useContext } from 'react';
 import { useViewerRole } from '../../app/HouseholdData';
 import { HouseholdNavigationContext } from '../../app/HouseholdNavigation';
 import { NavLink } from '../../app/NavLink';
-import { useI18n } from '../../i18n';
+import { ADMIN_ACCOUNTS_PATH, ADMIN_HOUSEHOLDS_PATH, ADMIN_PATH } from '../../app/routes';
+import { useI18n, type MessageKey } from '../../i18n';
 
 const LINK = 'flex min-h-11 items-center border-b-2 px-1 text-small transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 const CURRENT = `${LINK} border-accent font-semibold text-ink`;
 const QUIET = `${LINK} border-transparent text-muted hover:text-ink`;
 
+type Section = 'household' | 'households' | 'accounts';
+type SectionLink = { key: Section; href: string; run: 'admin' | 'adminHouseholds' | 'adminAccounts'; label: MessageKey };
+
+/** A household administrator manages one household; the installation grant opens the two installation-wide sections. */
+function sectionsFor(householdAdmin: boolean, instanceAdmin: boolean): SectionLink[] {
+  const household: SectionLink[] = householdAdmin
+    ? [{ key: 'household', href: ADMIN_PATH, run: 'admin', label: 'admin.sections.household' }]
+    : [];
+  const installation: SectionLink[] = instanceAdmin
+    ? [
+      { key: 'households', href: ADMIN_HOUSEHOLDS_PATH, run: 'adminHouseholds', label: 'admin.sections.households' },
+      { key: 'accounts', href: ADMIN_ACCOUNTS_PATH, run: 'adminAccounts', label: 'admin.sections.accounts' },
+    ]
+    : [];
+  return [...household, ...installation];
+}
+
 /**
- * The Admin center has two sections, and only an account that holds both grants has a reason to move between
- * them: this household's accounts and every household of the installation. It reads the viewer's own grants
- * only — never the household a screen is showing — and stays out of the way otherwise, as two quiet links under
- * the page title rather than a tab strip with a frame.
+ * The Admin center's sections. They follow the viewer's own grants only — never the household a screen is showing —
+ * so a household administrator sees this household, and the installation grant alone is already two sections:
+ * every household and every account. With fewer than two sections there is nothing to move between and the switcher
+ * stays out of the way: two quiet links under the page title, never a framed tab strip.
  */
-export function AdminSectionSwitcher({ current }: { current: 'household' | 'households' }) {
+export function AdminSectionSwitcher({ current }: { current: Section }) {
   const { t } = useI18n();
   const role = useViewerRole();
   const navigation = useContext(HouseholdNavigationContext);
-  if (!navigation || !navigation.instanceAdmin || role !== 'admin') return null;
+  if (!navigation) return null;
+  const sections = sectionsFor(role === 'admin', navigation.instanceAdmin);
+  if (sections.length < 2) return null;
 
   return <nav aria-label={t('admin.sections.label')} className="mt-5 border-b border-line sm:mt-6">
-    <ul className="flex gap-6">
-      <li>
-        <NavLink href="/admin" onNavigate={navigation.actions.admin}
-          aria-current={current === 'household' ? 'page' : undefined}
-          className={current === 'household' ? CURRENT : QUIET}>
-          {t('admin.sections.household')}
+    <ul className="flex flex-wrap gap-x-6 gap-y-1">
+      {sections.map((section) => <li key={section.key}>
+        <NavLink href={section.href} onNavigate={navigation.actions[section.run]}
+          aria-current={current === section.key ? 'page' : undefined}
+          className={current === section.key ? CURRENT : QUIET}>
+          {t(section.label)}
         </NavLink>
-      </li>
-      <li>
-        <NavLink href="/admin/households" onNavigate={navigation.actions.adminHouseholds}
-          aria-current={current === 'households' ? 'page' : undefined}
-          className={current === 'households' ? CURRENT : QUIET}>
-          {t('admin.sections.households')}
-        </NavLink>
-      </li>
+      </li>)}
     </ul>
   </nav>;
 }

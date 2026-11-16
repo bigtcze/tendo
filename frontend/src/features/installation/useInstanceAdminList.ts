@@ -1,8 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useCursorList, type CursorList } from '../../app/useCursorList';
 import {
-  listAdminHouseholdAccounts, listAdminHouseholds,
-  type AdminHousehold, type AdminHouseholdAccount,
+  listAdminDirectory, listAdminHouseholdAccounts, listAdminHouseholds,
+  type AdminHousehold, type AdminHouseholdAccount, type DirectoryAccount,
 } from './instanceAdminApi';
 
 type Handlers = { onSignedOut: () => void; onForbidden?: () => void };
@@ -36,4 +36,45 @@ export function useAdminHouseholdAccounts(householdId: string, handlers: Handler
     notFound: 'authoritative',
     keyOf: (account) => account.userId,
   });
+}
+
+/** The account directory list, with the server's refusal of the search text kept apart from a read that failed. */
+export type DirectoryList = CursorList<DirectoryAccount> & {
+  /** The search text itself was refused: the field says what to fix, and there is nothing to retry. */
+  invalidQuery: boolean;
+  /**
+   * The exact submitted search the server refused, or null. Each press submits a new object, so a repeated identical
+   * refusal is a new object too and can put the reader back on the field again.
+   */
+  refused: { needle: string } | null;
+};
+
+/**
+ * The installation-wide account directory as a paged list. `search` is the search that was submitted: its identity
+ * changes with every press, so pressing Search always reads again even for the same text, and the list restarts.
+ *
+ * A refused search text is not a failed read: it answers on the field, so this hook reports it as `invalidQuery`
+ * while the list itself holds no rows. Every other refusal keeps the shared list behavior — including the same code
+ * on a page request, which is about the cursor the list made up and never about what the reader typed.
+ */
+export function useAdminAccountDirectory(search: { needle: string }, handlers: Handlers): DirectoryList {
+  const [refused, setRefused] = useState<{ needle: string } | null>(null);
+  const load = useCallback(async (cursor?: string) => {
+    const page = await listAdminDirectory(search.needle, cursor);
+    if (page.kind === 'invalidQuery') {
+      if (cursor !== undefined) return { kind: 'error' } as const;
+      setRefused(search);
+      return { kind: 'error' } as const;
+    }
+    // Only a success of the same search retires its refusal: another search's answer says nothing about this field.
+    setRefused((current) => (current === search ? null : current));
+    return page;
+  }, [search]);
+  const list = useCursorList<DirectoryAccount>({
+    load,
+    onSignedOut: handlers.onSignedOut,
+    onForbidden: handlers.onForbidden,
+    keyOf: (account) => account.userId,
+  });
+  return { ...list, invalidQuery: refused === search, refused };
 }

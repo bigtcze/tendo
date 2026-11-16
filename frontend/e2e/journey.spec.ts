@@ -33,6 +33,12 @@ const largeOwnerLogin = required('E2E_LARGE_OWNER_LOGIN');
 const expectedCompletionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date(e2eClockNow));
 const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
+// V5-10 C2: the throwaway account the account-deletion step creates and removes, and the password it sets when
+// it accepts its invitation. The step that deletes it and the later step that tries that password again both name
+// the pair, so it is defined once. The login is 64 characters — the longest `^[a-z0-9][a-z0-9._-]{2,63}$` allows —
+// so the 320 px checks in that step cover a login that has to wrap rather than fit.
+const deletionProbeLogin = `deletion_probe_e2e_${'x'.repeat(45)}`;
+const deletionProbePassword = `${ownerPassword}-deletion-probe`;
 
 /**
  * Signed-in language choice lives on Account; the signed-in shell has no footer switch. Navigates to Account,
@@ -2280,6 +2286,234 @@ test.describe('Tendo production journey', () => {
       await expect(createdRow).toContainText('America/New_York');
     } finally {
       page.off('request', recordRequest);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+    }
+  });
+
+  // V5-10 C2: the account directory is the Admin center's other installation section, and the one place an account is
+  // deleted for good (ADR 0022). The probe account is the only account this step removes, and it is created through a
+  // real invitation — the public endpoint that sets its password — carrying the longest login a login may have, so the
+  // 320 px checks below cover a login that must wrap in the row, the dialog title, the confirmation label, the refusal
+  // sentence and the notice. It first administers a household of its own, which makes the last-admin refusal the
+  // server's own answer rather than a client guess; a second administrator of that household then answers it, and one
+  // more press deletes the account.
+  //
+  // What remains afterwards, exactly: the probe account and its directory entry are gone, “Deletion probe household”
+  // stays with member_e2e as its administrator, member_e2e therefore belongs to a second household, and the person
+  // entry the probe account had in the owner household stays, unlinked and named after the deleted login — which is
+  // what this dialog promises the reader. No seeded account is deleted and no seeded list changes shape: every later
+  // step addresses people by name or id and reads household counts from the server.
+  //
+  // It spends no local sign-in attempt, deliberately. The local sign-in throttle admits ten attempts per client IP and
+  // minute and the steps from n7 to n31 spend all ten between them, so one more attempt here would rate-limit n31
+  // instead of proving anything. The invitation is therefore accepted through the endpoint the /invite screen itself
+  // posts to (that screen is covered by n7 and n25) rather than through the screen, which signs the new account in;
+  // n7h makes the one attempt this slice needs, long after that window.
+  test('n7g. the installation administrator deletes an account everywhere, and it can no longer sign in', async () => {
+    test.setTimeout(120_000);
+    // This step drives a phone viewport; it is restored even on a failed assertion.
+    const originalViewport = page.viewportSize();
+    const adminHouseholdsPath = '/api/v1/admin/households';
+    const directoryPath = '/api/v1/admin/accounts';
+    const deletionsPath = '/api/v1/admin/account-deletions';
+    const probeLogin = deletionProbeLogin;
+    const probePassword = deletionProbePassword;
+    const probeHouseholdName = 'Deletion probe household';
+    const deleteLabel = (login: string) => en['install.accounts.delete.label'].replace('{login}', login);
+    const dialogTitle = en['install.accounts.delete.title'].replace('{login}', probeLogin);
+    const lastAdminText = en['install.accounts.delete.error.lastAdmin'].replace('{login}', probeLogin);
+    const deletedNotice = en['install.notice.deleted'].replace('{login}', probeLogin);
+    const confirmLabel = en['install.accounts.delete.confirm'].replace('{login}', probeLogin);
+    /** The directory's own answer for one login: the server-side search, not the rendered rows. */
+    const directoryMatches = async (needle: string) => {
+      const response = await page.request.get(`${directoryPath}?limit=20&q=${encodeURIComponent(needle)}`);
+      expect(response.status()).toBe(200);
+      return (await response.json() as { items: Array<{ userId: string; login: string }> }).items;
+    };
+    /** The probe household's memberships through the installation's own route, as login and role pairs. */
+    const probeMemberships = async (householdIdOfProbe: string) => {
+      const response = await page.request.get(`${adminHouseholdsPath}/${householdIdOfProbe}/accounts?limit=50`);
+      expect(response.status()).toBe(200);
+      const items = (await response.json() as { items: Array<{ login: string; role: string }> }).items;
+      return items.map((entry) => `${entry.login} ${entry.role}`);
+    };
+
+    // 1a. A real invitation, accepted through the public new-account endpoint, is the account's login and password.
+    const invitation = await page.request.post(`/api/v1/households/${householdId}/invitations`, {
+      headers: { Origin: baseURL, 'Idempotency-Key': crypto.randomUUID().replaceAll('-', '') },
+      data: {},
+    });
+    expect(invitation.status(), 'the probe account needs a real invitation').toBe(201);
+    const { token: probeToken } = await invitation.json() as { token: string };
+    const accepted = await page.request.post('/api/v1/auth/invitations/accept', {
+      headers: { Origin: baseURL },
+      data: { token: probeToken, login: probeLogin, password: probePassword },
+    });
+    expect(accepted.status(), 'the probe account is created by accepting the invitation').toBe(201);
+    const probeAccount = await accepted.json() as { userId: string; login: string; householdId: string; role: string };
+    expect(probeAccount, 'the accepted invitation is this login, in the owner household').toMatchObject({
+      login: probeLogin, householdId, role: 'member',
+    });
+    const probeUserId = probeAccount.userId;
+    expect(probeUserId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await directoryMatches(probeLogin), 'the installation directory now lists the accepted account').toHaveLength(1);
+
+    // 1b. A household whose only administrator is the probe account: the state the last-admin refusal is about.
+    const createdHousehold = await page.request.post(adminHouseholdsPath, {
+      headers: { Origin: baseURL, 'Idempotency-Key': crypto.randomUUID().replaceAll('-', '') },
+      data: { name: probeHouseholdName, timezone: 'America/New_York', adminUserId: probeUserId },
+    });
+    expect(createdHousehold.status(), 'the probe account administers a household of its own').toBe(201);
+    const createdBody = await createdHousehold.json() as { id: string; name: string };
+    const probeHouseholdId = createdBody.id;
+    expect(probeHouseholdId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await probeMemberships(probeHouseholdId), 'the probe account is the sole administrator').toEqual([`${probeLogin} admin`]);
+
+    // The second administrator the second press needs is the ordinary invited member, which the installation routes
+    // add from the same directory; it is added only once the refusal has been proven.
+    const membersResponse = await page.request.get(`/api/v1/households/${householdId}/members`);
+    expect(membersResponse.status()).toBe(200);
+    const secondAdminId = ((await membersResponse.json()) as { items: Array<{ userId: string; login: string }> }).items
+      .find((entry) => entry.login === 'member_e2e')?.userId;
+    expect(secondAdminId, 'member_e2e belongs to the owner household').toBeTruthy();
+
+    try {
+      // 2a. The switcher is the only way between the two installation sections, and it lands on the directory.
+      await page.goto('/admin/households');
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+      const switcher = page.getByRole('navigation', { name: en['admin.sections.label'] });
+      await expect(switcher.getByRole('link', { name: en['admin.sections.households'], exact: true })).toHaveAttribute('aria-current', 'page');
+      await switcher.getByRole('link', { name: en['admin.sections.accounts'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\/accounts$/);
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+      await expect(switcher.getByRole('link', { name: en['admin.sections.accounts'], exact: true })).toHaveAttribute('aria-current', 'page');
+      const heading = page.getByRole('heading', { level: 2, name: en['admin.list.title'], exact: true });
+      await expect(heading).toBeVisible();
+      const rows = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] });
+      const searchField = page.getByLabel(en['install.add.query'], { exact: true });
+      const searchButton = page.getByRole('button', { name: en['install.add.search'], exact: true });
+      /** The one row whose login is exactly this one: the search is a substring match, so a seeded login can contain it. */
+      const rowFor = (login: string) => rows.getByRole('listitem')
+        .filter({ has: page.locator('[data-install-login]', { hasText: new RegExp(`^${escapeRegExp(login)}$`) }) });
+
+      // 2b. The search is the server's: one login finds exactly the account that carries it.
+      await searchField.fill(probeLogin);
+      await searchButton.click();
+      const probeRow = rowFor(probeLogin);
+      await expect(probeRow).toHaveCount(1);
+      await expect(probeRow.locator('[data-install-login]')).toHaveText(probeLogin);
+      await expect(rows.getByRole('listitem')).toHaveCount(1);
+      await expectNoAxeViolations(page, 'admin-installation-accounts');
+
+      // 2c. The viewer's own row says so and offers no action: no account deletes itself.
+      await searchField.fill(ownerLogin);
+      await searchField.press('Enter');
+      const ownRow = rowFor(ownerLogin);
+      await expect(ownRow).toHaveCount(1);
+      await expect(ownRow).toContainText(en['members.you']);
+      await expect(ownRow.getByRole('button')).toHaveCount(0);
+      await expect(rows.getByRole('button', { name: deleteLabel(ownerLogin), exact: true })).toHaveCount(0);
+
+      // 2d. 320 CSS px: neither the list nor the open dialog scrolls sideways.
+      await searchField.fill(probeLogin);
+      await searchField.press('Enter');
+      await expect(probeRow).toHaveCount(1);
+      await page.setViewportSize({ width: 320, height: 640 });
+      await expect(probeRow).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px account list overflow').toBeLessThanOrEqual(0);
+      const dialog = page.getByRole('dialog');
+      const confirmField = dialog.getByLabel(confirmLabel, { exact: true });
+      await probeRow.getByRole('button', { name: deleteLabel(probeLogin), exact: true }).click();
+      await expect(dialog.getByRole('heading', { name: dialogTitle })).toBeVisible();
+      await expect(confirmField).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px delete dialog page overflow').toBeLessThanOrEqual(0);
+      expect(await dialog.evaluate((element) => element.scrollWidth - element.clientWidth), '320px delete dialog content overflow').toBeLessThanOrEqual(0);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+
+      // 2e. What it says is about the whole installation, never about this household, and the confirmation is the
+      // login itself: the button stays disabled for anything but the exact text, wrong capitals included.
+      await expect(dialog).toContainText(en['install.accounts.delete.lead']);
+      await expect(dialog.getByText(en['install.accounts.delete.undone'], { exact: true })).toBeVisible();
+      const confirm = dialog.getByRole('button', { name: en['install.accounts.delete.action'], exact: true });
+      await expect(confirm).toBeDisabled();
+      await confirmField.fill(probeLogin.toUpperCase());
+      await expect(confirm).toBeDisabled();
+      await confirmField.fill(probeLogin);
+      await expect(confirm).toBeEnabled();
+      await expectNoAxeViolations(page, 'admin-installation-account-delete-dialog');
+
+      // 2f. The sole administrator of a household is refused by the server, and nothing changes: the dialog, the
+      // typed confirmation and the account all stay where they were. The answer is announced by the status host the
+      // dialog mounted before the request, and the sentence itself takes the focus, so it is neither lost on the body
+      // nor left for a screen reader to discover. Chromium logs the refusal; expectation is the exact path and status.
+      expectedFailedStatuses.add(`${deletionsPath} 409`);
+      const refusalHost = dialog.locator('[data-delete-refusal-host]');
+      await expect(refusalHost).toHaveAttribute('role', 'status');
+      await expect(refusalHost).toBeEmpty();
+      // A marker the test puts on the mounted host, so the sentence below must be inside this very element.
+      await refusalHost.evaluate((element) => element.setAttribute('data-e2e-host', 'pre-submit'));
+      await confirm.click();
+      const refusalSentence = dialog.locator('[data-delete-refusal]');
+      await expect(refusalSentence).toHaveText(lastAdminText);
+      await expect(refusalSentence).toBeFocused();
+      await expect(page.locator('body')).not.toBeFocused();
+      expect(
+        await refusalSentence.evaluate((element) => element.closest('[role="status"]')?.getAttribute('data-e2e-host') ?? null),
+        'the refusal is announced by the status host that was already there',
+      ).toBe('pre-submit');
+      await expect(dialog).toBeVisible();
+      await expect(confirmField).toHaveValue(probeLogin);
+      await expect(confirm).toBeEnabled();
+      // The sentence repeats the whole login, so it is the widest thing the dialog holds at 320 px.
+      await page.setViewportSize({ width: 320, height: 640 });
+      await expect(refusalSentence).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px refusal page overflow').toBeLessThanOrEqual(0);
+      expect(await dialog.evaluate((element) => element.scrollWidth - element.clientWidth), '320px refusal dialog overflow').toBeLessThanOrEqual(0);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+      // Only a refusal the test has just proven joins the response ledger.
+      instanceAdminRefusals.push(`POST ${deletionsPath} 409`);
+      expect(await directoryMatches(probeLogin), 'the refusal left the account in the directory').toHaveLength(1);
+      expect(await probeMemberships(probeHouseholdId), 'the refusal left the probe membership alone').toEqual([`${probeLogin} admin`]);
+
+      // 2g. A second administrator answers the refusal, and the dialog keeps what was typed, so one press now
+      // deletes the account everywhere.
+      const assigned = await page.request.put(`${adminHouseholdsPath}/${probeHouseholdId}/accounts/${secondAdminId}`, {
+        headers: { Origin: baseURL }, data: { role: 'admin' },
+      });
+      expect(assigned.status(), 'the household gains a second administrator').toBe(201);
+      expect((await probeMemberships(probeHouseholdId)).sort(), 'the household now has two administrators').toEqual([`${probeLogin} admin`, 'member_e2e admin'].sort());
+      await confirm.click();
+      await expect(dialog).toHaveCount(0);
+      const deletedNoticeText = page.getByText(deletedNotice, { exact: true });
+      await expect(deletedNoticeText).toBeVisible();
+      // The row and its trigger are gone, so the reader lands on the list heading instead of the page body.
+      await expect(heading).toBeFocused();
+      // The notice names the whole login too: at 320 px it wraps instead of widening the page.
+      await page.setViewportSize({ width: 320, height: 640 });
+      await expect(deletedNoticeText).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px deletion notice overflow').toBeLessThanOrEqual(0);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+      await expect(rows).toHaveCount(0);
+
+      // 2h. A fresh read of the screen agrees, and the server's own search no longer finds the login anywhere.
+      await page.reload();
+      await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+      await expect(heading).toBeVisible();
+      await searchField.fill(probeLogin);
+      await searchButton.click();
+      const noMatch = en['install.accounts.emptySearch'].replace('{q}', probeLogin);
+      await expect(page.getByRole('main').getByText(noMatch, { exact: true })).toBeVisible();
+      // That sentence repeats the login as well, so it wraps at 320 px too.
+      await page.setViewportSize({ width: 320, height: 640 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px empty search overflow').toBeLessThanOrEqual(0);
+      if (originalViewport) await page.setViewportSize(originalViewport);
+      expect(await directoryMatches(probeLogin), 'the directory no longer matches the deleted login').toEqual([]);
+      const householdsResponse = await page.request.get(`${adminHouseholdsPath}?limit=50`);
+      expect(householdsResponse.status()).toBe(200);
+      const listedHouseholds = (await householdsResponse.json() as { items: Array<{ id: string; name: string }> }).items;
+      expect(listedHouseholds.find((entry) => entry.id === probeHouseholdId)?.name, 'the household it belonged to still exists').toBe(probeHouseholdName);
+      expect((await probeMemberships(probeHouseholdId)).sort(), 'the deleted account took its membership and left the other administrator').toEqual(['member_e2e admin']);
+    } finally {
       if (originalViewport) await page.setViewportSize(originalViewport);
     }
   });
@@ -6884,6 +7118,46 @@ test.describe('Tendo production journey', () => {
     }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
+  });
+
+  // V5-10 C2 continuation: the password the deleted account set when it accepted its invitation must no longer sign
+  // in. It is the one thing only a real sign-in attempt can show, and it cannot live in n7g — the sign-in budget note
+  // there explains why. This step runs after n29, whose sign-ins are minutes past, so the two attempts below are the
+  // only ones in their window.
+  test('n7h. the deleted account can no longer sign in, while a live account still can', async ({ browser }) => {
+    const loginHeading = (target: Page) => target.getByRole('heading', { level: 1, name: en['login.title'] });
+    const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    try {
+      const loginPage = await context.newPage();
+      await loginPage.goto('/');
+      await expect(loginHeading(loginPage)).toBeVisible();
+
+      // The status is checked first: a throttled attempt would answer 429 and land on its own message, and calling
+      // that "invalid credentials" would be a false pass. The alert asserted after it is the server's own refusal.
+      await loginPage.getByLabel(en['login.login'], { exact: true }).fill(deletionProbeLogin);
+      await loginPage.getByLabel(en['login.password']).fill(deletionProbePassword);
+      const probeAttempt = loginPage.waitForResponse((response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/v1/session');
+      await loginPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      const refused = await probeAttempt;
+      expect(refused.status(), 'the sign-in throttle must not be what refuses this attempt').not.toBe(429);
+      expect(refused.status(), 'the deleted account is refused by the server').toBe(401);
+      await expect(loginPage.getByRole('alert').filter({ hasText: en['login.error.invalid'] })).toBeVisible();
+      await expect(loginHeading(loginPage)).toBeVisible();
+      expect((await loginPage.request.get('/api/v1/session')).status(), 'the deleted account holds no session').toBe(401);
+
+      // The same screen accepts a live account's password straight afterwards, so the refusal above is about the
+      // deleted account and not about this browser, this screen or the sign-in throttle.
+      await loginPage.getByLabel(en['login.login'], { exact: true }).fill(largeOwnerLogin);
+      await loginPage.getByLabel(en['login.password']).fill(existingAccountPassword);
+      const signedIn = loginPage.waitForResponse((response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/v1/session');
+      await loginPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      expect((await signedIn).status(), 'a live account still signs in').toBe(201);
+      await expect(loginPage.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+    } finally {
+      await context.close();
+    }
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {
