@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  assignAdminHouseholdAccount, changeAdminHouseholdAccountRole, createAdminHousehold, listAdminDirectory,
+  assignAdminHouseholdAccount, changeAdminHouseholdAccountRole, createAdminHousehold, deleteAdminAccount, listAdminDirectory,
   listAdminHouseholdAccounts, listAdminHouseholds, readAdminHouseholdAccount, removeAdminHouseholdAccount,
   type AdminHousehold, type AdminHouseholdAccount,
 } from './instanceAdminApi';
@@ -200,6 +200,62 @@ describe('installation household account actions', () => {
     await expect(assignAdminHouseholdAccount(HOUSEHOLD_ID, userId, 'member')).resolves.toEqual({ kind: 'error' });
     await expect(changeAdminHouseholdAccountRole(HOUSEHOLD_ID, userId, 'member', '"1"')).resolves.toEqual({ kind: 'error' });
     await expect(removeAdminHouseholdAccount(HOUSEHOLD_ID, userId, '"1"')).resolves.toEqual({ kind: 'error' });
+  });
+});
+
+describe('installation account deletion API', () => {
+  const deletionPath = 'POST /api/v1/admin/account-deletions';
+  const login = 'petr';
+
+  it('sends exactly the account and the repeated login, and reads 204 as done', async () => {
+    const fake = installFakeServer({ [deletionPath]: json(204) });
+    await expect(deleteAdminAccount(userId, login)).resolves.toEqual({ kind: 'ok' });
+    expect(JSON.parse(fake.requests[0].body)).toEqual({ userId, confirmLogin: login });
+    // No version tag and no idempotency key: deleting is final, and a repeat is simply notFound.
+    expect(fake.requests[0].headers.get('If-Match')).toBeNull();
+    expect(fake.requests[0].headers.get('Idempotency-Key')).toBeNull();
+  });
+
+  it('separates the three conflicts a 409 carries and keeps any other one a plain refusal', async () => {
+    for (const [code, expected] of [
+      ['last_admin', { kind: 'lastAdmin' }],
+      ['last_instance_admin', { kind: 'lastInstanceAdmin' }],
+      ['cannot_delete_self', { kind: 'self' }],
+      ['member_person_changed', { kind: 'rejected' }],
+      [undefined, { kind: 'rejected' }],
+    ] as const) {
+      installFakeServer({ [deletionPath]: problem(409, code) });
+      await expect(deleteAdminAccount(userId, login)).resolves.toEqual(expected);
+    }
+  });
+
+  it('answers a refused confirmation on its own field and keeps every other 422 a plain refusal', async () => {
+    installFakeServer({ [deletionPath]: json(422, { type: 'about:blank', title: 'x', status: 422, field: 'confirmLogin', code: 'mismatch' }) });
+    await expect(deleteAdminAccount(userId, login)).resolves.toEqual({ kind: 'mismatch' });
+    // A malformed identifier names the other field, which this client never guesses about.
+    installFakeServer({ [deletionPath]: json(422, { type: 'about:blank', title: 'x', status: 422, field: 'userId', code: 'invalid_reference' }) });
+    await expect(deleteAdminAccount(userId, login)).resolves.toEqual({ kind: 'rejected' });
+    installFakeServer({ [deletionPath]: json(422, { type: 'about:blank', title: 'x', status: 422, field: 'confirmLogin', code: 'invalid_length' }) });
+    await expect(deleteAdminAccount(userId, login)).resolves.toEqual({ kind: 'rejected' });
+  });
+
+  it('maps the refusals every installation route shares, then other 4xx and an unreachable server', async () => {
+    for (const [status, code, expected] of [
+      [401, undefined, { kind: 'unauthenticated' }],
+      [403, 'instance_admin_required', { kind: 'forbidden' }],
+      [403, 'forbidden_origin', { kind: 'rejected' }],
+      [404, 'not_found', { kind: 'notFound' }],
+      [400, 'invalid_request', { kind: 'rejected' }],
+      [413, 'content_too_large', { kind: 'rejected' }],
+      [421, undefined, { kind: 'rejected' }],
+      [500, undefined, { kind: 'error' }],
+      [503, 'unavailable', { kind: 'error' }],
+    ] as const) {
+      installFakeServer({ [deletionPath]: problem(status, code) });
+      await expect(deleteAdminAccount(userId, login)).resolves.toEqual(expected);
+    }
+    installFakeServer({ [deletionPath]: () => Promise.reject(new Error('offline')) });
+    await expect(deleteAdminAccount(userId, login)).resolves.toEqual({ kind: 'error' });
   });
 });
 

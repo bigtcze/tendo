@@ -200,6 +200,8 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
       await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
     } else if (path === '/admin/households') {
       await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
+    } else if (path === '/admin/accounts') {
+      await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
     } else {
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     }
@@ -212,6 +214,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     if (name === 'home-add') await openAdd(page, en['items.add']);
     else if (path === '/admin') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
     else if (path === '/admin/households') await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
+    else if (path === '/admin/accounts') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
     if (path === '/items') await waitForAllItemsSummary(page);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -811,6 +814,54 @@ test('Installation households and one household’s accounts with their actions'
   await expect(memberPage.getByRole('navigation', { name: en['admin.sections.label'] })).toHaveCount(0);
   await capture(memberPage, 'admin-households-member-390', 390, 900, true);
   await memberContext.close();
+});
+
+test('Installation accounts and the delete dialog', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { context, page } = await authenticated(browser);
+  // The directory is the whole installation, not one household: the viewer's own account, the invited member and the
+  // reference member. The seeded visual installation is small and the server orders rows by login, so the capture
+  // settles on a fixed list.
+  await page.goto('/admin/accounts');
+  await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+  const switcher = page.getByRole('navigation', { name: en['admin.sections.label'] });
+  await expect(switcher.getByRole('link', { name: en['admin.sections.accounts'], exact: true })).toHaveAttribute('aria-current', 'page');
+  const directory = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] });
+  const referenceRow = directory.getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN });
+  const ownRow = directory.getByRole('listitem').filter({ hasText: OWNER_LOGIN });
+  await expect(referenceRow.locator('[data-install-login]')).toHaveText(REFERENCE_MEMBER_LOGIN);
+  // No account deletes itself: the viewer's own row is a login and nothing else.
+  await expect(ownRow).toContainText(en['members.you']);
+  await expect(ownRow.getByRole('button')).toHaveCount(0);
+
+  // The dialog asks for the login itself, so the capture shows the confirmation text before the enabled action. It is
+  // only a capture: Cancel is pressed, no account is deleted, and the list stays exactly as it was found.
+  const deleteLabel = en['install.accounts.delete.label'].replace('{login}', REFERENCE_MEMBER_LOGIN);
+  await referenceRow.getByRole('button', { name: deleteLabel, exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: en['install.accounts.delete.title'].replace('{login}', REFERENCE_MEMBER_LOGIN) })).toBeVisible();
+  const confirmField = dialog.getByLabel(en['install.accounts.delete.confirm'].replace('{login}', REFERENCE_MEMBER_LOGIN), { exact: true });
+  await confirmField.fill(REFERENCE_MEMBER_LOGIN);
+  await expect(dialog.getByRole('button', { name: en['install.accounts.delete.action'], exact: true })).toBeEnabled();
+  await capture(page, 'admin-accounts-delete-390', 390, 900, false);
+  await capture(page, 'admin-accounts-delete-1440', 1440, 900, false);
+  await dialog.getByRole('button', { name: en['admin.action.cancel'], exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(referenceRow).toBeVisible();
+
+  // The directory in the saved light theme at both widths, then the same in the saved dark theme.
+  await darkScreen(browser, statePath, '/admin/accounts', 'admin-accounts');
+
+  // Czech phone width after the dark pass restored the light theme.
+  await page.goto('/admin/accounts');
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('list', { name: cs['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
+  await capture(page, 'admin-accounts-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await context.close();
 });
 
 test('Account', async ({ browser }) => {

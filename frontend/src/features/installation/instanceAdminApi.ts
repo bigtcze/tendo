@@ -10,6 +10,7 @@ const PAGE_SIZE = 50;
 const DIRECTORY_PAGE_SIZE = 20;
 const householdsPath = '/api/v1/admin/households';
 const directoryPath = '/api/v1/admin/accounts';
+const deletionsPath = '/api/v1/admin/account-deletions';
 const accountsPath = '/api/v1/admin/households/{householdId}/accounts';
 const accountPath = '/api/v1/admin/households/{householdId}/accounts/{userId}';
 
@@ -229,5 +230,47 @@ export async function removeAdminHouseholdAccount(
     if (response.status === 409) return { kind: 'rejected' };
     if (response.status === 412) return { kind: 'stale' };
   } catch { /* fall through */ }
+  return { kind: 'error' };
+}
+
+export type AdminAccountDeletion =
+  | { kind: 'ok' }
+  /** A household would be left without an admin, or the installation without a live instance administrator. */
+  | { kind: 'lastAdmin' }
+  | { kind: 'lastInstanceAdmin' }
+  | { kind: 'self' }
+  /** The repeated login did not match the account's current login: the confirmation field answers it. */
+  | { kind: 'mismatch' }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rejected' | 'error' };
+
+/** The refusals a `409` carries; anything else refused as a whole is not one of them. */
+const deletionConflicts: Readonly<Record<string, AdminAccountDeletion>> = {
+  last_admin: { kind: 'lastAdmin' },
+  last_instance_admin: { kind: 'lastInstanceAdmin' },
+  cannot_delete_self: { kind: 'self' },
+};
+
+/** The one `422` this client answers on its own field; a bad account identifier is a plain failure here. */
+function deletionValidation(error: unknown): AdminAccountDeletion | null {
+  const { field, code } = (error ?? {}) as { field?: unknown; code?: unknown };
+  return field === 'confirmLogin' && code === 'mismatch' ? { kind: 'mismatch' } : null;
+}
+
+/**
+ * Deletes an installation account everywhere: it can never sign in again and leaves every household. The repeated
+ * login guards against deleting the wrong account from a stale list; the server compares it exactly and changes
+ * nothing on any refusal. There is no `If-Match` and no `Idempotency-Key`: a repeat finds no live account and is a
+ * plain `404`, which reads as an account that is already gone.
+ */
+export async function deleteAdminAccount(userId: string, confirmLogin: string): Promise<AdminAccountDeletion> {
+  try {
+    const { error, response } = await api.POST(deletionsPath, { body: { userId, confirmLogin } });
+    if (response.status === 204) return { kind: 'ok' };
+    const refused = refusal(response.status, problemCode(error));
+    if (refused) return refused;
+    if (response.status === 409) return deletionConflicts[problemCode(error) ?? ''] ?? { kind: 'rejected' };
+    if (response.status === 422) return deletionValidation(error) ?? { kind: 'rejected' };
+    if (response.status >= 400 && response.status < 500) return { kind: 'rejected' };
+  } catch { /* the common unavailable state */ }
   return { kind: 'error' };
 }

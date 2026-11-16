@@ -57,6 +57,20 @@ A password belongs to the person, not to one household. If the person also belon
 
 The part of the link after `#` never reaches the server, a proxy, or another site's address, and Tendo removes it from the address bar when the page opens.
 
+## Delete an account (installation administrators)
+
+An administrator of the whole installation also sees **Households** and **Accounts** in the Admin center; someone who also administers a household sees a third section for it. **Accounts** lists every account in Tendo, including people who belong to no household; search by login to find one. Removing someone from a single household stays in **Households**; **Accounts** is where an account is deleted for good.
+
+Choose **Delete account** on the person's row. Tendo explains what happens and asks you to type their login exactly as shown before it deletes anything. Deleting an account:
+
+- signs the person out on every device straight away, and they can no longer sign in, with a password or with single sign-on,
+- removes them from every household they belong to; items they were responsible for stay, with no one responsible,
+- keeps household history, and keeps their person entry in each household so a household administrator can rename or archive it,
+- cancels invitations they sent that no one has accepted yet, and makes password reset links they were sent or created stop working, in every household,
+- frees their login, so a new account may use it later.
+
+It can't be undone. Your own row has no delete button; another installation administrator has to delete your account. If the person is the only administrator of a household, Tendo refuses and changes nothing: make someone else an administrator of that household first, then try again.
+
 ## Use a password reset link (members)
 
 An administrator may send you a private reset link. Open it in your browser:

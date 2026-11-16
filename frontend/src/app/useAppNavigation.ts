@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { ItemGroup } from '../features/items/itemsApi';
 import type { BootState } from './useAppSession';
-import { ADMIN_HOUSEHOLDS_PATH, readRoute, type Route } from './routes';
+import { ADMIN_ACCOUNTS_PATH, ADMIN_HOUSEHOLDS_PATH, readRoute, type Route } from './routes';
 
 /** Where an open item detail was reached from, so the navigation highlights the route of origin. */
 export type ItemOrigin = 'home' | 'allItems' | 'archive' | null;
@@ -97,6 +97,9 @@ function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, set
   const openAdminHouseholds = useCallback(
     () => simple(ADMIN_HOUSEHOLDS_PATH, { kind: 'adminHouseholds' }, true), [simple],
   );
+  const openAdminAccounts = useCallback(
+    () => simple(ADMIN_ACCOUNTS_PATH, { kind: 'adminAccounts' }, true), [simple],
+  );
   /** The list row already knows the household's name; the detail screen shows it instead of a generic heading. */
   const openAdminHousehold = useCallback((householdId: string, name: string) => {
     simple(`${ADMIN_HOUSEHOLDS_PATH}/${encodeURIComponent(householdId)}`, { kind: 'adminHousehold', householdId }, true);
@@ -128,7 +131,7 @@ function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, set
   const reportItemsView = useCallback((archived: boolean) => setArchivedView(archived), [setArchivedView]);
 
   return { openAllItems, openAllItemsForStatus, openArchive, openPeople, openAccount, openMembers, openAdmin,
-    openAdminHouseholds, openAdminHousehold,
+    openAdminHouseholds, openAdminAccounts, openAdminHousehold,
     goHome, goBackFromItem, openItemFromAllItems, openItemFromHome, reportItemsView };
 }
 

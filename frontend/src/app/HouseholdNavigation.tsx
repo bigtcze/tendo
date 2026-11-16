@@ -18,6 +18,8 @@ export type NavigationActions = {
   admin: () => void;
   /** The installation-wide household list of the Admin center; the target of an account without the household role. */
   adminHouseholds: () => void;
+  /** Every account of the installation, the other installation-wide section of the Admin center. */
+  adminAccounts: () => void;
 };
 /**
  * `archivedView` and `itemOrigin` are what the active highlight needs beyond the route itself: the archived

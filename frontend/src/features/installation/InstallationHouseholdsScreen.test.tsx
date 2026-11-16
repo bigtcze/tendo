@@ -173,8 +173,11 @@ describe('Admin center sections', () => {
       [`GET ${base}/accounts`]: json(200, { items: [], nextCursor: null }),
     });
     const sections = await screen.findByRole('navigation', { name: 'Admin center sections' });
+    // The installation grant is already known from the session, so both installation sections appear first.
     expect(within(sections).getByRole('link', { name: 'Households' })).toHaveAttribute('aria-current', 'page');
-    const householdSection = within(sections).getByRole('link', { name: 'Your household' });
+    expect(within(sections).getByRole('link', { name: 'Accounts' })).toHaveAttribute('href', '/admin/accounts');
+    // The household grant arrives only once the household read lands, so the third section joins them then.
+    const householdSection = await within(sections).findByRole('link', { name: 'Your household' });
     expect(householdSection).toHaveAttribute('href', '/admin');
     expect(householdSection).not.toHaveAttribute('aria-current');
 
@@ -194,8 +197,8 @@ describe('Admin center sections', () => {
     expect(screen.queryByRole('navigation', { name: 'Admin center sections' })).not.toBeInTheDocument();
   });
 
-  it('stays out of the way for an installation administrator on the household list', async () => {
-    // The account holds the installation grant only (a member here), so only the Households section applies.
+  it('keeps both installation sections for an installation administrator who is only a household member', async () => {
+    // The account holds the installation grant only (a member here), so the two installation sections, not "Your household".
     const viewer = { ...session(), instanceAdmin: true };
     installFakeServer({
       'GET /api/v1/session': json(200, viewer),
@@ -206,6 +209,9 @@ describe('Admin center sections', () => {
     window.history.replaceState(null, '', '/admin/households');
     render(<I18nProvider><App /></I18nProvider>);
     await waitFor(() => expect(rows()).toHaveLength(1));
-    expect(screen.queryByRole('navigation', { name: 'Admin center sections' })).not.toBeInTheDocument();
+    const sections = await screen.findByRole('navigation', { name: 'Admin center sections' });
+    expect(within(sections).getByRole('link', { name: 'Households' })).toHaveAttribute('aria-current', 'page');
+    expect(within(sections).getByRole('link', { name: 'Accounts' })).toHaveAttribute('href', '/admin/accounts');
+    expect(within(sections).queryByRole('link', { name: 'Your household' })).not.toBeInTheDocument();
   });
 });
