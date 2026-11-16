@@ -833,7 +833,47 @@ member_admin_routes=(
 for method,url,template,body,extra in member_admin_routes:
  st,_,member_admin_problem=aareq(method,url,template,body,{**member_cookie,'Origin':origin,**(extra or {})})
  assert st==403 and member_admin_problem['code']=='instance_admin_required',('member on instance-admin route',method,url,st,member_admin_problem)
+st,_,member_deletion=aareq('POST','/api/v1/admin/account-deletions','/api/v1/admin/account-deletions',{'userId':owner_account_id,'confirmLogin':'owner_smoke'},{**member_cookie,'Origin':origin})
+assert st==403 and member_deletion['code']=='instance_admin_required',('member on account deletion',st,member_deletion)
 assert len(member_admin_routes)==9 and psql(f"SELECT string_agg(user_id::text||'|'||role||'|'||version,',' ORDER BY user_id) FROM household_memberships WHERE household_id='{other_id}'")==other_roles_before and psql(f"SELECT count(*) FROM household_member_assignments WHERE household_id='{other_id}'")==other_assignments_before,'member requests changed instance-admin state'
+# Global account deletion (ADR 0022). A dedicated account with a password,
+# a session and a membership is anonymized in place; every refusal comes first
+# and changes nothing. The created household's sole admin cannot be deleted.
+ADM_DELETE='/api/v1/admin/account-deletions'
+doomed=psql("INSERT INTO user_accounts(login) VALUES ('doomed_smoke') RETURNING id").splitlines()[0]
+psql(f"INSERT INTO local_credentials(user_id,password_hash) VALUES ('{doomed}','{owner_hash}')")
+st,_,doomed_assigned=aareq('PUT',f"/api/v1/admin/households/{created_household['id']}/accounts/{doomed}",ADM_ACCOUNT,{'role':'member'},owner_mut)
+assert st==201,('assign doomed account',st,doomed_assigned)
+# The session is seeded directly: the per-client sign-in limit is budgeted for
+# the later owner re-logins.
+doomed_token=base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip('=')
+psql(f"INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at,sign_in_method) VALUES ('{doomed}',decode('{hashlib.sha256(doomed_token.encode()).hexdigest()}','hex'),now(),now()+interval '1 day','password')")
+doomed_cookie={'Cookie':f'tendo_session={doomed_token}'}
+st,_,doomed_live,_=req('GET',headers=doomed_cookie,record=False)
+assert st==200 and doomed_live['login']=='doomed_smoke',('doomed account session before deletion',st,doomed_live)
+for body,status,code in (
+ ({'userId':'not-a-uuid','confirmLogin':'doomed_smoke'},422,'invalid_reference'),
+ ({'userId':owner_account_id,'confirmLogin':'owner_smoke'},409,'cannot_delete_self'),
+ ({'userId':random_id,'confirmLogin':'doomed_smoke'},404,'not_found'),
+ ({'userId':doomed,'confirmLogin':'Doomed_smoke'},422,'mismatch'),
+ ({'userId':created_admin,'confirmLogin':'created_admin_smoke'},409,'last_admin'),
+):
+ st,dh_refused,refused=aareq('POST',ADM_DELETE,ADM_DELETE,body,owner_mut)
+ assert st==status and refused['code']==code and dh_refused['Cache-Control']=='no-store',('account deletion refusal',body,st,refused)
+assert psql("SELECT count(*) FROM user_accounts WHERE deleted_at IS NOT NULL")=='0' and psql("SELECT count(*) FROM account_deletions")=='0','a refused deletion changed state'
+st,dh_deleted,deleted=aareq('POST',ADM_DELETE,ADM_DELETE,{'userId':doomed,'confirmLogin':'doomed_smoke'},owner_mut)
+assert st==204 and deleted is None and dh_deleted['Cache-Control']=='no-store',('delete account',st,deleted,dict(dh_deleted))
+assert psql(f"SELECT login||'|'||(deleted_at IS NOT NULL)||'|'||(email IS NULL)||'|'||(default_household_id IS NULL) FROM user_accounts WHERE id='{doomed}'")=='~deleted-'+doomed.replace('-','')+'|true|true|true','account must be anonymized in place'
+assert psql(f"SELECT (SELECT count(*) FROM local_credentials WHERE user_id='{doomed}')||'|'||(SELECT count(*) FROM user_sessions WHERE user_id='{doomed}')||'|'||(SELECT count(*) FROM household_memberships WHERE user_id='{doomed}')")=='0|0|0','deletion left credentials, sessions or memberships'
+assert psql(f"SELECT count(*) FROM account_deletions WHERE user_id='{doomed}' AND actor_user_id='{owner_account_id}'")=='1','account deletion record'
+assert psql(f"SELECT count(*) FROM household_member_removals WHERE target_user_id='{doomed}' AND actor_user_id='{owner_account_id}' AND actor_authority='instance_admin'")=='1','deletion removal audit row'
+st,_,doomed_session,_=req('GET',headers=doomed_cookie,record=False)
+assert st==401,('deleted account session',st,doomed_session)
+assert psql("SELECT count(*) FROM user_accounts WHERE login='doomed_smoke' AND deleted_at IS NULL")=='0','deleted login must not resolve to a live account'
+st,_,deleted_again=aareq('POST',ADM_DELETE,ADM_DELETE,{'userId':doomed,'confirmLogin':'doomed_smoke'},owner_mut)
+assert st==404 and deleted_again['code']=='not_found',('repeat deletion',st,deleted_again)
+st,_,directory_after=aareq('GET',ADM_DIRECTORY+'?q=doomed',ADM_DIRECTORY,headers=cookie_header)
+assert st==200 and directory_after['items']==[],('deleted account in directory',st,directory_after)
 # The owner already belongs to this household; acceptance must be refused without consuming a fresh invitation.
 st,_,own_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-owner-conflict'})
 assert st==201,('owner conflict invitation',st,own_invite)
