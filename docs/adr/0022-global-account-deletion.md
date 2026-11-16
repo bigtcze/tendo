@@ -50,7 +50,9 @@ without an instance administrator.
   under the ADR 0020 rules (origin/authority middleware, session, grant,
   `Cache-Control: no-store`, no MCP tokens). `confirmLogin` must equal the
   target's current login exactly; it guards against deleting the wrong account
-  from a stale list.
+  from a stale list. The route takes no `Idempotency-Key`: deletion is
+  naturally idempotent, and a repeat after a lost response finds no live
+  account and answers `404` without changing anything.
 - **Evaluation order.** `403 instance_admin_required` → `422` `userId`
   `invalid_reference` (malformed id) → `409 cannot_delete_self` → `404`
   (unknown or already deleted) → `422` `confirmLogin` `mismatch` →
@@ -110,8 +112,10 @@ reuses the service without that precondition.
 
 ## Retained data
 
-- History rows keep the anonymized account's id; displays resolve it to no
-  login.
+- History rows keep the anonymized account's id. Member and directory lookups
+  never return a deleted account: it has no memberships and every live-account
+  read excludes it. A future view that resolves historical actor ids to logins
+  must render a deleted account without its tombstone login.
 - A household person that was linked to the account is unlinked, not deleted,
   so the household keeps its item history. Its display name stays as the
   household entered it; a household admin can rename or archive that person.

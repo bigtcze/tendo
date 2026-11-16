@@ -143,9 +143,11 @@ func (q *Queries) FindPasswordResetByTokenForUpdate(ctx context.Context, tokenHa
 }
 
 const findUserLogin = `-- name: FindUserLogin :one
-SELECT login FROM user_accounts WHERE id=$1
+SELECT login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL
 `
 
+// A deleted account has no login to report: redemption answers it as an
+// invalid link (ADR 0022).
 func (q *Queries) FindUserLogin(ctx context.Context, id pgtype.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, findUserLogin, id)
 	var login string

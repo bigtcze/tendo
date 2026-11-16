@@ -65,6 +65,8 @@ type Querier interface {
 	// self-service change, admin reset redemption and the operator CLI.
 	// A deleted account is not found: its tombstone login cannot change a password.
 	FindUserAccountByLogin(ctx context.Context, login string) (string, error)
+	// A deleted account has no login to report: redemption answers it as an
+	// invalid link (ADR 0022).
 	FindUserLogin(ctx context.Context, id pgtype.UUID) (string, error)
 	GrantInstanceAdmin(ctx context.Context, userID pgtype.UUID) error
 	HasLocalCredential(ctx context.Context, userID pgtype.UUID) (bool, error)

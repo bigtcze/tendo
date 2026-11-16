@@ -7,7 +7,9 @@
 SELECT id::text AS id, login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE;
 
 -- name: FindUserLogin :one
-SELECT login FROM user_accounts WHERE id=$1;
+-- A deleted account has no login to report: redemption answers it as an
+-- invalid link (ADR 0022).
+SELECT login FROM user_accounts WHERE id=$1 AND deleted_at IS NULL;
 
 -- name: HasLocalCredential :one
 SELECT EXISTS(SELECT 1 FROM local_credentials WHERE user_id=$1);

@@ -124,6 +124,20 @@ func TestDeletedAccountInvitationAndResetRefused(t *testing.T) {
 			t.Fatalf("reset tokens=%d err=%v", tokens, err)
 		}
 	})
+
+	t.Run("redeeming a reset never resolves a deleted account's login", func(t *testing.T) {
+		_, target, _ := passwordResetFixture(t, ctx, admin)
+		clock := &passwordResetTestClock{at: time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)}
+		tombstoneAccount(t, ctx, admin, target, tombstoneOptions{keepCredentials: true})
+		repository := NewPasswordResetRepository(app, passwordResetFactory, clock.now)
+		err := repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
+			_, e := tx.FindUserLogin(ctx, target)
+			return e
+		})
+		if !errors.Is(err, identity.ErrNotFound) {
+			t.Fatalf("FindUserLogin(deleted) err=%v, want ErrNotFound", err)
+		}
+	})
 }
 
 // TestDeletedAccountSignInAndDirectoryRefused covers the sign-in reads and the
