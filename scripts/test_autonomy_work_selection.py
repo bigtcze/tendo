@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Selection-policy tests for scripts/autonomy-work-selection.py.
 
