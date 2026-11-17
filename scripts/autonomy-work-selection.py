@@ -35,8 +35,8 @@ contract):
                            coordinator Issues last), a group at the rank of
                            its most urgent member
   7 dependency-pr          remaining actionable dependency PR
-  8 security-release       a reviewed critical or actively-exploited-severe
-                           security PR with evidence and runtime changes
+  8 security-release       a `security`-labelled PR merged since the latest
+                           published release, plus runtime-meaningful changes
     patch-release          >= 14 days since the latest published release, plus
                            runtime-meaningful changes; both also require a
                            completed green required.yml run on current main HEAD
@@ -94,12 +94,6 @@ PRIORITY_RE = re.compile(r"^Priority:\s*P(\d+)\s*$", re.MULTILINE)
 RELEASE_LINE_RE = re.compile(r"^Release:\s*(v\d+\.\d+\.\d+)\s*$", re.MULTILINE)
 VERSION_TOKEN_RE = re.compile(r"\bv(\d+)\.(\d+)\.(\d+)\b")
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-# A plain security label never bypasses the 14-day maintenance interval.
-URGENT_SECURITY_RE = re.compile(
-    r"(?im)^Security-Urgency:\s*(critical|actively-exploited-severe)\s*$")
-SECURITY_EVIDENCE_RE = re.compile(
-    r"(?im)^Security-Evidence:\s*\S.{9,}$")
-
 RATE_LIMIT_RE = re.compile(r"rate limit|HTTP 429", re.IGNORECASE)
 RESET_RE = re.compile(r"(?:x-ratelimit-reset|reset)[^0-9]{0,20}(\d{9,})", re.IGNORECASE)
 
@@ -707,14 +701,6 @@ def main_head_green(snapshot: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def is_urgent_security_fix(pr: dict) -> bool:
-    """Only a reviewed, evidence-backed urgent security PR may bypass 14 days."""
-    body = pr.get("body") or ""
-    return ("security" in label_names(pr)
-            and bool(URGENT_SECURITY_RE.search(body))
-            and bool(SECURITY_EVIDENCE_RE.search(body)))
-
-
 def evaluate_release(snapshot: dict, now: datetime, notes: list[str]) -> dict | None:
     """Automatic release eligibility (priority 8). Returns a partial decision."""
     latest = snapshot.get("latest_release")
@@ -750,7 +736,7 @@ def evaluate_release(snapshot: dict, now: datetime, notes: list[str]) -> dict | 
         since = snapshot.get("merged_prs", [])
     security_merged = [p for p in since
                        if p.get("mergedAt") and parse_time(p["mergedAt"]) > published_at
-                       and is_urgent_security_fix(p)]
+                       and "security" in label_names(p)]
     window_reached = now - published_at >= timedelta(days=PATCH_RELEASE_DAYS)
     if not window_reached and not security_merged:
         notes.append(f"release window not reached since {latest_tag}; no automatic release")
@@ -1039,7 +1025,7 @@ def add_release_data(snapshot: dict, repo: str, run_gh, now: datetime) -> None:
     if coordinator_in_flight(open_owned, tag) is not None:
         return  # automatic release is suspended; nothing else to compare
 
-    # The merged walk is required to detect an urgent security merge since the release;
+    # The merged walk is required to detect a security merge since the release;
     # only the (expensive) tags/compare fetches stay behind the eligibility gate.
     # PRs merged before the release are excluded even when updated later.
     merged_since = walk_merged(
@@ -1047,7 +1033,7 @@ def add_release_data(snapshot: dict, repo: str, run_gh, now: datetime) -> None:
     since_release = [p for p in merged_since
                      if p.get("mergedAt") and parse_time(p["mergedAt"]) > published_at]
     snapshot["merged_since_release"] = since_release
-    security_merged = any(is_urgent_security_fix(p) for p in since_release)
+    security_merged = any("security" in label_names(p) for p in since_release)
     window_reached = now - published_at >= timedelta(days=PATCH_RELEASE_DAYS)
     if not window_reached and not security_merged:
         return  # too early for a patch release and no security PR: skip tags/compare entirely
