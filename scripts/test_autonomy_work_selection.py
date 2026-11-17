@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """Selection-policy tests for scripts/autonomy-work-selection.py.
 
@@ -94,7 +95,7 @@ def release_pr(number, age_hours=1, draft=False):
             "body": "Release: v5.0.1", "comments": [], "commitAuthors": []}
 
 
-def merged(number, hours_ago, dependency=False, refs=446, security=False):
+def merged(number, hours_ago, dependency=False, refs=446, security=False, urgency=None, evidence=True):
     """Merged PR; a non-dependency PR is a feature PR when it `Refs` an owned Issue."""
     labels = [{"name": "dependencies"}, {"name": "renovate"}] if dependency else []
     if security:
@@ -103,7 +104,10 @@ def merged(number, hours_ago, dependency=False, refs=446, security=False):
             "author": {"login": "app/renovate" if dependency else "bigtcze"},
             "headRefName": f"renovate/x-{number}" if dependency else f"feat/x-{number}",
             "labels": labels,
-            "body": "" if dependency or refs is None else f"Refs #{refs}"}
+            "body": (("" if dependency or refs is None else f"Refs #{refs}")
+                     + (f"\nSecurity-Urgency: {urgency}" if urgency else "")
+                     + ("\nSecurity-Evidence: GHSA advisory and applicability independently reviewed"
+                        if urgency and evidence else ""))}
 
 
 def backlog():
@@ -595,10 +599,42 @@ class ReleaseEligibility(unittest.TestCase):
     def test_security_release_is_immediate(self):
         snap = release_snapshot(
             latest_release={"tagName": "v5.0.0", "publishedAt": iso(24)},
-            merged_since_release=[merged(7, 2, refs=None, security=True)])
+            merged_since_release=[merged(7, 2, refs=None, security=True, urgency="critical")])
         d = self.pick(snap)
         self.assertEqual((d["priority"], d["kind"]), (8, "security-release"))
         self.assertEqual(d["target"]["version"], "v5.0.1")
+
+    def test_regular_security_fix_must_wait_for_fourteen_days(self):
+        snap = release_snapshot(
+            latest_release={"tagName": "v5.0.0", "publishedAt": iso(24)},
+            merged_since_release=[merged(7, 2, refs=None, security=True)])
+        self.assertEqual(self.pick(snap)["priority"], "idle")
+
+    def test_high_security_urgency_is_not_critical(self):
+        snap = release_snapshot(
+            latest_release={"tagName": "v5.0.0", "publishedAt": iso(24)},
+            merged_since_release=[merged(7, 2, refs=None, security=True, urgency="high")])
+        self.assertEqual(self.pick(snap)["priority"], "idle")
+
+    def test_urgent_security_without_evidence_does_not_bypass_window(self):
+        snap = release_snapshot(
+            latest_release={"tagName": "v5.0.0", "publishedAt": iso(24)},
+            merged_since_release=[merged(7, 2, refs=None, security=True,
+                                         urgency="critical", evidence=False)])
+        self.assertEqual(self.pick(snap)["priority"], "idle")
+
+    def test_actively_exploited_severe_security_can_release_early(self):
+        snap = release_snapshot(
+            latest_release={"tagName": "v5.0.0", "publishedAt": iso(24)},
+            merged_since_release=[merged(7, 2, refs=None, security=True,
+                                         urgency="actively-exploited-severe")])
+        self.assertEqual(self.pick(snap)["kind"], "security-release")
+
+    def test_ordinary_security_update_is_in_normal_patch_window(self):
+        snap = release_snapshot(
+            latest_release={"tagName": "v5.0.0", "publishedAt": iso(24 * 15)},
+            merged_since_release=[merged(7, 2, refs=None, security=True)])
+        self.assertEqual(self.pick(snap)["kind"], "patch-release")
 
     def test_security_merge_from_before_the_latest_release_does_not_release(self):
         # A PR merged 30 days ago can still be listed for a 1-day-old release

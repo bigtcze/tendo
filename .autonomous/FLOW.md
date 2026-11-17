@@ -1,3 +1,4 @@
+
 # Autonomous Flow
 
 cycle=fresh_agent_session_per_autonomy_controller_cycle
@@ -174,10 +175,11 @@ The first matching rule wins:
    not starved by lower-priority ready work and never outranks higher-priority
    ready work. Recovery is read-only advice, never claim authority;
 7. remaining actionable dependency PRs;
-8. an eligible release: a merged security fix with runtime-meaningful changes
-   since the latest release, or the 14-day patch window with
-   runtime-meaningful changes ("Maintenance release"); suspended while a
-   release coordinator Issue or release PR is in flight;
+8. an eligible release: an independently reviewed critical or actively
+   exploited severe security fix with runtime-meaningful changes since the
+   latest release, or the 14-day patch window with runtime-meaningful changes
+   ("Maintenance release"); suspended while a release coordinator Issue or
+   release PR is in flight;
 9. idle: end the session without changes; the controller polls again after
    300 s.
 Open PRs are discovered completely (paginated; a truncated list is an error)
@@ -401,7 +403,15 @@ release coordinator Issue or release PR is in flight. Evaluate on green
   toolchain, Dockerfiles, `compose.yaml`, `.env.example`). Never publish an
   empty or documentation-only release; CI-, test- or dev-tool-only bumps
   alone do not justify one.
-- A merged security fix is released promptly without waiting for the interval.
+- A patch may bypass the 14-day window ONLY for a confirmed critical security
+  vulnerability affecting Tendo or a demonstrably severe actively exploited
+  vulnerability with material product impact. Generic security-labelled
+  dependency updates do not qualify. The merged, independently reviewed
+  `security` PR must document `Security-Urgency: critical` (or
+  `actively-exploited-severe`) and `Security-Evidence: <verifiable finding>`
+  in its body. The reviewer validates the severity, applicability and
+  evidence; the selector treats these fields only as an eligibility marker.
+  Coordinate an expedited fix without a competing feature/maintenance release.
 - SemVer: maintenance releases are patch releases. Anything that needs manual
   self-hoster action or breaks `/api/v1` clients is not a patch
   (`docs/development/release.md`); do not hide breaking behavior behind a
