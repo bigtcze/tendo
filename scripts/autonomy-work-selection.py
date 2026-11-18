@@ -975,6 +975,7 @@ def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None,
             # Preserve PR metadata for release review, but avoid fetching or
             # acting on Paperclip-owned dependency triage and repair commits.
             pr["comments"] = []
+            pr.pop("commitAuthors", None)
             continue
         # Full comment history (REST, paginated) so the latest triage marker is never cut off.
         pr["comments"] = [{"author": {"login": (c.get("user") or {}).get("login", "")},
