@@ -680,7 +680,7 @@ while :; do
 
   # 3. Selection: the only place GitHub is read.
   run_capture_group "${SELECT_OUT}" "${SELECT_ERR}" \
-    timeout "${SELECTION_TIMEOUT}" python3 "${SELECTION_SCRIPT}"
+    timeout "${SELECTION_TIMEOUT}" python3 "${SELECTION_SCRIPT}" --delegate-dependency-prs
   selection_rc=$?
   selection="$(cat "${SELECT_OUT}" 2>/dev/null || true)"
   first_line="$(printf '%s\n' "${selection}" | head -n 1)"

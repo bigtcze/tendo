@@ -495,10 +495,17 @@ def next_version(tags, latest_tag: str | None = None) -> str | None:
 # --------------------------------------------------------------------------
 # Selection (pure)
 # --------------------------------------------------------------------------
-def select(snapshot: dict, now: datetime) -> dict:
-    """Single next work item from a snapshot. Pure: reads only its arguments."""
+def select(snapshot: dict, now: datetime, delegate_dependency_prs: bool = False) -> dict:
+    """Single next work item; optionally leave all dependency PR work to Paperclip."""
     notes: list[str] = []
-    open_prs = sorted(snapshot.get("open_prs", []), key=lambda p: (p.get("createdAt", ""), p["number"]))
+    all_open_prs = sorted(snapshot.get("open_prs", []),
+                          key=lambda p: (p.get("createdAt", ""), p["number"]))
+    # Keep the unfiltered snapshot for release inventory, but never schedule
+    # dependency PRs when another authorized controller owns their processing.
+    open_prs = ([p for p in all_open_prs if not is_dependency(p)]
+                if delegate_dependency_prs else all_open_prs)
+    if delegate_dependency_prs:
+        notes.append("dependency PRs delegated to Paperclip; not actionable in this controller")
     issues = snapshot.get("issues", [])
     owned = {i["number"]: i for i in issues if is_owned(i)}
     ignored = sorted(i["number"] for i in issues if not is_owned(i))
@@ -936,7 +943,8 @@ def walk_merged(repo: str, run_gh=default_run_gh, stop=None) -> list[dict]:
     raise SelectionError(f"merged PR history exceeded {MERGED_PAGE_CAP} pages; data incomplete")
 
 
-def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None) -> dict:
+def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None,
+            delegate_dependency_prs: bool = False) -> dict:
     """Build a selection snapshot from live, read-only GitHub state."""
     now = now or datetime.now(timezone.utc)
     check_quota(run_gh)
@@ -963,6 +971,11 @@ def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None) -> di
     open_prs = gh_list(run_gh, "pr", "--repo", repo, "--state", "open", "--json",
                        "number,title,author,headRefName,headRefOid,labels,createdAt,isDraft,body")
     for pr in open_prs:
+        if delegate_dependency_prs and is_dependency(pr):
+            # Preserve PR metadata for release review, but avoid fetching or
+            # acting on Paperclip-owned dependency triage and repair commits.
+            pr["comments"] = []
+            continue
         # Full comment history (REST, paginated) so the latest triage marker is never cut off.
         pr["comments"] = [{"author": {"login": (c.get("user") or {}).get("login", "")},
                            "createdAt": c.get("created_at"), "body": c.get("body")}
@@ -999,7 +1012,7 @@ def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None) -> di
                 "merged_since_release": []}
 
     # Release data is fetched only when nothing in 1..7 was selected.
-    if select(snapshot, now)["kind"] == "none":
+    if select(snapshot, now, delegate_dependency_prs=delegate_dependency_prs)["kind"] == "none":
         add_release_data(snapshot, repo, run_gh, now)
     return snapshot
 
@@ -1175,6 +1188,8 @@ def main(argv: list[str], run_gh=None) -> int:
     parser.add_argument("--now", help="ISO-8601 time instead of the current UTC time")
     parser.add_argument("--self-check", action="store_true",
                         help="run embedded offline ownership snapshots and exit")
+    parser.add_argument("--delegate-dependency-prs", action="store_true",
+                        help="leave Renovate and other dependency PRs to Paperclip")
     args = parser.parse_args(argv)
     if args.self_check:
         return self_check()
@@ -1189,7 +1204,8 @@ def main(argv: list[str], run_gh=None) -> int:
             return 2
     else:
         try:
-            snapshot = collect(args.repo, run_gh or default_run_gh, now)
+            snapshot = collect(args.repo, run_gh or default_run_gh, now,
+                               delegate_dependency_prs=args.delegate_dependency_prs)
         except RateLimited as exc:
             print(f"RATE_LIMITED reset={exc.reset}", file=sys.stderr)
             return 4
@@ -1197,7 +1213,7 @@ def main(argv: list[str], run_gh=None) -> int:
             print(f"SELECTION ERROR {exc}", file=sys.stderr)
             return 2
     try:
-        print(render(select(snapshot, now)))
+        print(render(select(snapshot, now, delegate_dependency_prs=args.delegate_dependency_prs)))
     except (KeyError, TypeError, ValueError) as exc:
         print(f"SELECTION ERROR malformed snapshot: {exc!r}", file=sys.stderr)
         return 2

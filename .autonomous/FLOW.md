@@ -149,6 +149,28 @@ is the only place where OpenCode details belong.
    appends it to the prompt). Deliver it as one focused PR per "Work", then
    end the session.
 
+## Owner-approved dependency PR handoff
+
+For the original `tendo-autonomous.service`, the owner has delegated
+Renovate and other dependency PR processing to Paperclip's Maintenance
+Coordinator / Platform Engineer, **including while the Tendo Paperclip project
+is `planned`**. The original controller passes
+`--delegate-dependency-prs` to its selector. PRs recognized by Renovate
+author, branch or label, or labelled `dependencies`, are not selectable
+by that controller at any priority: do not triage, repair, update, review as
+an execution task or merge them, even if security-labelled, previously repaired
+or mentioning an owned Issue. Preserve them in the read-only PR inventory for
+release qualification. Ordinary owned release Issues, their non-dependency PRs,
+red-main recovery, standalone security advisories and release qualification
+remain authorized; check existing PR ownership before responding to an advisory,
+so an existing Paperclip-owned dependency PR is not duplicated.
+
+This division applies to **the original controller**, not to project-wide
+dependency engineering rules. Do not change Paperclip agents' existing ability
+to handle authorized planned projects. Before activating Tendo development or
+release automation in Paperclip after V5, stop the original controller to
+prevent competing writers and release jobs.
+
 ## Scheduler order
 The first matching rule wins:
 1. red `main` CI (latest completed required run on `main`);
