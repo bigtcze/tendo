@@ -9,8 +9,13 @@ export type PageResult<T> =
 
 export type CursorListState = 'loading' | 'ready' | 'forbidden' | 'notFound' | 'error';
 type Failed = Exclude<PageResult<unknown>, { kind: 'ok' }>;
-/** The page a pager click could not load; its rows stay on screen until the retry succeeds. */
+/** A page to read: the target of a pager click, of a quiet reload, or of a reload's step back. */
 type PageTarget = { cursor: string | undefined; stack: string[] };
+/**
+ * The page a pager click or a reload could not load; its rows stay on screen until the retry succeeds. A retry
+ * keeps the read's own mode, so a retried reload still steps back from a page that has emptied meanwhile.
+ */
+type PageFailure = PageTarget & { stepBack: boolean };
 
 /**
  * How a `404` reads. `retryable` is the household Admin center's account list, where a missing household is a
@@ -39,7 +44,7 @@ function useRequestGuards(mountedRef: RefObject<boolean>, generationRef: RefObje
 
 /**
  * The loaded pages themselves: a request guard for the first page, quiet paging, a page retry that keeps the rows
- * already on screen, and the quiet reload of the current page. An authoritative refusal empties the list;
+ * already on screen, and the quiet reload of the current page (or of the nearest earlier page that still has rows). An authoritative refusal empties the list;
  * `forbidden` then runs the caller's session re-read so a stale navigation hint corrects itself.
  */
 function useCursorPages<T>({ load, onSignedOut, onForbidden, notFound = 'retryable', keyOf }: CursorListOptions<T>) {
@@ -48,7 +53,7 @@ function useCursorPages<T>({ load, onSignedOut, onForbidden, notFound = 'retryab
   const [stack, setStack] = useState<string[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [state, setState] = useState<CursorListState>('loading');
-  const [pageFailure, setPageFailure] = useState<PageTarget | null>(null);
+  const [pageFailure, setPageFailure] = useState<PageFailure | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const mountedRef = useRef(false);
@@ -113,7 +118,7 @@ function useCursorPages<T>({ load, onSignedOut, onForbidden, notFound = 'retryab
       // An authoritative refusal still ends the screen; anything else keeps the current page and offers a retry.
       const endsScreen = page.kind === 'forbidden' || page.kind === 'unauthenticated'
         || (page.kind === 'notFound' && notFound === 'authoritative');
-      if (endsScreen) { pageFocusRef.current = null; fail(page); } else { setPageFailure(target); }
+      if (endsScreen) { pageFocusRef.current = null; fail(page); } else { setPageFailure({ ...target, stepBack }); }
       return;
     }
     if (stepBack && page.items.length === 0 && page.nextCursor === null && target.stack.length > 0) {
@@ -135,7 +140,10 @@ function useCursorPages<T>({ load, onSignedOut, onForbidden, notFound = 'retryab
   };
 }
 
-/** The pager the screens render: page steps, the inline page retry, and a quiet reload of the current page. */
+/**
+ * The pager the screens render: page steps, the inline page retry, and a quiet reload of the current page that
+ * steps back to the nearest earlier page with rows when the current one has emptied.
+ */
 export function useCursorList<T>(options: CursorListOptions<T>) {
   const pages = useCursorPages(options);
   const { cursor, stack, nextCursor, busy, pageFailure, loadPage, ...rest } = pages;
@@ -143,7 +151,7 @@ export function useCursorList<T>(options: CursorListOptions<T>) {
     if (nextCursor && !busy) void loadPage(nextPage(stack, cursor, nextCursor), event.currentTarget);
   };
   const previous = (event: MouseEvent<HTMLButtonElement>) => { void loadPage(previousPage(stack), event.currentTarget); };
-  const retryPage = () => { if (pageFailure) void loadPage(pageFailure); };
+  const retryPage = () => { if (pageFailure) void loadPage(pageFailure, undefined, pageFailure.stepBack); };
   /** Reads the current page again after a change; an emptied later page steps back to one that still has rows. */
   const reload = () => { void loadPage({ cursor, stack }, undefined, true); };
   return { ...rest, stack, nextCursor, busy, pageFailure, next, previous, retryPage, reload };
