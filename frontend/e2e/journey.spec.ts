@@ -7171,9 +7171,11 @@ test.describe('Tendo production journey', () => {
   // d1_admin_e2e as an account of that household alone, d1_member_e2e deleted, and the two person entries the accepted
   // invitations gave the owner household, unlinked. This is the last household step, so nothing after it reads them.
   //
-  // It spends two local sign-in attempts, one per throwaway session; the owner keeps the session it has. n7h's two
-  // attempts are the only others in the window (the sign-in throttle admits ten per client IP and minute), and every
-  // sign-in below asserts it was not the throttle that answered.
+  // It spends two local sign-in attempts, one per throwaway session; the owner keeps the session it has. The sign-in
+  // throttle admits ten per client IP and minute, and n23, n25, n27 and n7h spend eight within the minute before this
+  // step, so the budget is not assumed: each throwaway sign-in waits while the throttle answers 429, which the server
+  // does not count, and then must succeed. The two new accounts also spend two of the five new-account invitation
+  // acceptances the same throttle shape admits per minute (n25 spends one shortly before).
   test('n7i. admin and member refusals hold in their own sessions, removals end access on the next request, and the Admin center works in Czech', async ({ browser }) => {
     test.setTimeout(180_000);
     const memberLogin = 'd1_member_e2e';
@@ -7225,16 +7227,16 @@ test.describe('Tendo production journey', () => {
         const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
         if (failure !== 'GET /api/v1/session 401') failures.push(failure);
       });
+      // The session is opened through the context's own request client, so its cookie is this browser's. The sign-in
+      // screen itself is n1's and n7h's subject; here only the session matters. An attempt the throttle refuses is not
+      // counted by the server, so waiting one out spends nothing; the attempt that is admitted must be a real sign-in.
+      let signedIn = 0;
+      await expect.poll(async () => {
+        signedIn = (await context.request.post('/api/v1/session', { headers: { Origin: baseURL }, data: { login, password } })).status();
+        return signedIn;
+      }, { message: `${login} waits only for the sign-in throttle`, intervals: [2_000], timeout: 75_000 }).not.toBe(429);
+      expect(signedIn, `${login} signs in`).toBe(201);
       await actor.goto('/');
-      await expect(actor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
-      await actor.getByLabel(en['login.login'], { exact: true }).fill(login);
-      await actor.getByLabel(en['login.password']).fill(password);
-      const attempt = actor.waitForResponse((response) => response.request().method() === 'POST'
-        && new URL(response.url()).pathname === '/api/v1/session');
-      await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
-      const signedIn = await attempt;
-      expect(signedIn.status(), 'the sign-in throttle must not be what answers this attempt').not.toBe(429);
-      expect(signedIn.status(), `${login} signs in`).toBe(201);
       await waitForSettledHome(actor, householdName);
       return {
         page: actor,
@@ -7265,6 +7267,8 @@ test.describe('Tendo production journey', () => {
     };
     expect(await d1Memberships()).toEqual([`${adminLogin} admin`]);
 
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
     try {
       const member = await signedInActor(memberLogin, memberPassword);
       const admin = await signedInActor(adminLogin, adminPassword);
@@ -7333,7 +7337,9 @@ test.describe('Tendo production journey', () => {
       await expect(d1Rows.getByRole('listitem')).toHaveCount(1);
       await expect(d1Rows.getByRole('listitem')).toContainText(en['members.role.admin']);
       await expect(admin.page.getByRole('navigation', { name: en['admin.sections.label'] })).toHaveCount(0);
-      await expect(adminNav.locator('a[href="/admin/households"]')).toHaveCount(0);
+      const adminSession = await admin.page.request.get('/api/v1/session');
+      expect(adminSession.status()).toBe(200);
+      expect((await adminSession.json() as { instanceAdmin: boolean }).instanceAdmin, 'd1_admin_e2e holds no installation grant').toBe(false);
       admin.allow('/api/v1/admin/households', 403);
       await admin.page.goto('/admin/households');
       await expect(admin.page.getByRole('heading', { name: en['install.onlyAdmins.title'] })).toBeVisible();
@@ -7348,7 +7354,8 @@ test.describe('Tendo production journey', () => {
         expect((await refused.json()).code).toBe('instance_admin_required');
       }
 
-      // 6. The only administrator cannot leave: the dialog warns first, the server refuses, and nothing changes.
+      // 6. The only administrator cannot leave. The dialog carries the last-administrator warning for any administrator
+      //    target (member targets above and below never see it); the server is what refuses, and nothing changes.
       await admin.page.goto('/admin');
       await expect(admin.page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
       await d1Rows.getByRole('button', { name: fill(en['admin.action.leaveLabel'], { login: adminLogin }), exact: true }).click();
@@ -7431,11 +7438,13 @@ test.describe('Tendo production journey', () => {
       await expect(member.page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
       await expect(member.page.getByRole('button', { name: en['header.signOut'] })).toHaveCount(0);
       member.assertClean(['GET /api/v1/admin/accounts 403']);
-    } finally {
-      for (const context of contexts) await context.close();
-      // Every later step reads the owner's page in English.
-      await chooseLocale(page, 'en');
-    }
+    } catch (error) { primaryFailure = error; }
+    // A cleanup failure never hides the step's own failure.
+    for (const context of contexts) await context.close().catch((error: unknown) => { cleanupFailure ??= error; });
+    // Every later step reads the owner's page in English.
+    try { await chooseLocale(page, 'en'); } catch (error) { cleanupFailure ??= error; }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {

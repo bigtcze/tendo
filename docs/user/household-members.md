@@ -43,19 +43,19 @@ Members never see the Admin center, and opening its address directly shows a sho
 
 An administrator removes someone from the Admin center: find the person's row and select **Remove from household**. To leave yourself, open **Account** and use the **Household** section there: select **Leave household**. That is the only way for a member who is not an administrator, because the Admin center stays closed to them. An administrator can also leave from their own row in the Admin center, where that row's button says **Leave household**.
 
-Tendo asks for confirmation first and names the person and the household. What it explains is the same either way:
+Tendo asks for confirmation first and names the household, and the person when it is someone else. What it explains is the same either way:
 
 - the person loses access to everything in that household;
 - their items stay there, but no one is responsible for them;
 - completed items stay in the history;
-- invitations and password reset links for that household stop working;
+- invitations they sent and password reset links involving them in that household stop working;
 - they keep their other households.
 
 Removal is from one household only. The account keeps working normally and stays in the person's other households; deleting the account everywhere is a different action that only an installation administrator can take, see [Delete an account](#delete-an-account-installation-administrators).
 
 A household always needs at least one administrator, so the last administrator cannot be removed and cannot leave. Tendo says so and changes nothing; make someone else an administrator first.
 
-After you leave, Tendo opens Home in another household you belong to; if you belong to no household now, it explains that you can join one with an invitation.
+After you leave from **Account** or your household’s Admin center, Tendo opens Home in another household you belong to; if you belong to no household now, it explains that you can join one with an invitation.
 
 ## Reset a password (administrators)
 
@@ -77,7 +77,7 @@ The part of the link after `#` never reaches the server, a proxy, or another sit
 
 ## Households (installation administrators)
 
-Whoever sets Tendo up also administers the whole installation. That account, and one granted the capability from the host, sees **Households** and **Accounts** in the Admin center. Without that capability, an administrator's Admin center shows only their own household: no **Households** and no **Accounts**. The capability covers accounts and roles, not what a household contains; see [No instance administrator](../admin/troubleshooting.md#no-instance-administrator).
+Whoever runs first-time setup also administers the whole installation. That account, and one granted the capability from the host, sees **Households** and **Accounts** in the Admin center. Without that capability, an administrator's Admin center shows only their own household: no **Households** and no **Accounts**. The capability covers accounts and roles, not what a household contains; see [No instance administrator](../admin/troubleshooting.md#no-instance-administrator).
 
 **Households** lists every household in the installation with its time zone and the date it was created, and never what it contains. Select a household's name to open its accounts; opening it does not make you a member. There you see everyone who belongs, their role and how they sign in, and you can use **Make administrator**, **Make member**, **Remove from household** and **Add an account** on that household without belonging to it.
 
