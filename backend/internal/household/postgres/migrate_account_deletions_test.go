@@ -26,14 +26,14 @@ func TestMigrationTwentySevenUpAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 27)
+	requireSchemaVersion(t, ctx, admin, 28)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
-			t.Fatalf("%s missing after migrate to 27", relation)
+			t.Fatalf("%s missing after migrate to 28", relation)
 		}
 	}
 	if !migrationColumnExists(t, ctx, admin, "user_accounts", "deleted_at") {
-		t.Fatal("user_accounts.deleted_at missing after migrate to 27")
+		t.Fatal("user_accounts.deleted_at missing after migrate to 28")
 	}
 	var tombstoneConstraint string
 	if err := admin.QueryRow(ctx, `SELECT conname FROM pg_constraint
@@ -168,7 +168,7 @@ func TestMigrationTwentySevenRevertAndReapply(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 027: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 27)
+	requireSchemaVersion(t, ctx, admin, 28)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
 			t.Fatalf("%s missing after re-apply", relation)
@@ -178,7 +178,7 @@ func TestMigrationTwentySevenRevertAndReapply(t *testing.T) {
 
 // TestMigrationTwentySevenDownRefusesAfterDeletion proves the Down guard: an
 // earlier release cannot represent a tombstone, so the reversal fails and
-// leaves version 27 intact.
+// leaves version 28 intact.
 func TestMigrationTwentySevenDownRefusesAfterDeletion(t *testing.T) {
 	admin := migrationFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -201,7 +201,7 @@ func TestMigrationTwentySevenDownRefusesAfterDeletion(t *testing.T) {
 	if _, err := admin.Exec(ctx, testpostgres.RevertVersion27SQL); err == nil || !strings.Contains(err.Error(), "cannot be reversed") {
 		t.Fatalf("Down after deletion err=%v want cannot be reversed", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 27)
+	requireSchemaVersion(t, ctx, admin, 28)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
 			t.Fatalf("%s removed by the refused Down", relation)

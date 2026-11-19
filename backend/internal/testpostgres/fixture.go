@@ -161,45 +161,58 @@ var RevertVersion18SQL = revertVersion18SQL()
 // forward again.
 var RevertVersion19SQL = revertVersion19SQL()
 
-// RevertVersion27SQL reverses migration 027 and removes its ledger row so an
-// upgrade fixture can present the exact version 26 schema before migrating
+// RevertVersion28SQL reverses migration 028 and removes its ledger row so an
+// upgrade fixture can present the exact version 27 schema before migrating
 // forward again.
-var RevertVersion27SQL = revertVersion27SQL()
+var RevertVersion28SQL = revertVersion28SQL()
 
-// RevertVersion26SQL reverses migrations 027 and 026, removing both ledger rows
-// so an upgrade fixture can present the exact version 25 schema before
+// RevertVersion27SQL reverses migrations 028 and 027, removing both ledger rows
+// so an upgrade fixture can present the exact version 26 schema before
 // migrating forward again.
+var RevertVersion27SQL = RevertVersion28SQL + " ; " + revertVersion27SQL()
+
+// RevertVersion26SQL reverses migrations 028, 027 and 026, removing their
+// ledger rows so an upgrade fixture can present the exact version 25 schema
+// before migrating forward again.
 var RevertVersion26SQL = RevertVersion27SQL + " ; " + revertVersion26SQL()
 
-// RevertVersion25SQL reverses migrations 027, 026 and 025, removing all ledger
-// rows so an upgrade fixture can present the exact version 24 schema before
-// migrating forward again.
+// RevertVersion25SQL reverses migrations 028, 027, 026 and 025, removing all
+// ledger rows so an upgrade fixture can present the exact version 24 schema
+// before migrating forward again.
 var RevertVersion25SQL = RevertVersion26SQL + " ; " + revertVersion25SQL()
 
-// RevertVersion24SQL reverses migrations 027, 026, 025 and 024, removing all
-// ledger rows so an upgrade fixture can present the exact version 23 schema
+// RevertVersion24SQL reverses migrations 028, 027, 026, 025 and 024, removing
+// all ledger rows so an upgrade fixture can present the exact version 23 schema
 // before migrating forward again.
 var RevertVersion24SQL = RevertVersion25SQL + " ; " + revertVersion24SQL()
 
-// RevertVersion23SQL reverses migrations 027, 026, 025, 024 and 023, removing
-// their ledger rows so an upgrade fixture can present the exact version 22
-// schema before migrating forward again.
+// RevertVersion23SQL reverses migrations 028, 027, 026, 025, 024 and 023,
+// removing their ledger rows so an upgrade fixture can present the exact
+// version 22 schema before migrating forward again.
 var RevertVersion23SQL = RevertVersion24SQL + " ; " + revertVersion23SQL()
 
-// RevertVersion22SQL reverses migrations 027, 026, 025, 024, 023 and 022,
+// RevertVersion22SQL reverses migrations 028, 027, 026, 025, 024, 023 and 022,
 // removing their ledger rows so an upgrade fixture can present the exact
 // version 21 schema before migrating forward again.
 var RevertVersion22SQL = RevertVersion23SQL + " ; " + revertVersion22SQL()
 
-// RevertVersion21SQL reverses migrations 027, 026, 025, 024, 023, 022 and 021,
-// removing their ledger rows so an upgrade fixture can present the exact
+// RevertVersion21SQL reverses migrations 028, 027, 026, 025, 024, 023, 022 and
+// 021, removing their ledger rows so an upgrade fixture can present the exact
 // version 20 schema before migrating forward again.
 var RevertVersion21SQL = RevertVersion22SQL + " ; " + revertVersion21SQL()
 
-// RevertVersion20SQL reverses migrations 027, 026, 025, 024, 023, 022, 021 and
-// then 020, removing their ledger rows so fixtures written before 021 keep
+// RevertVersion20SQL reverses migrations 028, 027, 026, 025, 024, 023, 022, 021
+// and then 020, removing their ledger rows so fixtures written before 021 keep
 // presenting the exact version 19 schema.
 var RevertVersion20SQL = RevertVersion21SQL + " ; " + revertVersion20SQL()
+
+func revertVersion28SQL() string {
+	down, err := database.MigrationDownSQL(28)
+	if err != nil {
+		panic("revert version 28 SQL unavailable: " + err.Error())
+	}
+	return down + " DELETE FROM tendo_schema_migrations WHERE version=28"
+}
 
 func revertVersion27SQL() string {
 	down, err := database.MigrationDownSQL(27)
