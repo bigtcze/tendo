@@ -76,5 +76,5 @@ Changing locked contracts or controller configuration requires explicit owner au
 ## Completion and history
 - Preserve all existing completion markers and original tags unchanged. Completion markers never select work or stop the controller.
 - Completed historical Issues are read-only evidence, not backlog. Never claim, label, comment on, reopen or close them; never reactivate old stage labels.
-- `tendo-autonomous.service` runs `scripts/autonomy-controller.sh` permanently. When no owned work is actionable it continues dependency, security, CI recovery and eligible patch-release maintenance, otherwise idle polling. There is no stage end.
+- `tendo-autonomous.service` runs `scripts/autonomy-controller.sh` permanently. When no owned work is actionable it continues security, CI recovery and eligible patch-release maintenance (dependency PRs are delegated per FLOW "Owner-approved dependency PR handoff"), otherwise idle polling. There is no stage end.
 - Work status stays in owned Issues and their PRs; dependency triage stays on its PR and the Renovate Dashboard. LEARNINGS holds durable reusable rules only, never session narrative.
