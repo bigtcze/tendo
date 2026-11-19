@@ -5,7 +5,8 @@ import { useCursorList, type PageResult } from './useCursorList';
 
 type Row = { id: string };
 const rows = (...ids: string[]): Row[] => ids.map((id) => ({ id }));
-const click = () => ({ currentTarget: document.createElement('button') }) as unknown as MouseEvent<HTMLButtonElement>;
+/** A pager click: the list reads only which control was pressed. */
+const click = () => ({ currentTarget: document.body }) as unknown as MouseEvent<HTMLButtonElement>;
 
 /**
  * A server whose pages are read from a mutable table keyed by cursor (`''` is the first page), so a test can delete
@@ -122,7 +123,7 @@ describe('useCursorList quiet reload', () => {
     server.pages.c2 = { kind: 'error' };
     act(() => { view.result.current.reload(); });
 
-    await waitFor(() => expect(view.result.current.pageFailure).toEqual({ cursor: 'c2', stack: [''] }));
+    await waitFor(() => expect(view.result.current.pageFailure).toMatchObject({ cursor: 'c2', stack: [''] }));
     expect(view.result.current.state).toBe('ready');
     expect(view.result.current.busy).toBe(false);
 
@@ -131,6 +132,47 @@ describe('useCursorList quiet reload', () => {
     await waitFor(() => expect(view.result.current.items).toEqual(rows('b')));
     expect(view.result.current.stack).toEqual(['']);
     expect(view.result.current.pageFailure).toBeNull();
+  });
+
+  it('still steps back when the reader retries a reload that failed and the page has emptied meanwhile', async () => {
+    const server = pagedServer({
+      '': { kind: 'ok', items: rows('a'), nextCursor: 'c2' },
+      c2: { kind: 'ok', items: rows('b'), nextCursor: 'c3' },
+      c3: { kind: 'ok', items: rows('c'), nextCursor: null },
+    });
+    const view = await onThirdPage(server);
+
+    server.pages.c3 = { kind: 'error' };
+    act(() => { view.result.current.reload(); });
+    await waitFor(() => expect(view.result.current.pageFailure).not.toBeNull());
+
+    server.pages.c2 = { kind: 'ok', items: rows('b'), nextCursor: null };
+    server.pages.c3 = { kind: 'ok', items: [], nextCursor: null };
+    act(() => { view.result.current.retryPage(); });
+
+    await waitFor(() => expect(view.result.current.items).toEqual(rows('b')));
+    expect(view.result.current.stack).toEqual(['']);
+    expect(view.result.current.pageFailure).toBeNull();
+    expect(server.asked).toEqual(['c3', 'c3', 'c2']);
+  });
+
+  it('shows the empty page a reader retries after a failed pager click, without stepping back', async () => {
+    const server = pagedServer({
+      '': { kind: 'ok', items: rows('a'), nextCursor: 'c2' },
+      c2: { kind: 'error' },
+    });
+    const view = renderList(server.load);
+    await waitFor(() => expect(view.result.current.items).toEqual(rows('a')));
+    act(() => { view.result.current.next(click()); });
+    await waitFor(() => expect(view.result.current.pageFailure).not.toBeNull());
+    server.asked.length = 0;
+
+    server.pages.c2 = { kind: 'ok', items: [], nextCursor: null };
+    act(() => { view.result.current.retryPage(); });
+
+    await waitFor(() => expect(view.result.current.stack).toEqual(['']));
+    expect(view.result.current.items).toEqual([]);
+    expect(server.asked).toEqual(['c2']);
   });
 
   it('never steps back on a pager click that lands on an empty page', async () => {
