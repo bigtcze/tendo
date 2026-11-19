@@ -170,23 +170,35 @@ func TestDeletedAccountAdminCenterRefused(t *testing.T) {
 }
 
 // waitForAppLockWait waits until a backend of the runtime pool is blocked on a
-// lock. Packages run serially (-p 1), so any waiter belongs to the path under
-// test.
+// lock.
 func waitForAppLockWait(t *testing.T, ctx context.Context, app *pgxpool.Pool) {
+	t.Helper()
+	waitForAppLockWaiters(t, ctx, app, 1)
+}
+
+// waitForAppLockWaiters waits until at least n backends of the runtime pool are
+// blocked on a lock. It polls through the runtime role, which alone sees its
+// own sessions' wait events. Packages run serially (-p 1), so every waiter
+// belongs to the path under test. Each poll is bounded on its own, so a pool
+// with no spare connection fails at the deadline instead of hanging.
+func waitForAppLockWaiters(t *testing.T, ctx context.Context, app *pgxpool.Pool, n int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		var waiting int
-		if err := app.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
-			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting); err != nil {
-			t.Fatal(err)
+		poll, cancel := context.WithTimeout(ctx, time.Second)
+		err := app.QueryRow(poll, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting)
+		cancel()
+		if err != nil {
+			t.Fatalf("poll lock waiters: %v", err)
 		}
-		if waiting > 0 {
+		if waiting >= n {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("the assignment never blocked on the account row lock")
+	t.Fatalf("fewer than %d runtime backends ever blocked on a lock", n)
 }
 
 // TestDeletedAccountAssignmentRaceRefused is the finding 1 race on the

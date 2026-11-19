@@ -610,7 +610,7 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 				f.join(a, house, household.RoleAdmin)
 				f.join(b, house, household.RoleAdmin)
 				// The deletion revokes this invitation before it refuses, so a
-				// refused deletion proves its rollback by leaving it pending.
+				// refused deletion proves its rollback by leaving it unrevoked.
 				invitation := f.addInvitation(house, a, fmt.Sprintf("admin-race-invite-%d", round))
 				beforeA := f.deletionSnapshot(a)
 
@@ -767,34 +767,13 @@ func (f *accountDeletionFixture) queueOnHousehold(t *testing.T, householdID stri
 		}()
 	}
 	start(0, first)
-	f.waitForLockWaiters(t, 1)
+	waitForAppLockWaiters(t, f.ctx, f.app, 1)
 	start(1, second)
-	f.waitForLockWaiters(t, 2)
+	waitForAppLockWaiters(t, f.ctx, f.app, 2)
 	if err := raw.Commit(f.ctx); err != nil {
 		t.Fatalf("release the household row: %v", err)
 	}
 	<-done
 	<-done
 	return results
-}
-
-// waitForLockWaiters waits until at least n backends of the runtime pool are
-// blocked on a lock. It queries through the runtime role, which alone sees its
-// own sessions' wait events, like waitForAppLockWait. Packages run serially
-// (-p 1), so every waiter belongs to the calls under test.
-func (f *accountDeletionFixture) waitForLockWaiters(t *testing.T, n int) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		var waiting int
-		if err := f.app.QueryRow(f.ctx, `SELECT count(*) FROM pg_stat_activity
-			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting); err != nil {
-			t.Fatal(err)
-		}
-		if waiting >= n {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("fewer than %d calls ever blocked on the household row", n)
 }
