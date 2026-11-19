@@ -95,7 +95,12 @@ function useCursorPages<T>({ load, onSignedOut, onForbidden, notFound = 'retryab
 
   usePagedHeadingFocus(pageFocusRef, headingRef, items, busy);
 
-  async function loadPage(target: PageTarget, activated?: HTMLElement) {
+  /**
+   * Reads one page. With `stepBack`, a later page that comes back empty and ends the list is not shown: its rows
+   * went away since it was read (deleted, removed, left), so the list steps back page by page to the nearest one
+   * that still has rows, or to the first page. A pager click never steps back — it shows the page the reader asked for.
+   */
+  async function loadPage(target: PageTarget, activated?: HTMLElement, stepBack = false): Promise<void> {
     const token = generationRef.current;
     const pageToken = ++pageGenerationRef.current;
     if (activated) pageFocusRef.current = activated;
@@ -110,6 +115,9 @@ function useCursorPages<T>({ load, onSignedOut, onForbidden, notFound = 'retryab
         || (page.kind === 'notFound' && notFound === 'authoritative');
       if (endsScreen) { pageFocusRef.current = null; fail(page); } else { setPageFailure(target); }
       return;
+    }
+    if (stepBack && page.items.length === 0 && page.nextCursor === null && target.stack.length > 0) {
+      return loadPage(previousPage(target.stack), undefined, true);
     }
     setItems(page.items);
     setNextCursor(page.nextCursor);
@@ -136,7 +144,8 @@ export function useCursorList<T>(options: CursorListOptions<T>) {
   };
   const previous = (event: MouseEvent<HTMLButtonElement>) => { void loadPage(previousPage(stack), event.currentTarget); };
   const retryPage = () => { if (pageFailure) void loadPage(pageFailure); };
-  const reload = () => { void loadPage({ cursor, stack }); };
+  /** Reads the current page again after a change; an emptied later page steps back to one that still has rows. */
+  const reload = () => { void loadPage({ cursor, stack }, undefined, true); };
   return { ...rest, stack, nextCursor, busy, pageFailure, next, previous, retryPage, reload };
 }
 
