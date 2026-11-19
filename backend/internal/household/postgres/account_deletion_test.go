@@ -586,17 +586,20 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 		name string
 		// giveUp makes B stop being an admin of house through a household path.
 		giveUp func(b, house string) error
+		// bRole is B's role after giveUp committed; "" means B left.
+		bRole string
 	}{
 		{"deleting a household admin races the other admin's self-demotion", func(b, house string) error {
 			_, err := f.accounts.ChangeRole(ctx, b, house, b, household.RoleMember, 1)
 			return err
-		}},
+		}, household.RoleMember},
 		{"deleting a household admin races the other admin's self-leave", func(b, house string) error {
 			return f.service.RemoveMember(ctx, b, house, b, 1)
-		}},
+		}, ""},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			f.prepare()
+			deletionWins := 0
 			for round := 0; round < 10; round++ {
 				actor := f.newUserWithLogin(fmt.Sprintf("admin_race_actor_%d", round))
 				f.grantInstanceAdmin(actor)
@@ -606,11 +609,24 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 				b := f.newUserWithLogin(fmt.Sprintf("admin_race_b_%d", round))
 				f.join(a, house, household.RoleAdmin)
 				f.join(b, house, household.RoleAdmin)
+				// The deletion revokes this invitation before it refuses, so a
+				// refused deletion proves its rollback by leaving it pending.
+				invitation := f.addInvitation(house, a, fmt.Sprintf("admin-race-invite-%d", round))
+				beforeA := f.deletionSnapshot(a)
 
-				results := race(
-					func() error { return f.deletions.DeleteAccount(ctx, actor, a, aLogin) },
-					func() error { return step.giveUp(b, house) },
-				)
+				deletion := func() error { return f.deletions.DeleteAccount(ctx, actor, a, aLogin) }
+				giveUp := func() error { return step.giveUp(b, house) }
+				// Even rounds race freely, which is what catches a missing
+				// household lock; B practically always wins them, because the
+				// deletion first takes installation_state. Odd rounds queue the
+				// deletion on the household row before B, so the deletion-wins
+				// branch below is exercised too.
+				var results []error
+				if round%2 == 0 {
+					results = race(deletion, giveUp)
+				} else {
+					results = f.queueOnHousehold(t, house, deletion, giveUp)
+				}
 				successes, refused := 0, 0
 				for i, err := range results {
 					switch {
@@ -619,7 +635,7 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 					case errors.Is(err, household.ErrLastAdmin):
 						refused++
 					default:
-						expectRaceError(t, round, fmt.Sprintf("call %d", i), err, household.ErrLastAdmin)
+						expectRaceError(t, round, fmt.Sprintf("call %d", i), err)
 					}
 				}
 				if successes != 1 || refused != 1 {
@@ -629,28 +645,60 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 					t.Fatalf("round %d household admins=%d want exactly one", round, admins)
 				}
 
-				deleted := f.scalarInt(`SELECT count(*) FROM account_deletions WHERE user_id=$1::uuid`, a)
 				if results[0] == nil {
-					// The deletion won: A is gone everywhere and B is still the admin.
+					// The deletion won: A is gone everywhere, and B's refused
+					// household path wrote nothing.
+					deletionWins++
+					deleted := f.scalarInt(`SELECT count(*) FROM account_deletions WHERE user_id=$1::uuid`, a)
 					if deleted != 1 || f.loginOf(a) != "~deleted-"+strings.ReplaceAll(a, "-", "") {
 						t.Fatalf("round %d deletion committed but deletion records=%d login=%q", round, deleted, f.loginOf(a))
 					}
-					if role, _, ok := f.membership(house, b); !ok || role != household.RoleAdmin {
-						t.Fatalf("round %d refused B role=%q member=%t want an unchanged admin", round, role, ok)
+					if !f.invitationRevoked(invitation) {
+						t.Fatalf("round %d committed deletion left A's invitation pending", round)
+					}
+					if role, version, ok := f.membership(house, b); !ok || role != household.RoleAdmin || version != 1 {
+						t.Fatalf("round %d refused B role=%q version=%d member=%t want an untouched admin", round, role, version, ok)
+					}
+					if got := f.roleChangeCount(house); got != 0 {
+						t.Fatalf("round %d refused demotion wrote %d role-change audit rows", round, got)
+					}
+					if got := f.scalarInt(`SELECT count(*) FROM household_member_removals WHERE target_user_id=$1::uuid`, b); got != 0 {
+						t.Fatalf("round %d refused leave wrote %d removal audit rows", round, got)
 					}
 					continue
 				}
-				// B won: A keeps its account and stays the household's admin.
-				if deleted != 0 || f.loginOf(a) != aLogin {
-					t.Fatalf("round %d refused deletion left records=%d login=%q", round, deleted, f.loginOf(a))
+				// B won: the refused deletion rolled back every effect on A, which
+				// stays the household's admin, and B's change committed.
+				if after := f.deletionSnapshot(a); after != beforeA {
+					t.Fatalf("round %d refused deletion changed A: before=%q after=%q", round, beforeA, after)
+				}
+				if f.invitationRevoked(invitation) {
+					t.Fatalf("round %d refused deletion revoked A's invitation", round)
 				}
 				if role, _, ok := f.membership(house, a); !ok || role != household.RoleAdmin {
 					t.Fatalf("round %d A role=%q member=%t want the remaining admin", round, role, ok)
 				}
+				role, _, ok := f.membership(house, b)
+				if step.bRole == "" && ok {
+					t.Fatalf("round %d B left but is still a member with role %q", round, role)
+				}
+				if step.bRole != "" && (!ok || role != step.bRole) {
+					t.Fatalf("round %d B role=%q member=%t want %q", round, role, ok, step.bRole)
+				}
+			}
+			// Free rounds depend on scheduling, so only the queued rounds are
+			// asserted to have run the deletion-wins branch.
+			if deletionWins < 5 {
+				t.Fatalf("deletion won %d of 10 rounds want at least the 5 queued ones", deletionWins)
 			}
 		})
 	}
 
+	// Two deletions are serialized by installation_state FOR UPDATE, not by the
+	// household lock: what this race protects is the household last-admin
+	// re-count each deletion makes under its locks. It also keeps protecting
+	// the invariant if the installation lock is ever relaxed, because the
+	// household lock then decides.
 	t.Run("two administrators deleting both household admins leave one", func(t *testing.T) {
 		f.prepare()
 		for round := 0; round < 10; round++ {
@@ -676,7 +724,7 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 				case errors.Is(err, household.ErrLastAdmin):
 					refused++
 				default:
-					expectRaceError(t, round, fmt.Sprintf("deletion %d", i), err, household.ErrLastAdmin)
+					expectRaceError(t, round, fmt.Sprintf("deletion %d", i), err)
 				}
 			}
 			if successes != 1 || refused != 1 {
@@ -693,4 +741,60 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 			}
 		}
 	})
+}
+
+// queueOnHousehold holds householdID's row in a raw transaction, starts first
+// and waits until it blocks on that row, then starts second and waits until it
+// blocks too, and finally releases the row. PostgreSQL grants a contended row
+// lock to its waiters in arrival order, so first takes the household before
+// second while both are in flight. It returns the results in call order.
+func (f *accountDeletionFixture) queueOnHousehold(t *testing.T, householdID string, first, second func() error) []error {
+	t.Helper()
+	raw, err := f.app.Begin(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Rollback(context.Background()) }()
+	if _, err = raw.Exec(f.ctx, `SELECT 1 FROM households WHERE id=$1::uuid FOR NO KEY UPDATE`, householdID); err != nil {
+		t.Fatalf("hold the household row: %v", err)
+	}
+	results := make([]error, 2)
+	done := make(chan struct{}, 2)
+	start := func(i int, call func() error) {
+		go func() {
+			results[i] = call()
+			done <- struct{}{}
+		}()
+	}
+	start(0, first)
+	f.waitForLockWaiters(t, 1)
+	start(1, second)
+	f.waitForLockWaiters(t, 2)
+	if err := raw.Commit(f.ctx); err != nil {
+		t.Fatalf("release the household row: %v", err)
+	}
+	<-done
+	<-done
+	return results
+}
+
+// waitForLockWaiters waits until at least n backends of the runtime pool are
+// blocked on a lock. It queries through the runtime role, which alone sees its
+// own sessions' wait events, like waitForAppLockWait. Packages run serially
+// (-p 1), so every waiter belongs to the calls under test.
+func (f *accountDeletionFixture) waitForLockWaiters(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		if err := f.app.QueryRow(f.ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= n {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("fewer than %d calls ever blocked on the household row", n)
 }
