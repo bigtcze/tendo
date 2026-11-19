@@ -39,6 +39,24 @@ Tendo asks for confirmation before a change and names the person and what will c
 
 Members never see the Admin center, and opening its address directly shows a short explanation instead of the account list. Only administrators can change roles; Tendo checks this on the server for every request.
 
+## Remove someone or leave the household
+
+An administrator removes someone from the Admin center: find the person's row and select **Remove from household**. To leave yourself, open **Account** and use the **Household** section there: select **Leave household**. That is the only way for a member who is not an administrator, because the Admin center stays closed to them. An administrator can also leave from their own row in the Admin center, where that row's button says **Leave household**.
+
+Tendo asks for confirmation first and names the person and the household. What it explains is the same either way:
+
+- the person loses access to everything in that household;
+- their items stay there, but no one is responsible for them;
+- completed items stay in the history;
+- invitations and password reset links for that household stop working;
+- they keep their other households.
+
+Removal is from one household only. The account keeps working normally and stays in the person's other households; deleting the account everywhere is a different action that only an installation administrator can take, see [Delete an account](#delete-an-account-installation-administrators).
+
+A household always needs at least one administrator, so the last administrator cannot be removed and cannot leave. Tendo says so and changes nothing; make someone else an administrator first.
+
+After you leave, Tendo opens Home in another household you belong to; if you belong to no household now, it explains that you can join one with an invitation.
+
 ## Reset a password (administrators)
 
 In the Admin center, open a member who signs in with a password and choose **Reset password**. Tendo shows a private reset link once. Copy it and send it to the person through a private channel, such as a direct message; anyone who has the link can set a new password.
@@ -57,9 +75,21 @@ A password belongs to the person, not to one household. If the person also belon
 
 The part of the link after `#` never reaches the server, a proxy, or another site's address, and Tendo removes it from the address bar when the page opens.
 
+## Households (installation administrators)
+
+Whoever sets Tendo up also administers the whole installation. That account, and one granted the capability from the host, sees **Households** and **Accounts** in the Admin center. Without that capability, an administrator's Admin center shows only their own household: no **Households** and no **Accounts**. The capability covers accounts and roles, not what a household contains; see [No instance administrator](../admin/troubleshooting.md#no-instance-administrator).
+
+**Households** lists every household in the installation with its time zone and the date it was created, and never what it contains. Select a household's name to open its accounts; opening it does not make you a member. There you see everyone who belongs, their role and how they sign in, and you can use **Make administrator**, **Make member**, **Remove from household** and **Add an account** on that household without belonging to it.
+
+**Add an account** puts an account that already exists into the household: search for it by login, choose it, choose its **Role** (member or administrator) and select **Add to household**. Nothing new is created and no invitation is sent. A household always needs an administrator, so the first account added to a household that has none must be an administrator.
+
+**Create household** starts a new household. Give it a name of 1 to 100 characters, choose the **Time zone** its dates follow, and choose the **First administrator** — an account that already exists. **Create household** waits for a name and an account, and Tendo never creates a household without an administrator. After it is created, Tendo opens the new household's accounts.
+
+Removing someone from a single household stays in **Households**; **Accounts** is where an account is deleted for good.
+
 ## Delete an account (installation administrators)
 
-An administrator of the whole installation also sees **Households** and **Accounts** in the Admin center; someone who also administers a household sees a third section for it. **Accounts** lists every account in Tendo, including people who belong to no household; search by login to find one. Removing someone from a single household stays in **Households**; **Accounts** is where an account is deleted for good.
+**Accounts** lists every account in Tendo, including people who belong to no household; search by login to find one.
 
 Choose **Delete account** on the person's row. Tendo explains what happens and asks you to type their login exactly as shown before it deletes anything. Deleting an account:
 

@@ -90,6 +90,7 @@ docker compose up -d --force-recreate --wait app
 ## Next steps
 
 - Invite the rest of your household from **Members** (the **Household members** screen); see [household members and invitations](../user/household-members.md).
+- Start another household from **Households** in the Admin center, where you name it, choose its time zone and pick an existing account as its first administrator; see [Households (installation administrators)](../user/household-members.md#households-installation-administrators).
 - Set up regular [backups](backup-restore.md).
 - Optional: let people sign in through an identity provider such as Pocket ID; see [OIDC](oidc.md).
 - Learn how to [update Tendo](update.md).
