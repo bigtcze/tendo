@@ -561,6 +561,118 @@ class SelectionPolicy(unittest.TestCase):
         self.assertEqual((d["priority"], d["target"]["number"]), (6, 909))
 
 
+
+class PaperclipDependencyHandoff(unittest.TestCase):
+    """In the legacy Tendo controller, Paperclip owns all dependency PRs."""
+
+    def pick(self, snap):
+        return sel.select(snap, NOW, delegate_dependency_prs=True)
+
+    def test_aged_and_repaired_renovate_prs_are_not_legacy_work(self):
+        prs = [renovate_pr(404, "aged", 100),
+               renovate_pr(405, "repaired", 2,
+                           commit_authors=("renovate[bot]", "bigtcze"))]
+        d = self.pick(snapshot(open_prs=prs))
+        self.assertEqual((d["priority"], d["kind"]), (6, "claim-issue"))
+        self.assertTrue(any("delegated to Paperclip" in n for n in d["notes"]))
+
+    def test_security_labelled_dependency_pr_does_not_preempt_v5(self):
+        pr = renovate_pr(480, "fix CVE", 1,
+                         labels=("dependencies", "renovate", "security"))
+        pr["body"] = "Refs #446"
+        d = self.pick(snapshot(open_prs=[pr, feature_pr(470, 446)]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]),
+                         (3, "active-pr", 470))
+
+    def test_human_dependency_labelled_pr_is_also_delegated(self):
+        pr = human_dependency_pr(410, "bump vite", 200)
+        d = self.pick(snapshot(open_prs=[pr], issues=[]))
+        self.assertEqual(d["kind"], "none")
+
+    def test_dependency_pr_only_can_idle_without_modifying_snapshot(self):
+        snap = snapshot(open_prs=[renovate_pr(404, "update", 100)], issues=[])
+        d = self.pick(snap)
+        self.assertEqual((d["priority"], d["kind"]), ("idle", "none"))
+        self.assertEqual(len(snap["open_prs"]), 1)
+
+    @staticmethod
+    def alert(number, package):
+        return {"number": number, "dependency": {"package": {"name": package}},
+                "security_vulnerability": {"first_patched_version": {"identifier": "1.2.3"}}}
+
+    def test_security_alert_not_covered_by_a_dependency_pr_remains_actionable(self):
+        d = self.pick(snapshot(open_prs=[renovate_pr(404, "update dependency eslint to v10", 100)],
+                               security_alerts=[self.alert(7, "picomatch")]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["numbers"]),
+                         (2, "security-alert", [7]))
+
+    def test_security_alert_covered_by_a_delegated_pr_does_not_preempt_owned_work(self):
+        covered = renovate_pr(480, "chore(deps): update dependency vite to v8.3.9 [SECURITY]", 1,
+                              labels=("dependencies", "renovate", "security"))
+        d = self.pick(snapshot(open_prs=[covered, feature_pr(470, 446)],
+                               security_alerts=[self.alert(7, "vite")]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]),
+                         (3, "active-pr", 470))
+        self.assertTrue(any("#7" in n and "#480" in n for n in d["notes"]), d["notes"])
+        # Default mode is unchanged: the security PR itself is selected.
+        d = sel.select(snapshot(open_prs=[covered, feature_pr(470, 446)],
+                                security_alerts=[self.alert(7, "vite")]), NOW)
+        self.assertEqual((d["kind"], d["target"]["number"]), ("security-pr", 480))
+
+    def test_alert_coverage_matches_whole_package_names_only(self):
+        # `vite` must not be treated as covered by a `@vitejs/plugin-react` PR,
+        # and an alert without a package name is never assumed covered.
+        other = renovate_pr(481, "chore(deps): update dependency @vitejs/plugin-react to v6.3.0", 1)
+        unnamed = {"number": 8, "security_vulnerability":
+                   {"first_patched_version": {"identifier": "1.0.0"}}}
+        d = self.pick(snapshot(open_prs=[other],
+                               security_alerts=[self.alert(7, "vite"), unnamed]))
+        self.assertEqual((d["kind"], d["target"]["numbers"]), ("security-alert", [7, 8]))
+        # An image tag after `:` is not the npm package of the same name.
+        image = renovate_pr(505, "chore(deps): update gcr.io/distroless/static-debian13:debug "
+                                 "docker digest to aafe993", 1)
+        d = self.pick(snapshot(open_prs=[image], security_alerts=[self.alert(9, "debug")]))
+        self.assertEqual((d["kind"], d["target"]["numbers"]), ("security-alert", [9]))
+
+    def test_in_progress_issue_worked_by_a_delegated_pr_is_not_resumed(self):
+        dep = renovate_pr(481, "update", 1)
+        dep["body"] = "Refs #446"
+        issues = [issue(446, "V5-02", "Audit", status="status:in-progress"),
+                  issue(452, "V5-08", "Password change")]
+        d = self.pick(snapshot(open_prs=[dep], issues=issues))
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 452))
+        self.assertTrue(any("#446" in n and "#481" in n for n in d["notes"]), d["notes"])
+
+    def test_idle_issue_referenced_by_a_delegated_pr_is_not_claimed(self):
+        dep = human_dependency_pr(482, "bump", 1)
+        dep["body"] = "Refs #446"
+        issues = [issue(446, "V5-02", "Audit", body_priority=0),
+                  issue(452, "V5-08", "Password change")]
+        d = self.pick(snapshot(open_prs=[dep], issues=issues))
+        self.assertEqual((d["kind"], d["target"]["number"]), ("claim-issue", 452))
+        self.assertTrue(any("#446" in n and "#482" in n for n in d["notes"]), d["notes"])
+
+    def test_delegated_prs_stay_visible_in_the_decision_inventory(self):
+        d = self.pick(snapshot(open_prs=[renovate_pr(404, "a", 100),
+                                         human_dependency_pr(410, "b", 2)]))
+        self.assertEqual(d["context"]["delegated_dependency_prs"], [404, 410])
+        self.assertEqual(d["context"]["open_dependency_prs"], {})
+        quiet = self.pick(snapshot())
+        self.assertEqual(quiet["context"]["delegated_dependency_prs"], [])
+        self.assertFalse(any("delegated" in n for n in quiet["notes"]))
+        self.assertNotIn("delegated_dependency_prs", sel.select(snapshot(), NOW)["context"])
+
+    def test_release_notes_and_red_main_remain_priorities(self):
+        d = self.pick(snapshot(open_prs=[renovate_pr(404, "update", 100),
+                                          release_pr(500)]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]),
+                         (3, "active-pr", 500))
+        runs = [{"id": 9, "status": "completed", "conclusion": "failure",
+                 "created_at": iso(1), "head_sha": "d"}]
+        d = self.pick(snapshot(main_runs=runs, open_prs=[renovate_pr(404, "update", 100)]))
+        self.assertEqual((d["priority"], d["kind"]), (1, "red-main"))
+
+
 class ReleaseEligibility(unittest.TestCase):
     def pick(self, snap, now=NOW):
         return sel.select(snap, now)
@@ -864,6 +976,47 @@ class Collection(unittest.TestCase):
         pr = snap["open_prs"][0]
         self.assertEqual(pr["comments"], [])
         self.assertEqual(pr["commitAuthors"], ["renovate[bot]"])
+
+    def test_delegated_collection_preserves_pr_inventory_without_triage_calls(self):
+        snap = sel.collect("o/r", self.fake_gh(open_count=2), NOW,
+                           delegate_dependency_prs=True)
+        self.assertEqual(len(snap["open_prs"]), 2)
+        self.assertTrue(all(pr["comments"] == [] and "commitAuthors" not in pr
+                            for pr in snap["open_prs"]))
+        self.assertFalse(any("/issues/400/comments" in " ".join(call) or
+                             "/pulls/400/commits" in " ".join(call)
+                             for call in self.calls))
+
+    def test_delegate_flag_on_the_command_line_reaches_collection_and_release(self):
+        # Only Renovate PRs are open. Delegated end to end, release data must be
+        # fetched and a due patch release selected; ignoring the flag anywhere
+        # (main, collect's pre-check or the final select) yields other work or idle.
+        base = self.fake_gh(open_count=2, release={"tag_name": "v5.0.0",
+                                                   "published_at": iso(24 * 20)})
+
+        def run_gh(args):
+            joined = " ".join(args)
+            if "workflows/required.yml/runs" in joined:
+                self.calls.append(list(args))
+                return json.dumps({"workflow_runs": [
+                    {"id": 1, "status": "completed", "conclusion": "success",
+                     "created_at": iso(1), "head_sha": "abc"}]})
+            if "/compare/" in joined:
+                self.calls.append(list(args))
+                return json.dumps({"files": [{"filename": "backend/internal/handler.go"}]})
+            if "/tags" in joined:
+                self.calls.append(list(args))
+                return json.dumps([[{"name": "v5.0.0"}]])
+            return base(args)
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = sel.main(["--repo", "o/r", "--now", NOW.isoformat(),
+                             "--delegate-dependency-prs"], run_gh=run_gh)
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertTrue(any("releases/latest" in " ".join(c) for c in self.calls))
+        self.assertIn("DECISION priority=8 kind=patch-release", out.getvalue())
+        self.assertFalse(any("/pulls/400/commits" in " ".join(c) for c in self.calls))
 
     def test_pr_commits_at_the_api_cap_are_an_error_not_a_truncation(self):
         run_gh = self.fake_gh(open_count=1, commit_count=sel.PR_COMMITS_API_CAP)

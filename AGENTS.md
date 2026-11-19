@@ -52,7 +52,7 @@ These documents consolidate the human-authorized contracts without reopening com
 | Any former ISSUES_WORKFLOW or CYCLE_PROMPT | FLOW; current AUTONOMY_PROMPT |
 
 - Technical requirements, explicit acceptance, migration safety, test strength and review gates survive consolidation. No blanket permission to reinterpret or drop acceptance. A genuine technical conflict requires a failing test and independent reviewed compatibility/migration decision; record evidence on the owned Issue/PR.
-- Ownership is `release`, not legacy milestone/label text. The permanent controller replaces all per-stage loop/timer handoffs. Existing acceptance asking to stop a loop or enable maintenance after completion is satisfied by proving continued serialized dependency/security/patch maintenance after release; never stop the controller or re-enable a competing scheduler. A requested final `*_COMPLETE` PR is evidence only, still protected and only after its release gates.
+- Ownership is `release`, not legacy milestone/label text. The permanent controller replaces all per-stage loop/timer handoffs. Existing acceptance asking to stop a loop or enable maintenance after completion is satisfied by proving continued serialized dependency/security/patch maintenance after release (dependency PR maintenance may be proven by the delegated maintainer per FLOW "Owner-approved dependency PR handoff"); never stop the controller or re-enable a competing scheduler. A requested final `*_COMPLETE` PR is evidence only, still protected and only after its release gates.
 - New releases use ordinary owned Issues and `docs/releases/` notes. Do not create another versioned governance packet, cycle prompt, controller or precedence chain.
 
 ## Runner independence
@@ -76,5 +76,5 @@ Changing locked contracts or controller configuration requires explicit owner au
 ## Completion and history
 - Preserve all existing completion markers and original tags unchanged. Completion markers never select work or stop the controller.
 - Completed historical Issues are read-only evidence, not backlog. Never claim, label, comment on, reopen or close them; never reactivate old stage labels.
-- `tendo-autonomous.service` runs `scripts/autonomy-controller.sh` permanently. When no owned work is actionable it continues dependency, security, CI recovery and eligible patch-release maintenance, otherwise idle polling. There is no stage end.
+- `tendo-autonomous.service` runs `scripts/autonomy-controller.sh` permanently. When no owned work is actionable it continues security, CI recovery and eligible patch-release maintenance (dependency PRs are delegated per FLOW "Owner-approved dependency PR handoff"), otherwise idle polling. There is no stage end.
 - Work status stays in owned Issues and their PRs; dependency triage stays on its PR and the Renovate Dashboard. LEARNINGS holds durable reusable rules only, never session narrative.

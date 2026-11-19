@@ -170,6 +170,7 @@ count_file = state / "sel.calls"
 count = int(count_file.read_text().strip() or "0") if count_file.exists() else 0
 count += 1
 count_file.write_text("%d\n" % count)
+(state / "sel.argv").write_text(" ".join(sys.argv[1:]) + "\n")
 for marker in ("run-finished", "drain-marker"):
     record = state / ("sel.%s.%d" % (marker, count))
     record.write_text("yes\n" if (state / marker).exists() else "no\n")
@@ -373,6 +374,8 @@ name="idle: three loops, no session, one default poll per loop"
 expect_eq "${name}" 0 "${RC}"
 expect_eq "idle: no opencode run call" 0 "$(run_calls)"
 expect_eq "idle: selection runs once per loop" 3 "$(sel_calls)"
+expect_eq "idle: dependency PRs are delegated to the separate maintainer" \
+  "--delegate-dependency-prs" "$(cat "${STATE}/sel.argv" 2>/dev/null)"
 expect_eq "idle: IDLE_POLL_SECONDS=300 is requested each loop" "300 300 300" "$(sleep_log)"
 expect_grep "idle: idle decision is logged with its REASON" 'idle: REASON stub idle ; next poll in 300s' "${OUT_FILE}"
 if [[ -e "${STATE}/check.calls" ]]; then

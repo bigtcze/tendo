@@ -79,7 +79,8 @@ When a capability is unavailable, use its fallback; never claim it was used.
   path in its journal summary.
 - The controller never exits because of a completion marker. It replaces the
   separate daily maintenance timer: dependency, security, CI recovery and
-  patch releases are its permanent duties (see "Scheduler order").
+  patch releases are its permanent duties (see "Scheduler order"); dependency
+  PR processing is delegated ("Owner-approved dependency PR handoff").
 - Host installation is a one-time owner action:
   `bash scripts/install-autonomy-service.sh --check` (redacted dry run, no
   mutation), then `--apply` (backup to
@@ -149,8 +150,39 @@ is the only place where OpenCode details belong.
    appends it to the prompt). Deliver it as one focused PR per "Work", then
    end the session.
 
+## Owner-approved dependency PR handoff
+
+For the original `tendo-autonomous.service`, the owner has delegated
+Renovate and other dependency PR processing to Paperclip's Maintenance
+Coordinator / Platform Engineer, **including while the Tendo Paperclip project
+is `planned`**. The original controller passes
+`--delegate-dependency-prs` to its selector. PRs recognized by Renovate
+author, branch or label, or labelled `dependencies`, are not selectable
+by that controller at any priority: do not triage, repair, update, review as
+an execution task or merge them, even if security-labelled, previously repaired
+or mentioning an owned Issue. Preserve them in the read-only PR inventory for
+release qualification. Ordinary owned release Issues, their non-dependency PRs,
+red-main recovery, standalone security advisories and release qualification
+remain authorized; check existing PR ownership before responding to an advisory,
+so an existing Paperclip-owned dependency PR is not duplicated. The selector
+enforces this: an alert whose package a delegated PR title names, and an owned
+Issue a delegated PR `Refs`, are reported as NOTEs and never selected.
+In "Scheduler order" and "Dependency maintenance", the dependency-PR rules
+(2 security PR, 3 repaired Renovate PR, 4, 5, 7) therefore do not apply to the
+original controller. For release review ("Release from owned Issues"), a
+delegated dependency PR is explained by its recorded status from the delegated
+maintainer (triage/blocker comment or open review state on the PR); list it,
+do not triage or repair it.
+
+This division applies to **the original controller**, not to project-wide
+dependency engineering rules. Do not change Paperclip agents' existing ability
+to handle authorized planned projects. Before activating Tendo development or
+release automation in Paperclip after V5, stop the original controller to
+prevent competing writers and release jobs.
+
 ## Scheduler order
-The first matching rule wins:
+The first matching rule wins (for the original controller, dependency-PR
+rules are delegated; see "Owner-approved dependency PR handoff"):
 1. red `main` CI (latest completed required run on `main`);
 2. urgent security: open `security`-labelled PR, or an open advisory with a
    patched version;
@@ -245,6 +277,9 @@ Delegation is optional; a runtime without delegated workers does the same packet
 - Time/concurrency/idempotency paths require deterministic tests.
 
 ## Dependency maintenance
+For the original controller, dependency PR processing is delegated (see
+"Owner-approved dependency PR handoff"); the rules below still bind whoever
+processes them.
 Dependency PRs (human, Renovate or self-opened) are ordinary open PRs; their
 priority is "Scheduler order". They are never ignored because owned release
 Issues remain open. Routine Renovate PRs never take priority over a red `main` or a

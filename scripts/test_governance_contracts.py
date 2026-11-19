@@ -72,6 +72,16 @@ class CanonicalContracts(unittest.TestCase):
             self.assertEqual(hashlib.sha256((CONTRACTS / name).read_bytes()).hexdigest(),
                              fingerprint)
 
+    def test_controller_entrypoints_are_committed_executable(self):
+        # systemd ExecStart runs the controller directly; a lost exec bit is a
+        # silent outage (exit 126) that offline tests invoking `bash` miss.
+        for name in ('scripts/autonomy-controller.sh', 'scripts/autonomy-work-selection.py'):
+            entry = subprocess.run(['git', 'ls-files', '-s', '--', name], cwd=ROOT, check=True,
+                                   capture_output=True, text=True).stdout.split()
+            with self.subTest(file=name):
+                self.assertTrue(entry, f'{name} is not tracked')
+                self.assertEqual(entry[0], '100755')
+
     def test_controller_has_no_git_mutation_or_stage_file_dependency(self):
         controller = (ROOT / 'scripts/autonomy-controller.sh').read_text()
         selector = (ROOT / 'scripts/autonomy-work-selection.py').read_text()
