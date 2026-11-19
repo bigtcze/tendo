@@ -52,6 +52,13 @@ re-checked (a still-unchanged blocker is re-recorded, not re-run).
 
 Usage: autonomy-work-selection.py [--repo OWNER/NAME] [--snapshot FILE]
                                   [--now ISO8601] [--self-check]
+                                  [--delegate-dependency-prs]
+
+--delegate-dependency-prs (passed by the original controller): dependency PRs
+stay in the snapshot for release inventory but are never selected at any
+priority; security alerts whose package a delegated PR title names, and owned
+Issues a delegated PR `Refs`, are not selected either (each is reported as a
+NOTE), so this controller never duplicates the separate maintainer's work.
 
 Exit codes: 0 decision printed, 2 data error (`SELECTION ERROR` on stderr; no
 DECISION), 4 rate limited (`RATE_LIMITED reset=<unix epoch>` on stderr; no
@@ -152,6 +159,24 @@ def is_renovate(pr: dict) -> bool:
 def is_dependency(pr: dict) -> bool:
     """Renovate PR (author/branch/label) or any PR labelled `dependencies`."""
     return is_renovate(pr) or "dependencies" in label_names(pr)
+
+
+def pr_list(numbers) -> str:
+    return ", ".join(f"#{n}" for n in numbers)
+
+
+def alert_covering_prs(alert: dict, prs: list[dict]) -> list[int]:
+    """Dependency PRs whose title names the alert's package as a whole token.
+
+    Conservative: an alert without a package name, or one only mentioned as part
+    of a longer name (`vite` vs `@vitejs/plugin-react`), is never covered.
+    """
+    name = str(((alert.get("dependency") or {}).get("package") or {}).get("name") or "").strip()
+    if not name:
+        return []
+    token = re.compile(r"(?<![A-Za-z0-9@/._-])" + re.escape(name) + r"(?![A-Za-z0-9@/._-])",
+                       re.IGNORECASE)
+    return [p["number"] for p in prs if token.search(p.get("title") or "")]
 
 
 def is_owned(issue: dict) -> bool:
@@ -504,8 +529,16 @@ def select(snapshot: dict, now: datetime, delegate_dependency_prs: bool = False)
     # dependency PRs when another authorized controller owns their processing.
     open_prs = ([p for p in all_open_prs if not is_dependency(p)]
                 if delegate_dependency_prs else all_open_prs)
-    if delegate_dependency_prs:
-        notes.append("dependency PRs delegated to Paperclip; not actionable in this controller")
+    delegated_prs = [p for p in all_open_prs if is_dependency(p)] if delegate_dependency_prs else []
+    if delegated_prs:
+        notes.append(f"dependency PRs {pr_list(p['number'] for p in delegated_prs)} delegated to Paperclip; "
+                     "not actionable in this controller (release inventory only)")
+    # Owned Issues a delegated PR works on belong to that PR's maintainer: never
+    # resume or claim them here, so the two controllers never write the same work.
+    delegated_refs: dict[int, list[int]] = {}
+    for pr in delegated_prs:
+        for number in sorted(refs(pr)):
+            delegated_refs.setdefault(number, []).append(pr["number"])
     issues = snapshot.get("issues", [])
     owned = {i["number"]: i for i in issues if is_owned(i)}
     ignored = sorted(i["number"] for i in issues if not is_owned(i))
@@ -539,6 +572,8 @@ def select(snapshot: dict, now: datetime, delegate_dependency_prs: bool = False)
         "blocked_unchanged_skipped": blocked_skipped,
         "ignored_unowned_issues": ignored,
     }
+    if delegate_dependency_prs:
+        context["delegated_dependency_prs"] = [p["number"] for p in delegated_prs]
 
     def decide(priority, kind: str, target: dict | None, reason: str) -> dict:
         return {"priority": priority, "kind": kind, "target": target, "reason": reason,
@@ -562,18 +597,34 @@ def select(snapshot: dict, now: datetime, delegate_dependency_prs: bool = False)
     else:
         fixable = [a for a in alerts if ((a.get("security_vulnerability") or {})
                                          .get("first_patched_version"))]
+        if delegated_prs:
+            uncovered = []
+            for alert in fixable:
+                covering = alert_covering_prs(alert, delegated_prs)
+                if covering:
+                    notes.append(f"security alert #{alert.get('number')} is covered by delegated "
+                                 f"dependency PR(s) {pr_list(covering)}; not duplicated here")
+                else:
+                    uncovered.append(alert)
+            fixable = uncovered
         if fixable:
             return decide(2, "security-alert",
                           {"type": "alerts", "numbers": [a.get("number") for a in fixable]},
                           f"{len(fixable)} open security alert(s) with a patched version")
-        if alerts:
-            notes.append(f"{len(alerts)} open alert(s) without a patched version; record, do not spin")
+        unpatched = [a for a in alerts if not ((a.get("security_vulnerability") or {})
+                                               .get("first_patched_version"))]
+        if unpatched:
+            notes.append(f"{len(unpatched)} open alert(s) without a patched version; record, do not spin")
 
     # 3 active-pr, then resume-claimed-issue
     # Sub-rules in spec order: (a) open PR referencing an open non-blocked owned
     # Issue, (b) a Renovate PR with agent repair commits, (c) an in-flight
     # release/v* release-notes PR (author irrelevant).
-    referenced = {n for p in open_prs for n in refs(p)}
+    referenced = {n for p in all_open_prs for n in refs(p)}
+    for number, numbers in sorted(delegated_refs.items()):
+        if number in owned:
+            notes.append(f"owned Issue #{number} is referenced by delegated dependency PR(s) "
+                         f"{pr_list(numbers)}; not resumed or claimed by this controller")
     claimed_pr = None
     for pr in open_prs:
         open_refs = sorted(n for n in refs(pr) if n in owned and str(owned[n].get("state", "")).upper() == "OPEN")
@@ -644,7 +695,8 @@ def select(snapshot: dict, now: datetime, delegate_dependency_prs: bool = False)
     in_group = protected | {n for group in groups for n in group["group"]}
     candidates = []
     for issue in selectable:
-        if status_by_number[issue["number"]][0] != "status:idle" or issue["number"] in in_group:
+        if (status_by_number[issue["number"]][0] != "status:idle" or issue["number"] in in_group
+                or issue["number"] in delegated_refs):
             continue
         ok, dep_notes = dependency_states_for(issue, owned, dependency_states)
         notes.extend(dep_notes)
