@@ -145,6 +145,36 @@ describe('deleting an installation account', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Accounts' })).toHaveFocus();
   });
 
+  it('steps back to the previous page when the deleted account was the only one on a later page', async () => {
+    let deleted = false;
+    const fake = renderAt({
+      [directoryPath]: (request) => {
+        if (request.query.get('cursor') !== 'a2') return json(200, { items: [anna, jana], nextCursor: deleted ? null : 'a2' });
+        return json(200, { items: deleted ? [] : [petr], nextCursor: null });
+      },
+      [deletionPath]: () => { deleted = true; return json(204); },
+    });
+    await waitFor(() => expect(logins()).toEqual(['anna', 'jana']));
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(logins()).toEqual(['petr']));
+    const { dialog, confirm } = await openFor('petr');
+    await userEvent.type(confirm, 'petr');
+
+    await userEvent.click(submitButton(dialog));
+
+    expect(await screen.findByText('petr’s account was deleted.')).toBeVisible();
+    // Not an empty second page with only a way back: the reader is on the page that still has accounts.
+    await waitFor(() => expect(logins()).toEqual(['anna', 'jana']));
+    expect(screen.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No accounts to show.')).not.toBeInTheDocument();
+    const cursors = fake.requests
+      .filter((request) => request.method === 'GET' && request.path === '/api/v1/admin/accounts')
+      .map((request) => request.query.get('cursor'));
+    expect(cursors).toEqual([null, 'a2', 'a2', null]);
+    expect(screen.getByRole('heading', { level: 2, name: 'Accounts' })).toHaveFocus();
+  });
+
   it('deletes once even when the press is delivered twice', async () => {
     let release!: (response: Response) => void;
     const held = new Promise<Response>((resolve) => { release = resolve; });
