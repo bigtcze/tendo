@@ -12,6 +12,12 @@ You can only change your password from a session you started with that password.
 
 If you no longer remember your current password, changing it here is not possible: ask an administrator for a reset link (see [Household members and invitations](household-members.md#reset-a-password-administrators)), or ask whoever runs your Tendo installation to set a new password from the host.
 
+## Household
+
+**Your account** has a **Household** section that names the household you are looking at now and offers **Leave household**. This is where a member who is not an administrator leaves, and it works for administrators too.
+
+Leaving gives up access to everything in that household: your items stay there with no one responsible for them, completed items stay in the history, and invitations you sent and password reset links involving you in that household stop working. You keep your other households and your account keeps working; if you belong to no other household, Tendo explains that you can join one with an invitation. The last administrator of a household cannot leave; make someone else an administrator first. See [Remove someone or leave the household](household-members.md#remove-someone-or-leave-the-household).
+
 ## Appearance and language
 
 In **Your account**, choose **Appearance** to match this device, or select **Light** or **Dark**. The explicit choice is saved in this browser only. Under **Language**, choose English or Čeština; you can also change the language in the footer.

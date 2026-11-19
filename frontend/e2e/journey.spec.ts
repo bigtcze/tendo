@@ -7160,6 +7160,293 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  // V5-10 D1: the admin and member refusals, removals and the account deletion as the people on the other end see
+  // them, in their own live sessions, with the owner working the Admin center in Czech. Two throwaway accounts join
+  // the owner household through real invitations accepted at the public new-account endpoint (the /invite screen is
+  // covered by n7 and n25): d1_admin_e2e also administers a household of its own, the only administrator there, and
+  // d1_member_e2e is a plain member. The owner removes d1_admin_e2e from the owner household, d1_member_e2e leaves it
+  // through Account and is then deleted for good.
+  //
+  // What remains afterwards, exactly: “D1 admin household” with d1_admin_e2e as its only member and administrator,
+  // d1_admin_e2e as an account of that household alone, d1_member_e2e deleted, and the two person entries the accepted
+  // invitations gave the owner household, unlinked. This is the last household step, so nothing after it reads them.
+  //
+  // It spends two local sign-in attempts, one per throwaway session; the owner keeps the session it has. The sign-in
+  // throttle admits ten per client IP and minute, and n23, n25, n27 and n7h spend eight within the minute before this
+  // step, so the budget is not assumed: each throwaway sign-in waits while the throttle answers 429, which the server
+  // does not count, and then must succeed. The two new accounts also spend two of the five new-account invitation
+  // acceptances the same throttle shape admits per minute (n25 spends one shortly before).
+  test('n7i. admin and member refusals hold in their own sessions, removals end access on the next request, and the Admin center works in Czech', async ({ browser }) => {
+    test.setTimeout(180_000);
+    const memberLogin = 'd1_member_e2e';
+    const adminLogin = 'd1_admin_e2e';
+    const d1HouseholdName = 'D1 admin household';
+    const fill = (template: string, params: Record<string, string>) => Object.entries(params)
+      .reduce((text, [key, value]) => text.replaceAll(`{${key}}`, value), template);
+    const accountPath = (household: string, userId: string) => `/api/v1/households/${household}/accounts/${userId}`;
+    const exactLogin = (target: Page, attribute: string, login: string) => target.locator(`[${attribute}]`, { hasText: new RegExp(`^${escapeRegExp(login)}$`) });
+
+    /** A real invitation into the owner household, accepted at the endpoint the /invite screen posts to. */
+    const invitedAccount = async (login: string, password: string) => {
+      const invitation = await page.request.post(`/api/v1/households/${householdId}/invitations`, {
+        headers: { Origin: baseURL, 'Idempotency-Key': crypto.randomUUID().replaceAll('-', '') }, data: {},
+      });
+      expect(invitation.status(), `${login} needs a real invitation`).toBe(201);
+      const { token } = await invitation.json() as { token: string };
+      const accepted = await page.request.post('/api/v1/auth/invitations/accept', { headers: { Origin: baseURL }, data: { token, login, password } });
+      expect(accepted.status(), `${login} is created by accepting the invitation`).toBe(201);
+      const body = await accepted.json() as { userId: string; householdId: string; role: string };
+      expect(body).toMatchObject({ householdId, role: 'member' });
+      return body.userId;
+    };
+
+    /**
+     * One more browser for one account, judged like the owner's: every console error and failed response is collected,
+     * and only the refusals a step has just announced with `allow` may appear. The signed-out boot probe is routine.
+     */
+    const contexts: BrowserContext[] = [];
+    const signedInActor = async (login: string, password: string) => {
+      const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+      contexts.push(context);
+      const actor = await context.newPage();
+      await trackInFlightApiFetches(actor);
+      const issues: string[] = [];
+      const failures: string[] = [];
+      const allowed = new Set<string>();
+      actor.on('console', (message) => {
+        if (message.type() !== 'error') return;
+        const path = new URL(message.location().url || 'about:blank').pathname;
+        const status = message.text().match(/status of (\d{3})/)?.[1];
+        if (path === '/api/v1/session' && status === '401') return;
+        if (status && allowed.has(`${path} ${status}`)) return;
+        issues.push(`console: ${message.text()}`);
+      });
+      actor.on('pageerror', (error) => issues.push(`pageerror: ${error.message}`));
+      actor.on('response', (response) => {
+        if (response.status() < 400) return;
+        const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
+        if (failure !== 'GET /api/v1/session 401') failures.push(failure);
+      });
+      // The session is opened through the context's own request client, so its cookie is this browser's. The sign-in
+      // screen itself is n1's and n7h's subject; here only the session matters. An attempt the throttle refuses is not
+      // counted by the server, so waiting one out spends nothing; the attempt that is admitted must be a real sign-in.
+      let signedIn = 0;
+      await expect.poll(async () => {
+        signedIn = (await context.request.post('/api/v1/session', { headers: { Origin: baseURL }, data: { login, password } })).status();
+        return signedIn;
+      }, { message: `${login} waits only for the sign-in throttle`, intervals: [2_000], timeout: 75_000 }).not.toBe(429);
+      expect(signedIn, `${login} signs in`).toBe(201);
+      await actor.goto('/');
+      await waitForSettledHome(actor, householdName);
+      return {
+        page: actor,
+        allow: (path: string, status: number) => { allowed.add(`${path} ${status}`); },
+        assertClean: (expected: string[]) => {
+          expect(issues, `${login} console`).toEqual([]);
+          expect([...failures].sort(), `${login} failed responses`).toEqual([...expected].sort());
+        },
+      };
+    };
+
+    // 1. Two accounts in the owner household, and a household whose only administrator is d1_admin_e2e. Its default
+    //    household stays the owner household, which it joined first.
+    const memberPassword = `${ownerPassword}-d1-member`;
+    const adminPassword = `${ownerPassword}-d1-admin`;
+    const memberId = await invitedAccount(memberLogin, memberPassword);
+    const adminId = await invitedAccount(adminLogin, adminPassword);
+    const created = await page.request.post('/api/v1/admin/households', {
+      headers: { Origin: baseURL, 'Idempotency-Key': crypto.randomUUID().replaceAll('-', '') },
+      data: { name: d1HouseholdName, timezone: 'Europe/Prague', adminUserId: adminId },
+    });
+    expect(created.status(), 'd1_admin_e2e administers a household of its own').toBe(201);
+    const d1HouseholdId = (await created.json() as { id: string }).id;
+    const d1Memberships = async () => {
+      const response = await page.request.get(`/api/v1/admin/households/${d1HouseholdId}/accounts?limit=50`);
+      expect(response.status()).toBe(200);
+      return (await response.json() as { items: Array<{ login: string; role: string }> }).items.map((entry) => `${entry.login} ${entry.role}`);
+    };
+    expect(await d1Memberships()).toEqual([`${adminLogin} admin`]);
+
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      const member = await signedInActor(memberLogin, memberPassword);
+      const admin = await signedInActor(adminLogin, adminPassword);
+
+      // 2. A plain member is refused the installation's account directory as well: the server says no, and the screen
+      //    shows the calm explanation without a list, a search or the section switcher.
+      member.allow('/api/v1/admin/accounts', 403);
+      await member.page.goto('/admin/accounts');
+      await expect(member.page.getByRole('heading', { name: en['install.onlyAdmins.title'] })).toBeVisible();
+      await expect(member.page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);
+      await expect(member.page.getByLabel(en['install.add.query'], { exact: true })).toHaveCount(0);
+      await expect(member.page.getByRole('navigation', { name: en['admin.sections.label'] })).toHaveCount(0);
+      const memberDirectory = await member.page.request.get('/api/v1/admin/accounts');
+      expect(memberDirectory.status()).toBe(403);
+      expect((await memberDirectory.json()).code).toBe('instance_admin_required');
+
+      // 3. The owner removes d1_admin_e2e from the owner household, in Czech, from the household Admin center.
+      await chooseLocale(page, 'cs');
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
+      await page.getByRole('navigation', { name: cs['nav.label'] }).getByRole('link', { name: cs['nav.admin'], exact: true }).click();
+      await expect(page).toHaveURL(/\/admin$/);
+      await expect(page.getByRole('heading', { level: 1, name: cs['admin.title'] })).toBeVisible();
+      const switcher = page.getByRole('navigation', { name: cs['admin.sections.label'] });
+      await expect(switcher.getByRole('link', { name: cs['admin.sections.household'], exact: true })).toHaveAttribute('aria-current', 'page');
+      const householdRows = page.getByRole('main').getByRole('list', { name: cs['admin.list.title'] });
+      const householdRow = (login: string) => householdRows.getByRole('listitem').filter({ has: exactLogin(page, 'data-account-login', login) });
+      await expect(householdRow(adminLogin)).toHaveCount(1);
+      await expect(householdRow(adminLogin)).toContainText(cs['members.role.member']);
+      await expect(householdRow(ownerLogin)).toContainText(`(${cs['members.you']})`);
+      await householdRow(adminLogin).getByRole('button', { name: fill(cs['admin.action.removeLabel'], { login: adminLogin }), exact: true }).click();
+      const removeDialog = page.getByRole('dialog');
+      await expect(removeDialog.getByRole('heading', { name: fill(cs['admin.remove.dialog.title'], { login: adminLogin, household: householdName }) })).toBeVisible();
+      await expect(removeDialog).toContainText(fill(cs['admin.remove.dialog.body'], { login: adminLogin }));
+      await expect(removeDialog).toContainText(cs['admin.remove.dialog.households']);
+      await expect(removeDialog).not.toContainText(cs['admin.remove.dialog.lastAdmin']);
+      await expectNoAxeViolations(page, 'admin-remove-dialog-cs');
+      await removeDialog.getByRole('button', { name: cs['admin.remove.confirm'], exact: true }).click();
+      await expect(removeDialog).toHaveCount(0);
+      await expect(page.getByText(fill(cs['admin.notice.removed'], { login: adminLogin }), { exact: true })).toBeVisible();
+      await expect(householdRow(adminLogin)).toHaveCount(0);
+      expect((await page.request.get(accountPath(householdId, adminId))).status(), 'the membership is gone on the server').toBe(404);
+
+      // 4. The removed account's open session is not signed out — it keeps its other household — but its very next
+      //    request about the owner household is refused, and the screen says so instead of showing stale members.
+      admin.allow(`/api/v1/households/${householdId}/members`, 404);
+      await admin.page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.members'], exact: true }).click();
+      await expect(admin.page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await expect(admin.page.getByText(en['members.error.householdNotFound'], { exact: true })).toBeVisible();
+      await expect(admin.page.getByRole('main').getByRole('list', { name: en['members.list.title'] })).toHaveCount(0);
+      const movedSession = await admin.page.request.get('/api/v1/session');
+      expect(movedSession.status(), 'removal does not end the session').toBe(200);
+      expect((await movedSession.json() as { defaultHouseholdId?: string }).defaultHouseholdId, 'the default moved to the remaining household').toBe(d1HouseholdId);
+      expect((await admin.page.request.get(`/api/v1/households/${householdId}`)).status()).toBe(404);
+      // Opening Tendo again lands in the household that is left.
+      await admin.page.goto('/');
+      await waitForSettledHome(admin.page, d1HouseholdName);
+
+      // 5. A household administrator without the installation grant: their own household's Admin center opens with
+      //    no section switcher, and both installation sections are refused by the server.
+      const adminNav = admin.page.getByRole('navigation', { name: en['nav.label'] });
+      await adminNav.getByRole('link', { name: en['nav.admin'], exact: true }).click();
+      await expect(admin.page).toHaveURL(/\/admin$/);
+      await expect(admin.page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+      const d1Rows = admin.page.getByRole('main').getByRole('list', { name: en['admin.list.title'] });
+      await expect(d1Rows.getByRole('listitem')).toHaveCount(1);
+      await expect(d1Rows.getByRole('listitem')).toContainText(en['members.role.admin']);
+      await expect(admin.page.getByRole('navigation', { name: en['admin.sections.label'] })).toHaveCount(0);
+      const adminSession = await admin.page.request.get('/api/v1/session');
+      expect(adminSession.status()).toBe(200);
+      expect((await adminSession.json() as { instanceAdmin: boolean }).instanceAdmin, 'd1_admin_e2e holds no installation grant').toBe(false);
+      admin.allow('/api/v1/admin/households', 403);
+      await admin.page.goto('/admin/households');
+      await expect(admin.page.getByRole('heading', { name: en['install.onlyAdmins.title'] })).toBeVisible();
+      await expect(admin.page.getByRole('main').getByRole('list', { name: en['install.title'] })).toHaveCount(0);
+      admin.allow('/api/v1/admin/accounts', 403);
+      await admin.page.goto('/admin/accounts');
+      await expect(admin.page.getByRole('heading', { name: en['install.onlyAdmins.title'] })).toBeVisible();
+      await expect(admin.page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);
+      for (const path of ['/api/v1/admin/households', '/api/v1/admin/accounts']) {
+        const refused = await admin.page.request.get(path);
+        expect(refused.status(), `${path} for a household administrator`).toBe(403);
+        expect((await refused.json()).code).toBe('instance_admin_required');
+      }
+
+      // 6. The only administrator cannot leave. The dialog carries the last-administrator warning for any administrator
+      //    target (member targets above and below never see it); the server is what refuses, and nothing changes.
+      await admin.page.goto('/admin');
+      await expect(admin.page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+      await d1Rows.getByRole('button', { name: fill(en['admin.action.leaveLabel'], { login: adminLogin }), exact: true }).click();
+      const leaveDialog = admin.page.getByRole('dialog');
+      await expect(leaveDialog.getByRole('heading', { name: fill(en['admin.remove.dialog.leaveTitle'], { household: d1HouseholdName }) })).toBeVisible();
+      await expect(leaveDialog).toContainText(en['admin.remove.dialog.lastAdmin']);
+      await expectNoAxeViolations(admin.page, 'admin-last-admin-leave-dialog');
+      admin.allow(accountPath(d1HouseholdId, adminId), 409);
+      const refusedLeave = admin.page.waitForResponse((response) => response.request().method() === 'DELETE'
+        && new URL(response.url()).pathname === accountPath(d1HouseholdId, adminId));
+      await leaveDialog.getByRole('button', { name: en['admin.remove.leave'], exact: true }).click();
+      const refusal = await refusedLeave;
+      expect(refusal.status()).toBe(409);
+      expect((await refusal.json()).code).toBe('last_admin');
+      await expect(leaveDialog).toHaveCount(0);
+      await expect(admin.page.getByText(en['admin.error.lastAdminSelf'], { exact: true })).toBeVisible();
+      await expect(d1Rows.getByRole('listitem')).toContainText(en['members.role.admin']);
+      await expect(admin.page).toHaveURL(/\/admin$/);
+      const stillAdmin = await admin.page.request.get(`/api/v1/households/${d1HouseholdId}`);
+      expect(stillAdmin.status()).toBe(200);
+      expect((await stillAdmin.json() as { viewerRole: string }).viewerRole).toBe('admin');
+      expect(await d1Memberships(), 'the refused leave changed nothing').toEqual([`${adminLogin} admin`]);
+      admin.assertClean([
+        `GET /api/v1/households/${householdId}/members 404`,
+        'GET /api/v1/admin/households 403',
+        'GET /api/v1/admin/accounts 403',
+        `DELETE ${accountPath(d1HouseholdId, adminId)} 409`,
+      ]);
+
+      // 7. A plain member leaves on their own from Account, the one place a member can, and lands in the
+      //    no-household state with a note that says what happened.
+      await member.page.goto('/account');
+      await expect(member.page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      const householdSection = member.page.getByRole('main').locator('section[aria-labelledby="account-household-heading"]');
+      await expect(householdSection).toContainText(fill(en['account.household.body'], { household: householdName }));
+      await householdSection.getByRole('button', { name: en['account.household.leave'], exact: true }).click();
+      const memberLeaveDialog = member.page.getByRole('dialog');
+      await expect(memberLeaveDialog.getByRole('heading', { name: fill(en['admin.remove.dialog.leaveTitle'], { household: householdName }) })).toBeVisible();
+      await expect(memberLeaveDialog).toContainText(en['admin.remove.dialog.leaveBody']);
+      await expect(memberLeaveDialog).not.toContainText(en['admin.remove.dialog.lastAdmin']);
+      await memberLeaveDialog.getByRole('button', { name: en['admin.remove.leave'], exact: true }).click();
+      await expect(memberLeaveDialog).toHaveCount(0);
+      await expect(member.page.getByRole('heading', { level: 1, name: en['home.noHousehold.title'] })).toBeVisible();
+      await expect(member.page.getByText(fill(en['home.notice.left.none'], { household: householdName }), { exact: true })).toBeVisible();
+      await expect(member.page).toHaveURL(`${baseURL}/`);
+      const leftSession = await member.page.request.get('/api/v1/session');
+      expect(leftSession.status(), 'leaving does not end the session').toBe(200);
+      expect((await leftSession.json() as { defaultHouseholdId?: string }).defaultHouseholdId).toBeUndefined();
+      expect((await member.page.request.get(`/api/v1/households/${householdId}`)).status()).toBe(404);
+      expect((await page.request.get(accountPath(householdId, memberId))).status(), 'the membership is gone on the server').toBe(404);
+
+      // 8. The owner deletes that account for good, in Czech, from the installation's account directory.
+      await page.goto('/admin/accounts');
+      await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
+      await page.getByLabel(cs['install.add.query'], { exact: true }).fill(memberLogin);
+      await page.getByRole('button', { name: cs['install.add.search'], exact: true }).click();
+      const directoryRow = page.getByRole('main').getByRole('list', { name: cs['admin.list.title'] }).getByRole('listitem')
+        .filter({ has: exactLogin(page, 'data-install-login', memberLogin) });
+      await expect(directoryRow).toHaveCount(1);
+      await directoryRow.getByRole('button', { name: fill(cs['install.accounts.delete.label'], { login: memberLogin }), exact: true }).click();
+      const deleteDialog = page.getByRole('dialog');
+      await expect(deleteDialog.getByRole('heading', { name: fill(cs['install.accounts.delete.title'], { login: memberLogin }) })).toBeVisible();
+      await expect(deleteDialog).toContainText(cs['install.accounts.delete.lead']);
+      const deleteButton = deleteDialog.getByRole('button', { name: cs['install.accounts.delete.action'], exact: true });
+      await expect(deleteButton).toBeDisabled();
+      await deleteDialog.getByLabel(fill(cs['install.accounts.delete.confirm'], { login: memberLogin }), { exact: true }).fill(memberLogin);
+      await expect(deleteButton).toBeEnabled();
+      await expectNoAxeViolations(page, 'admin-installation-account-delete-dialog-cs');
+      await deleteButton.click();
+      await expect(deleteDialog).toHaveCount(0);
+      await expect(page.getByText(fill(cs['install.notice.deleted'], { login: memberLogin }), { exact: true })).toBeVisible();
+      const directory = await page.request.get(`/api/v1/admin/accounts?limit=20&q=${encodeURIComponent(memberLogin)}`);
+      expect(directory.status()).toBe(200);
+      expect((await directory.json() as { items: unknown[] }).items, 'the directory no longer has the deleted login').toEqual([]);
+
+      // 9. The deleted account's live session ends with its next request: the server no longer knows it, and opening
+      //    Tendo again shows the sign-in screen.
+      expect((await member.page.request.get('/api/v1/session')).status(), 'deletion ends the live session').toBe(401);
+      await member.page.reload();
+      await expect(member.page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await expect(member.page.getByRole('button', { name: en['header.signOut'] })).toHaveCount(0);
+      member.assertClean(['GET /api/v1/admin/accounts 403']);
+    } catch (error) { primaryFailure = error; }
+    // A cleanup failure never hides the step's own failure.
+    for (const context of contexts) await context.close().catch((error: unknown) => { cleanupFailure ??= error; });
+    // Every later step reads the owner's page in English.
+    try { await chooseLocale(page, 'en'); } catch (error) { cleanupFailure ??= error; }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
