@@ -574,4 +574,123 @@ func TestAccountDeletionRacesAgainstPostgres(t *testing.T) {
 			}
 		}
 	})
+
+	// The household-admin half of last-admin protection under concurrency
+	// (SECURITY "Authorization invariants"): a household whose only admins are
+	// A and B must never end without an admin when an instance administrator
+	// deletes A while B gives up the admin role. Deletion locks every household
+	// of the target before it counts the remaining admins, the same row the
+	// household paths lock, so exactly one side commits and the other is
+	// refused with last_admin.
+	for _, step := range []struct {
+		name string
+		// giveUp makes B stop being an admin of house through a household path.
+		giveUp func(b, house string) error
+	}{
+		{"deleting a household admin races the other admin's self-demotion", func(b, house string) error {
+			_, err := f.accounts.ChangeRole(ctx, b, house, b, household.RoleMember, 1)
+			return err
+		}},
+		{"deleting a household admin races the other admin's self-leave", func(b, house string) error {
+			return f.service.RemoveMember(ctx, b, house, b, 1)
+		}},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			f.prepare()
+			for round := 0; round < 10; round++ {
+				actor := f.newUserWithLogin(fmt.Sprintf("admin_race_actor_%d", round))
+				f.grantInstanceAdmin(actor)
+				house := f.newHousehold(fmt.Sprintf("admin race house %d", round))
+				aLogin := fmt.Sprintf("admin_race_a_%d", round)
+				a := f.newUserWithLogin(aLogin)
+				b := f.newUserWithLogin(fmt.Sprintf("admin_race_b_%d", round))
+				f.join(a, house, household.RoleAdmin)
+				f.join(b, house, household.RoleAdmin)
+
+				results := race(
+					func() error { return f.deletions.DeleteAccount(ctx, actor, a, aLogin) },
+					func() error { return step.giveUp(b, house) },
+				)
+				successes, refused := 0, 0
+				for i, err := range results {
+					switch {
+					case err == nil:
+						successes++
+					case errors.Is(err, household.ErrLastAdmin):
+						refused++
+					default:
+						expectRaceError(t, round, fmt.Sprintf("call %d", i), err, household.ErrLastAdmin)
+					}
+				}
+				if successes != 1 || refused != 1 {
+					t.Fatalf("round %d successes=%d last-admin refusals=%d results=%v", round, successes, refused, results)
+				}
+				if admins := f.adminCount(house); admins != 1 {
+					t.Fatalf("round %d household admins=%d want exactly one", round, admins)
+				}
+
+				deleted := f.scalarInt(`SELECT count(*) FROM account_deletions WHERE user_id=$1::uuid`, a)
+				if results[0] == nil {
+					// The deletion won: A is gone everywhere and B is still the admin.
+					if deleted != 1 || f.loginOf(a) != "~deleted-"+strings.ReplaceAll(a, "-", "") {
+						t.Fatalf("round %d deletion committed but deletion records=%d login=%q", round, deleted, f.loginOf(a))
+					}
+					if role, _, ok := f.membership(house, b); !ok || role != household.RoleAdmin {
+						t.Fatalf("round %d refused B role=%q member=%t want an unchanged admin", round, role, ok)
+					}
+					continue
+				}
+				// B won: A keeps its account and stays the household's admin.
+				if deleted != 0 || f.loginOf(a) != aLogin {
+					t.Fatalf("round %d refused deletion left records=%d login=%q", round, deleted, f.loginOf(a))
+				}
+				if role, _, ok := f.membership(house, a); !ok || role != household.RoleAdmin {
+					t.Fatalf("round %d A role=%q member=%t want the remaining admin", round, role, ok)
+				}
+			}
+		})
+	}
+
+	t.Run("two administrators deleting both household admins leave one", func(t *testing.T) {
+		f.prepare()
+		for round := 0; round < 10; round++ {
+			x := f.newUserWithLogin(fmt.Sprintf("both_admins_x_%d", round))
+			y := f.newUserWithLogin(fmt.Sprintf("both_admins_y_%d", round))
+			f.grantInstanceAdmin(x)
+			f.grantInstanceAdmin(y)
+			house := f.newHousehold(fmt.Sprintf("both admins house %d", round))
+			aLogin, bLogin := fmt.Sprintf("both_admins_a_%d", round), fmt.Sprintf("both_admins_b_%d", round)
+			a, b := f.newUserWithLogin(aLogin), f.newUserWithLogin(bLogin)
+			f.join(a, house, household.RoleAdmin)
+			f.join(b, house, household.RoleAdmin)
+
+			results := race(
+				func() error { return f.deletions.DeleteAccount(ctx, x, a, aLogin) },
+				func() error { return f.deletions.DeleteAccount(ctx, y, b, bLogin) },
+			)
+			successes, refused := 0, 0
+			for i, err := range results {
+				switch {
+				case err == nil:
+					successes++
+				case errors.Is(err, household.ErrLastAdmin):
+					refused++
+				default:
+					expectRaceError(t, round, fmt.Sprintf("deletion %d", i), err, household.ErrLastAdmin)
+				}
+			}
+			if successes != 1 || refused != 1 {
+				t.Fatalf("round %d successes=%d last-admin refusals=%d results=%v", round, successes, refused, results)
+			}
+			if admins := f.adminCount(house); admins != 1 {
+				t.Fatalf("round %d household admins=%d want exactly one", round, admins)
+			}
+			if got := f.scalarInt(`SELECT count(*) FROM account_deletions WHERE user_id IN ($1::uuid, $2::uuid)`, a, b); got != 1 {
+				t.Fatalf("round %d deletion records=%d want exactly one", round, got)
+			}
+			if got := f.scalarInt(`SELECT count(*) FROM household_member_removals WHERE household_id=$1::uuid`, house); got != 1 {
+				t.Fatalf("round %d removal audit rows=%d want exactly one", round, got)
+			}
+		}
+	})
 }
