@@ -628,6 +628,11 @@ class PaperclipDependencyHandoff(unittest.TestCase):
         d = self.pick(snapshot(open_prs=[other],
                                security_alerts=[self.alert(7, "vite"), unnamed]))
         self.assertEqual((d["kind"], d["target"]["numbers"]), ("security-alert", [7, 8]))
+        # An image tag after `:` is not the npm package of the same name.
+        image = renovate_pr(505, "chore(deps): update gcr.io/distroless/static-debian13:debug "
+                                 "docker digest to aafe993", 1)
+        d = self.pick(snapshot(open_prs=[image], security_alerts=[self.alert(9, "debug")]))
+        self.assertEqual((d["kind"], d["target"]["numbers"]), ("security-alert", [9]))
 
     def test_in_progress_issue_worked_by_a_delegated_pr_is_not_resumed(self):
         dep = renovate_pr(481, "update", 1)

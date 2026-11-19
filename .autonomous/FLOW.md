@@ -79,7 +79,8 @@ When a capability is unavailable, use its fallback; never claim it was used.
   path in its journal summary.
 - The controller never exits because of a completion marker. It replaces the
   separate daily maintenance timer: dependency, security, CI recovery and
-  patch releases are its permanent duties (see "Scheduler order").
+  patch releases are its permanent duties (see "Scheduler order"); dependency
+  PR processing is delegated ("Owner-approved dependency PR handoff").
 - Host installation is a one-time owner action:
   `bash scripts/install-autonomy-service.sh --check` (redacted dry run, no
   mutation), then `--apply` (backup to

@@ -169,12 +169,13 @@ def alert_covering_prs(alert: dict, prs: list[dict]) -> list[int]:
     """Dependency PRs whose title names the alert's package as a whole token.
 
     Conservative: an alert without a package name, or one only mentioned as part
-    of a longer name (`vite` vs `@vitejs/plugin-react`), is never covered.
+    of a longer name (`vite` vs `@vitejs/plugin-react`, an image tag `:debug`),
+    is never covered.
     """
     name = str(((alert.get("dependency") or {}).get("package") or {}).get("name") or "").strip()
     if not name:
         return []
-    token = re.compile(r"(?<![A-Za-z0-9@/._-])" + re.escape(name) + r"(?![A-Za-z0-9@/._-])",
+    token = re.compile(r"(?<![A-Za-z0-9@/._:-])" + re.escape(name) + r"(?![A-Za-z0-9@/._:-])",
                        re.IGNORECASE)
     return [p["number"] for p in prs if token.search(p.get("title") or "")]
 
@@ -622,7 +623,7 @@ def select(snapshot: dict, now: datetime, delegate_dependency_prs: bool = False)
     # release/v* release-notes PR (author irrelevant).
     referenced = {n for p in all_open_prs for n in refs(p)}
     for number, numbers in sorted(delegated_refs.items()):
-        if number in owned:
+        if number in owned and str(owned[number].get("state", "")).upper() == "OPEN":
             notes.append(f"owned Issue #{number} is referenced by delegated dependency PR(s) "
                          f"{pr_list(numbers)}; not resumed or claimed by this controller")
     claimed_pr = None
