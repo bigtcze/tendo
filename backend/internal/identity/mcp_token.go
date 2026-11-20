@@ -164,8 +164,7 @@ func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MC
 	if refresh.Consumed {
 		return MCPTokens{}, ErrMCPInvalidGrant, tx.RevokeGrant(ctx, grantID, now, MCPRevocation{Reason: MCPRevokeReplay})
 	}
-	if !refresh.ExpiresAt.After(now) || !grant.ExpiresAt.After(now) ||
-		grant.ClientID != in.ClientID || grant.Resource != in.Resource {
+	if !refresh.ExpiresAt.After(now) || !grant.refreshableBy(in, now) {
 		return MCPTokens{}, ErrMCPInvalidGrant, nil
 	}
 	if err = tx.ConsumeRefreshToken(ctx, refreshHash, now); err != nil {
@@ -173,6 +172,12 @@ func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MC
 	}
 	tokens, err := issueMCPTokens(ctx, tx, grantID, grant.Scopes, now, grant.ExpiresAt)
 	return tokens, nil, err
+}
+
+// refreshableBy reports whether the grant is unexpired and the refresh request
+// presents exactly its client and resource.
+func (g MCPGrantRecord) refreshableBy(in MCPRefresh, now time.Time) bool {
+	return g.ExpiresAt.After(now) && g.ClientID == in.ClientID && g.Resource == in.Resource
 }
 
 // issueMCPTokens mints and stores a new pair. Neither token outlives the
