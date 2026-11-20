@@ -71,6 +71,8 @@ func TestValidateRedirectURIPolicy(t *testing.T) {
 		{"fragment refused", "https://client.example.test/callback#frag", false},
 		{"empty refused", "", false},
 		{"over 2048 bytes refused", long, false},
+		{"self redirect with trailing dot refused", "https://" + mcpTestPublicHost + "./cb", false},
+		{"self redirect upper case with trailing dot refused", "https://" + strings.ToUpper(mcpTestPublicHost) + "./cb", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -132,6 +134,8 @@ func TestNormalizeClientName(t *testing.T) {
 		{"right to left override refused", ptr("evil\u202Egnp.exe"), "", false},
 		{"zero width space refused", ptr("Cur\u200Bsor"), "", false},
 		{"bidi isolate refused", ptr("a\u2066b"), "", false},
+		{"line separator refused", ptr("a\u2028b"), "", false},
+		{"paragraph separator refused", ptr("a\u2029b"), "", false},
 		{"nul control refused", ptr("a\x00b"), "", false},
 		{"newline control refused", ptr("a\nb"), "", false},
 		{"tab control refused", ptr("a\tb"), "", false},
@@ -183,6 +187,8 @@ func TestDecodeClientRegistrationAndMetadata(t *testing.T) {
 		{"duplicate key refused", `{"redirect_uris":["https://client.example.test/cb"],"redirect_uris":["https://client.example.test/x"]}`, false},
 		{"two objects refused", `{"redirect_uris":["https://client.example.test/cb"]}{}`, false},
 		{"array body refused", `["https://client.example.test/cb"]`, false},
+		{"upper-case REDIRECT_URIS is not redirect_uris", `{"REDIRECT_URIS":["https://client.example.test/cb"]}`, false},
+		{"mixed-case Redirect_Uris is not redirect_uris", `{"Redirect_Uris":["https://client.example.test/cb"]}`, false},
 		{"invalid utf8 refused", "{\"redirect_uris\":[\"https://client.example.test/\xff\"]}", false},
 		{"over 16 KiB refused", `{"redirect_uris":["https://client.example.test/cb"],"pad":"` + strings.Repeat("a", MCPMaxRegistrationBytes) + `"}`, false},
 	}

@@ -117,7 +117,9 @@ func validHTTPSRedirect(u *url.URL, publicHost string) error {
 	if u.Host == "" || u.Hostname() == "" {
 		return ErrMCPInvalidRedirectURI
 	}
-	if publicHost != "" && strings.EqualFold(u.Hostname(), publicHost) {
+	// A trailing dot names the same host (FQDN form), so it is stripped before
+	// the self-redirect comparison: https://<publichost>./cb is refused too.
+	if publicHost != "" && strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), publicHost) {
 		return ErrMCPInvalidRedirectURI
 	}
 	return nil
@@ -202,7 +204,9 @@ func NormalizeClientName(raw *string) (string, error) {
 		return "", ErrMCPInvalidClientMetadata
 	}
 	for _, r := range name {
-		if unicode.In(r, unicode.Cc, unicode.Cf) {
+		// Zl and Zp are the line and paragraph separators (U+2028, U+2029):
+		// they break a single-line consent prompt as control characters do.
+		if unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return "", ErrMCPInvalidClientMetadata
 		}
 	}
@@ -217,14 +221,15 @@ func NormalizeClientName(raw *string) (string, error) {
 // measured in the same form a reader sees (decisions, "Client metadata").
 func nfcNormalize(s string) string { return norm.NFC.String(s) }
 
-// mcpClientMetadataWire is the subset of the RFC 7591 request this server reads.
-// Every other field is ignored by design.
-type mcpClientMetadataWire struct {
-	ClientName    *string         `json:"client_name"`
-	RedirectURIs  json.RawMessage `json:"redirect_uris"`
-	GrantTypes    json.RawMessage `json:"grant_types"`
-	ResponseTypes json.RawMessage `json:"response_types"`
-}
+// mcpClientMetadataKeys are the RFC 7591 request keys this server reads. Keys
+// are matched exactly: encoding/json would match a struct tag case-insensitively,
+// so REDIRECT_URIS would be taken as redirect_uris. Every other key is ignored.
+const (
+	mcpKeyClientName    = "client_name"
+	mcpKeyRedirectURIs  = "redirect_uris"
+	mcpKeyGrantTypes    = "grant_types"
+	mcpKeyResponseTypes = "response_types"
+)
 
 // MCPClientRegistration is a decoded, not yet validated RFC 7591 request.
 type MCPClientRegistration struct {
@@ -244,25 +249,35 @@ func DecodeClientRegistration(body []byte) (MCPClientRegistration, error) {
 	if err := rejectDuplicateKeys(body); err != nil {
 		return MCPClientRegistration{}, err
 	}
-	var wire mcpClientMetadataWire
+	var fields map[string]json.RawMessage
 	dec := json.NewDecoder(bytes.NewReader(body))
-	if err := dec.Decode(&wire); err != nil {
+	if err := dec.Decode(&fields); err != nil {
 		return MCPClientRegistration{}, ErrMCPInvalidClientMetadata
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return MCPClientRegistration{}, ErrMCPInvalidClientMetadata
 	}
-	reg := MCPClientRegistration{Name: wire.ClientName}
-	if len(wire.RedirectURIs) == 0 {
+	reg := MCPClientRegistration{}
+	if raw, ok := fields[mcpKeyClientName]; ok {
+		var name string
+		if string(raw) != "null" {
+			if err := json.Unmarshal(raw, &name); err != nil {
+				return MCPClientRegistration{}, ErrMCPInvalidClientMetadata
+			}
+			reg.Name = &name
+		}
+	}
+	raw, ok := fields[mcpKeyRedirectURIs]
+	if !ok || string(raw) == "null" {
 		return MCPClientRegistration{}, ErrMCPInvalidClientMetadata
 	}
-	if err := json.Unmarshal(wire.RedirectURIs, &reg.RedirectURIs); err != nil {
+	if err := json.Unmarshal(raw, &reg.RedirectURIs); err != nil {
 		return MCPClientRegistration{}, ErrMCPInvalidClientMetadata
 	}
-	if err := optionalStrings(wire.GrantTypes, &reg.GrantTypes); err != nil {
+	if err := optionalStrings(fields[mcpKeyGrantTypes], &reg.GrantTypes); err != nil {
 		return MCPClientRegistration{}, err
 	}
-	if err := optionalStrings(wire.ResponseTypes, &reg.ResponseTypes); err != nil {
+	if err := optionalStrings(fields[mcpKeyResponseTypes], &reg.ResponseTypes); err != nil {
 		return MCPClientRegistration{}, err
 	}
 	return reg, nil
