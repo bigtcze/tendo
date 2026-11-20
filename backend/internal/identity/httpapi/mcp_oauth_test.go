@@ -37,12 +37,38 @@ func (f *fakeMCPService) RegisterClient(_ context.Context, reg identity.MCPClien
 	}, nil
 }
 
+func (f *fakeMCPService) BeginAuthorization(context.Context, identity.MCPAuthorizationParams) (identity.MCPPendingAuthorization, error) {
+	return identity.MCPPendingAuthorization{}, errors.New("not used by registration tests")
+}
+
+func (f *fakeMCPService) GetAuthorizationRequest(context.Context, string, string) (identity.MCPAuthorizationRequestView, error) {
+	return identity.MCPAuthorizationRequestView{}, errors.New("not used by registration tests")
+}
+
+func (f *fakeMCPService) DecideAuthorization(context.Context, identity.MCPDecision) (identity.MCPDecisionResult, error) {
+	return identity.MCPDecisionResult{}, errors.New("not used by registration tests")
+}
+
+func (f *fakeMCPService) ExchangeCode(context.Context, identity.MCPCodeExchange) (identity.MCPTokens, error) {
+	return identity.MCPTokens{}, errors.New("not used by registration tests")
+}
+
+func (f *fakeMCPService) Refresh(context.Context, identity.MCPRefresh) (identity.MCPTokens, error) {
+	return identity.MCPTokens{}, errors.New("not used by registration tests")
+}
+
+func (f *fakeMCPService) RevokeToken(context.Context, identity.MCPTokenRevocation) error {
+	return errors.New("not used by registration tests")
+}
+
+func (f *fakeMCPService) Resource() string { return mcpPublicURL + "/mcp" }
+
 const mcpPublicURL = "https://tendo.example"
 
 func newMCPRouter(t *testing.T, service mcpRegistrar, publicURL string) http.Handler {
 	t.Helper()
 	routes := chi.NewRouter()
-	NewMCP(service, publicURL).Register(routes)
+	NewMCP(service, NewSession(&fakeSessionService{}, publicURL), publicURL).Register(routes)
 	return httpx.NewAppWithRoutes(nil, time.Second, make(chan struct{}), httpx.OriginPolicy{PublicURL: mcpPublicURL, CrossOrigin: MCPCrossOriginRoutes()}, func(r chi.Router) { r.Mount("/", routes) })
 }
 
@@ -293,6 +319,8 @@ func TestMCPCrossOriginRoutesExactList(t *testing.T) {
 		{Method: http.MethodPost, Path: "/oauth/register", Mode: httpx.CrossOriginAny},
 		{Method: http.MethodGet, Path: "/.well-known/oauth-protected-resource/mcp", Mode: httpx.CrossOriginAny},
 		{Method: http.MethodGet, Path: "/.well-known/oauth-authorization-server", Mode: httpx.CrossOriginAny},
+		{Method: http.MethodPost, Path: "/oauth/token", Mode: httpx.CrossOriginAny},
+		{Method: http.MethodPost, Path: "/oauth/revoke", Mode: httpx.CrossOriginAny},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("routes=%+v", got)

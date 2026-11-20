@@ -899,6 +899,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start an MCP authorization request (RFC 6749 section 4.1.1)
+         * @description Browser entry point for the MCP authorization code flow with PKCE S256 (ADR 0023, slice A3a). Reached by top-level navigation, never by a script. Every outcome is a 303 to Tendo's own /connect page, never to the client: success carries the pending request handle in the fragment (#request=), a refusal carries an RFC 6749 error code in the fragment (#error=). The client redirect happens only after a signed-in person approves the consent. The response sets a binding cookie scoped to the handle and reads no session cookie. Unknown parameters are ignored; a repeated recognized parameter is invalid_request, and a repeated resource is invalid_target. A refused client redirect URI is never echoed. While MCP is disabled the operation answers the unknown-path 404 problem. Rate limited per client IP (20 per minute) and globally (120 per minute).
+         */
+        get: operations["authorizeMcpClient"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/authorization-requests/{requestHandle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a pending MCP consent for the consent screen
+         * @description Returns what the consent screen shows for a pending authorization request. Requires the session cookie and the browser binding cookie set by /oauth/authorize; the binding cookie alone never authorizes a read. The client name is the client's own registration and is not verified (clientNameVerified is always false). A malformed handle, a missing or duplicated binding cookie, a mismatched binding, an expired request and a consumed request all answer the same 404. Problem responses only, with the cache headers of other session routes.
+         */
+        get: operations["getMcpAuthorizationRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/authorization-requests/{requestHandle}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or deny a pending MCP consent
+         * @description The signed-in person's decision on a pending consent. Requires the session cookie, the canonical Origin header and the binding cookie. Approval issues a single-use code and denial issues none; either consumes the request, so a second decision answers 404. The response carries the client redirect URI with code (approval) or error=access_denied (denial), state when the client sent one, and iss equal to the authorization server issuer. The client redirect is returned to the browser for navigation and is never followed by the server. The binding cookie is cleared on 200 and on 404. Rate limited per user (30 per minute).
+         */
+        post: operations["decideMcpAuthorizationRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange an authorization code or refresh token (RFC 6749 section 3.2)
+         * @description Token endpoint for public MCP clients. Form-encoded body only; parameters in the URL query are ignored. Reads and sets no cookies, so no session can ride along. CORS: any Origin is accepted without credentials. Errors use the RFC 6749 section 5.2 shape as application/json, not problem+json. An unknown client is invalid_grant rather than invalid_client: this is a declared deviation that avoids a client-existence oracle. Access tokens and refresh tokens are returned only here; the response is never cached.
+         */
+        post: operations["exchangeMcpToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke an MCP token (RFC 7009)
+         * @description Revokes the whole grant of an access or refresh token presented by the client that holds it. Form-encoded body only; the same CORS, cookie and media rules as the token endpoint. A malformed, unknown, foreign or already revoked token is a silent success. token_type_hint is accepted and ignored. Rate limited per client IP (30 per minute). While MCP is disabled the operation answers the unknown-path 404 problem.
+         */
+        post: operations["revokeMcpToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -993,8 +1093,73 @@ export interface components {
         /** @description RFC 6749 section 5.2 / RFC 7591 section 3.2.2 error response. Not problem+json. */
         OAuthError: {
             /** @enum {string} */
-            error: "invalid_redirect_uri" | "invalid_client_metadata" | "temporarily_unavailable";
+            error: "invalid_redirect_uri" | "invalid_client_metadata" | "temporarily_unavailable" | "invalid_request" | "unsupported_grant_type" | "invalid_grant" | "invalid_scope" | "invalid_target";
             error_description: string;
+        };
+        /** @description The consent screen view of a pending MCP authorization request. Field names are camelCase, not the RFC wire names of /oauth/*. */
+        McpAuthorizationRequest: {
+            /** @description The client's own registration name. Not verified. */
+            clientName: string;
+            /** @constant */
+            clientNameVerified: false;
+            redirectUri: string;
+            scopes: ("tendo:read" | "tendo:write")[];
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        /** @description The person's decision. Strict JSON; unknown fields are refused. */
+        McpAuthorizationDecisionRequest: {
+            /** @enum {string} */
+            decision: "approve" | "deny";
+        };
+        /** @description The client redirect URI with the authorization response appended. The existing query of the registered URI is kept. */
+        McpAuthorizationDecisionResponse: {
+            /** Format: uri */
+            redirectTo: string;
+        };
+        /** @description RFC 6749 section 4.1.3 (authorization_code) or section 6 (refresh_token) form body. Parameters are read from the body only. */
+        McpTokenRequest: {
+            /** @enum {string} */
+            grant_type: "authorization_code" | "refresh_token";
+            /** @description Required for authorization_code. */
+            code?: string;
+            /** @description Required for authorization_code; must equal the redirect URI of the authorization request. */
+            redirect_uri?: string;
+            /** @description Required. */
+            client_id?: string;
+            /** @description Required for authorization_code (PKCE). */
+            code_verifier?: string;
+            /** @description Required for refresh_token. */
+            refresh_token?: string;
+            /**
+             * Format: uri
+             * @description Optional. When present it must equal the configured resource, else invalid_target.
+             */
+            resource?: string;
+            /** @description Optional for refresh_token. When present it must equal the grant scopes as a set. */
+            scope?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description RFC 6749 section 5.1 token response. Field names are RFC snake_case wire names. */
+        McpTokenResponse: {
+            access_token: string;
+            /** @enum {string} */
+            token_type: "Bearer";
+            /** @description Seconds until the access token expires. */
+            expires_in: number;
+            refresh_token: string;
+            /** @enum {string} */
+            scope: "tendo:read tendo:write" | "tendo:read" | "tendo:write";
+        };
+        /** @description RFC 7009 form body. token_type_hint is accepted and ignored. */
+        McpRevocationRequest: {
+            token: string;
+            client_id: string;
+            /** @enum {string} */
+            token_type_hint?: "access_token" | "refresh_token";
+        } & {
+            [key: string]: unknown;
         };
         /** @description RFC 9728 protected resource metadata. Field names are RFC snake_case wire names. */
         McpProtectedResourceMetadata: {
@@ -1640,6 +1805,10 @@ export interface components {
          * @example __Host-tendo_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax
          */
         ClearStaleSessionCookie: string;
+        /** @description Set only on success (Location /connect#request=...); an error redirect sets no cookie. Browser binding of one pending MCP consent. HttpOnly; SameSite=Lax; Max-Age=300; Path is the request's own /api/v1/mcp/authorization-requests/<handle>. HTTPS public URL uses __Secure-tendo_mcp_consent with Secure; HTTP uses tendo_mcp_consent. The cookie is never read by /oauth/authorize. */
+        SetMcpConsentCookie: string;
+        /** @description Expires the consent binding cookie on the same Path it was set with (Max-Age=-1). */
+        ClearMcpConsentCookie: string;
         /**
          * @description Session cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. Login and a password change set Max-Age=2592000, logout sets Max-Age=0. HTTPS public URL uses the name __Host-tendo_session with Secure; HTTP public URL uses tendo_session.
          * @example __Host-tendo_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax
@@ -12634,6 +12803,638 @@ export interface operations {
                      *     }
                      */
                     "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    authorizeMcpClient: {
+        parameters: {
+            query: {
+                response_type: "code";
+                client_id: string;
+                redirect_uri: string;
+                code_challenge: string;
+                code_challenge_method: "S256";
+                /** @description Space-separated scopes. Absent or empty requests both Tendo scopes. Unknown scopes are dropped. */
+                scope?: string;
+                /** @description The configured resource, <public URL>/mcp. Any other value is invalid_target. */
+                resource?: string;
+                /** @description Opaque client state, 1 to 1024 printable ASCII bytes, returned unchanged to the client. */
+                state?: string;
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Always a redirect to /connect. Success uses */
+            303: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Referrer-Policy"?: "no-referrer";
+                    /** @description /connect with the handle or the error code in the fragment. Never the client redirect URI. */
+                    Location?: string;
+                    "Set-Cookie": components["headers"]["SetMcpConsentCookie"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMcpAuthorizationRequest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /** @description The opaque handle from the */
+                requestHandle: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pending consent. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "clientName": "Claude Code",
+                     *       "clientNameVerified": false,
+                     *       "redirectUri": "http://localhost:54123/callback",
+                     *       "scopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "expiresAt": "2026-11-20T10:05:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpAuthorizationRequest"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No pending consent for this handle and browser, or it has expired or was consumed. MCP disabled answers the unknown-path 404 instead. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "authorization_request_not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    decideMcpAuthorizationRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+            };
+            path: {
+                /** @description The opaque handle from the */
+                requestHandle: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "decision": "approve"
+                 *     }
+                 */
+                "application/json": components["schemas"]["McpAuthorizationDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The decision was recorded. Navigate the browser to redirectTo. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearMcpConsentCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "redirectTo": "http://localhost:54123/callback?code=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&state=abc&iss=https%3A%2F%2Ftendo.example"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpAuthorizationDecisionResponse"];
+                };
+            };
+            /** @description Malformed JSON, duplicate or unknown keys, null values, or a decision other than approve or deny. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing or does not match the configured canonical public origin. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No pending consent for this handle and browser, or it was already decided or expired. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearMcpConsentCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "authorization_request_not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The per-user decision limit (30 per minute) is reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exchangeMcpToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "grant_type": "authorization_code",
+                 *       "code": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                 *       "redirect_uri": "http://localhost:54123/callback",
+                 *       "client_id": "3vK9qZ0xYw1Lm7rT2pNcQaHs8fUeBj4dGkWoRyXiVtA",
+                 *       "code_verifier": "verifier-verifier-verifier-verifier-verifier-verifier"
+                 *     }
+                 */
+                "application/x-www-form-urlencoded": components["schemas"]["McpTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Access and refresh tokens. Bearer tokens for tendo:read and tendo:write. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    Pragma?: "no-cache";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "access_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                     *       "token_type": "Bearer",
+                     *       "expires_in": 3600,
+                     *       "refresh_token": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                     *       "scope": "tendo:read tendo:write"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpTokenResponse"];
+                };
+            };
+            /** @description invalid_request (wrong media type, oversize body, missing or repeated parameter), unsupported_grant_type, invalid_grant (unknown, expired, reused or mismatched code or token, or unknown client), invalid_scope, or invalid_target (resource is not the configured resource). */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "invalid_grant",
+                     *       "error_description": "The grant is invalid or expired."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Per-client (60 per minute per client IP and client_id) or global (600 per minute) token limit reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Too many token requests. Retry later."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description Token service fault. Retry later. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Token service is temporarily unavailable."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    revokeMcpToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "token": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                 *       "client_id": "3vK9qZ0xYw1Lm7rT2pNcQaHs8fUeBj4dGkWoRyXiVtA"
+                 *     }
+                 */
+                "application/x-www-form-urlencoded": components["schemas"]["McpRevocationRequest"];
+            };
+        };
+        responses: {
+            /** @description The token was revoked or was not a revocable token of this client. The body is empty. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token or client_id is missing, or a parameter is repeated. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "invalid_request",
+                     *       "error_description": "token and client_id are required."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Per-client-IP limit (30 per minute) reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Too many revocation requests. Retry later."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description Revocation fault. Retry later. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Revocation is temporarily unavailable."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
                 };
             };
         };

@@ -31,6 +31,13 @@ const (
 type mcpRegistrar interface {
 	Enabled() bool
 	RegisterClient(ctx context.Context, reg identity.MCPClientRegistration) (identity.MCPRegisteredClient, error)
+	BeginAuthorization(ctx context.Context, in identity.MCPAuthorizationParams) (identity.MCPPendingAuthorization, error)
+	GetAuthorizationRequest(ctx context.Context, handle, browserBinding string) (identity.MCPAuthorizationRequestView, error)
+	DecideAuthorization(ctx context.Context, in identity.MCPDecision) (identity.MCPDecisionResult, error)
+	ExchangeCode(ctx context.Context, in identity.MCPCodeExchange) (identity.MCPTokens, error)
+	Refresh(ctx context.Context, in identity.MCPRefresh) (identity.MCPTokens, error)
+	RevokeToken(ctx context.Context, in identity.MCPTokenRevocation) error
+	Resource() string
 }
 
 // MCPHandler serves dynamic client registration (RFC 7591) and the RFC 9728 and
@@ -38,23 +45,43 @@ type mcpRegistrar interface {
 // credentials-bearing CORS headers.
 type MCPHandler struct {
 	service mcpRegistrar
+	// sessions authenticates the consent decision and reads the raw session
+	// token. The token endpoints never touch it.
+	sessions *SessionHandler
 	// issuer is the normalized public origin: TENDO_PUBLIC_URL without a
 	// trailing slash. It is the authorization server issuer and the base of
 	// every advertised endpoint.
 	issuer string
 	perIP  *limiter
 	global *limiter
+	// The consent and token buckets each have their own limiter instance and
+	// key space, never shared with registration or login.
+	authorizeIP     *limiter
+	authorizeGlobal *limiter
+	decisions       *limiter
+	tokenPerClient  *limiter
+	tokenGlobal     *limiter
+	revokePerIP     *limiter
 }
 
 // NewMCP builds the MCP HTTP adapter. publicURL is the canonical public URL.
-func NewMCP(service mcpRegistrar, publicURL string) *MCPHandler {
+// sessions supplies RequireSession and the raw session token for the consent
+// decision.
+func NewMCP(service mcpRegistrar, sessions *SessionHandler, publicURL string) *MCPHandler {
 	return &MCPHandler{
-		service: service,
-		issuer:  strings.TrimRight(publicURL, "/"),
-		perIP:   newLimiter(mcpRegisterPerIPPerMinute),
+		service:  service,
+		sessions: sessions,
+		issuer:   strings.TrimRight(publicURL, "/"),
+		perIP:    newLimiter(mcpRegisterPerIPPerMinute),
 		// The global bucket has its own instance and key space; it is never
 		// shared with the per-IP limiter or with login.
-		global: newLimiter(mcpRegisterGlobalPerMinute),
+		global:          newLimiter(mcpRegisterGlobalPerMinute),
+		authorizeIP:     newLimiter(mcpAuthorizeIPPerMinute),
+		authorizeGlobal: newLimiter(mcpAuthorizeGlobalPerMinute),
+		decisions:       newLimiter(mcpDecisionPerUserPerMinute),
+		tokenPerClient:  newLimiter(mcpTokenPerClientPerMinute),
+		tokenGlobal:     newLimiter(mcpTokenGlobalPerMinute),
+		revokePerIP:     newLimiter(mcpRevokePerIPPerMinute),
 	}
 }
 
@@ -66,11 +93,14 @@ func MCPCrossOriginRoutes() []httpx.CrossOriginRoute {
 		{Method: http.MethodPost, Path: mcpRegisterPath, Mode: httpx.CrossOriginAny},
 		{Method: http.MethodGet, Path: mcpProtectedResourcePath, Mode: httpx.CrossOriginAny},
 		{Method: http.MethodGet, Path: mcpAuthorizationServerPath, Mode: httpx.CrossOriginAny},
+		{Method: http.MethodPost, Path: mcpTokenPath, Mode: httpx.CrossOriginAny},
+		{Method: http.MethodPost, Path: mcpRevokePath, Mode: httpx.CrossOriginAny},
 	}
 }
 
-// Register mounts the three endpoints and their CORS preflights. Each OPTIONS
+// Register mounts the MCP endpoints and their CORS preflights. Each OPTIONS
 // route exists so a preflight is answered here instead of as a method error.
+// /oauth/authorize is a browser navigation and has no preflight.
 func (h *MCPHandler) Register(r chi.Router) {
 	r.Post(mcpRegisterPath, h.register)
 	r.Options(mcpRegisterPath, h.preflight(http.MethodPost))
@@ -78,6 +108,13 @@ func (h *MCPHandler) Register(r chi.Router) {
 	r.Options(mcpProtectedResourcePath, h.preflight(http.MethodGet))
 	r.Get(mcpAuthorizationServerPath, h.authorizationServer)
 	r.Options(mcpAuthorizationServerPath, h.preflight(http.MethodGet))
+	r.Get(mcpAuthorizePath, h.authorize)
+	r.Get(mcpAuthorizationRequestPath, h.guarded(h.getAuthorizationRequest).ServeHTTP)
+	r.Post(mcpAuthorizationDecisionPath, h.guarded(h.decideAuthorizationRequest).ServeHTTP)
+	r.Post(mcpTokenPath, h.token)
+	r.Options(mcpTokenPath, h.preflight(http.MethodPost))
+	r.Post(mcpRevokePath, h.revoke)
+	r.Options(mcpRevokePath, h.preflight(http.MethodPost))
 }
 
 // preflight answers a CORS preflight. A disabled service answers the router

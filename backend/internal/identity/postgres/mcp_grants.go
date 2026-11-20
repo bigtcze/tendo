@@ -143,6 +143,9 @@ var sweepStatements = map[identity.MCPSweepStep]sweepBatchFunc{
 	identity.MCPSweepUnusedCodesExpired: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
 		return q.SweepMCPUnusedCodesExpired(ctx, ts(now))
 	}),
+	identity.MCPSweepAuthorizationRequestsExpired: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
+		return q.SweepMCPAuthorizationRequestsExpired(ctx, ts(now))
+	}),
 	identity.MCPSweepGrantlessClients: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
 		return q.SweepMCPGrantlessClients(ctx, ts(now.Add(-identity.MCPGrantlessClientLifetime)))
 	}),

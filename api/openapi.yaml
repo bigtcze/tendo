@@ -2829,6 +2829,281 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Not Found, status: 404 }
+  /oauth/authorize:
+    get:
+      operationId: authorizeMcpClient
+      summary: Start an MCP authorization request (RFC 6749 section 4.1.1)
+      description: >-
+        Browser entry point for the MCP authorization code flow with PKCE S256 (ADR 0023, slice A3a). Reached by top-level
+        navigation, never by a script. Every outcome is a 303 to Tendo's own /connect page, never to the client: success
+        carries the pending request handle in the fragment (#request=), a refusal carries an RFC 6749 error code in the
+        fragment (#error=). The client redirect happens only after a signed-in person approves the consent. The response
+        sets a binding cookie scoped to the handle and reads no session cookie. Unknown parameters are ignored; a repeated
+        recognized parameter is invalid_request, and a repeated resource is invalid_target. A refused client redirect URI
+        is never echoed. While MCP is disabled the operation answers the unknown-path 404 problem. Rate limited per client
+        IP (20 per minute) and globally (120 per minute).
+      tags: [Mcp]
+      security: []
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema: { type: string, enum: [code] }
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: redirect_uri
+          in: query
+          required: true
+          schema: { type: string, maxLength: 2048 }
+        - name: code_challenge
+          in: query
+          required: true
+          schema: { type: string, minLength: 43, maxLength: 43 }
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema: { type: string, enum: [S256] }
+        - name: scope
+          in: query
+          required: false
+          description: Space-separated scopes. Absent or empty requests both Tendo scopes. Unknown scopes are dropped.
+          schema: { type: string }
+        - name: resource
+          in: query
+          required: false
+          description: The configured resource, <public URL>/mcp. Any other value is invalid_target.
+          schema: { type: string, format: uri }
+        - name: state
+          in: query
+          required: false
+          description: Opaque client state, 1 to 1024 printable ASCII bytes, returned unchanged to the client.
+          schema: { type: string, maxLength: 1024 }
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '303':
+          description: Always a redirect to /connect. Success uses #request=<handle>; a refusal uses #error=<code> with one of invalid_request, unsupported_response_type, invalid_scope, invalid_target, invalid_client, invalid_redirect_uri, temporarily_unavailable or server_error.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Referrer-Policy: { schema: { type: string, const: no-referrer } }
+            Location:
+              description: /connect with the handle or the error code in the fragment. Never the client redirect URI.
+              schema: { type: string, pattern: '^/connect#(request=[A-Za-z0-9_-]{43}|error=[a-z_]+)$' }
+            Set-Cookie: { $ref: '#/components/headers/SetMcpConsentCookie' }
+        '404':
+          description: MCP disabled. Answered exactly as an unknown reserved path, as problem+json.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404 }
+  /api/v1/mcp/authorization-requests/{requestHandle}:
+    get:
+      operationId: getMcpAuthorizationRequest
+      summary: Read a pending MCP consent for the consent screen
+      description: >-
+        Returns what the consent screen shows for a pending authorization request. Requires the session cookie and the
+        browser binding cookie set by /oauth/authorize; the binding cookie alone never authorizes a read. The client name is
+        the client's own registration and is not verified (clientNameVerified is always false). A malformed handle, a missing
+        or duplicated binding cookie, a mismatched binding, an expired request and a consumed request all answer the same 404.
+        Problem responses only, with the cache headers of other session routes.
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: requestHandle
+          in: path
+          required: true
+          description: The opaque handle from the #request= fragment, 43 base64url characters.
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+      responses:
+        '200':
+          description: The pending consent.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpAuthorizationRequest' }
+              example:
+                clientName: Claude Code
+                clientNameVerified: false
+                redirectUri: 'http://localhost:54123/callback'
+                scopes: [tendo:read, tendo:write]
+                expiresAt: '2026-11-20T10:05:00Z'
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '404':
+          description: No pending consent for this handle and browser, or it has expired or was consumed. MCP disabled answers the unknown-path 404 instead.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: authorization_request_not_found }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503':
+          description: Persistence is unavailable.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+  /api/v1/mcp/authorization-requests/{requestHandle}/decision:
+    post:
+      operationId: decideMcpAuthorizationRequest
+      summary: Approve or deny a pending MCP consent
+      description: >-
+        The signed-in person's decision on a pending consent. Requires the session cookie, the canonical Origin header and the
+        binding cookie. Approval issues a single-use code and denial issues none; either consumes the request, so a second
+        decision answers 404. The response carries the client redirect URI with code (approval) or error=access_denied
+        (denial), state when the client sent one, and iss equal to the authorization server issuer. The client redirect is
+        returned to the browser for navigation and is never followed by the server. The binding cookie is cleared on 200 and
+        on 404. Rate limited per user (30 per minute).
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: Origin
+          in: header
+          required: true
+          description: Must match the configured canonical public origin.
+          schema: { type: string, format: uri }
+          example: https://tendo.example
+        - name: requestHandle
+          in: path
+          required: true
+          description: The opaque handle from the #request= fragment, 43 base64url characters.
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/McpAuthorizationDecisionRequest' }
+            example: { decision: approve }
+      responses:
+        '200':
+          description: The decision was recorded. Navigate the browser to redirectTo.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Set-Cookie: { $ref: '#/components/headers/ClearMcpConsentCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpAuthorizationDecisionResponse' }
+              example: { redirectTo: 'http://localhost:54123/callback?code=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&state=abc&iss=https%3A%2F%2Ftendo.example' }
+        '400': { description: 'Malformed JSON, duplicate or unknown keys, null values, or a decision other than approve or deny.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
+        '404':
+          description: No pending consent for this handle and browser, or it was already decided or expired.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Set-Cookie: { $ref: '#/components/headers/ClearMcpConsentCookie' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: authorization_request_not_found }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '429':
+          description: The per-user decision limit (30 per minute) is reached.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema: { type: string, const: '60' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited }
+        '503':
+          description: Persistence is unavailable.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+  /oauth/token:
+    post:
+      operationId: exchangeMcpToken
+      summary: Exchange an authorization code or refresh token (RFC 6749 section 3.2)
+      description: >-
+        Token endpoint for public MCP clients. Form-encoded body only; parameters in the URL query are ignored. Reads and
+        sets no cookies, so no session can ride along. CORS: any Origin is accepted without credentials. Errors use the RFC
+        6749 section 5.2 shape as application/json, not problem+json. An unknown client is invalid_grant rather than
+        invalid_client: this is a declared deviation that avoids a client-existence oracle. Access tokens and refresh tokens
+        are returned only here; the response is never cached.
+      tags: [Mcp]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/McpTokenRequest' }
+            example: { grant_type: authorization_code, code: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, redirect_uri: 'http://localhost:54123/callback', client_id: 3vK9qZ0xYw1Lm7rT2pNcQaHs8fUeBj4dGkWoRyXiVtA, code_verifier: 'verifier-verifier-verifier-verifier-verifier-verifier' }
+      responses:
+        '200':
+          description: Access and refresh tokens. Bearer tokens for tendo:read and tendo:write.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Pragma: { schema: { type: string, const: no-cache } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpTokenResponse' }
+              example:
+                access_token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+                token_type: Bearer
+                expires_in: 3600
+                refresh_token: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+                scope: 'tendo:read tendo:write'
+        '400': { description: 'invalid_request (wrong media type, oversize body, missing or repeated parameter), unsupported_grant_type, invalid_grant (unknown, expired, reused or mismatched code or token, or unknown client), invalid_scope, or invalid_target (resource is not the configured resource).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: invalid_grant, error_description: The grant is invalid or expired. } } } }
+        '429': { description: 'Per-client (60 per minute per client IP and client_id) or global (600 per minute) token limit reached.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { description: Seconds to wait before retrying., schema: { type: string, const: '60' } } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Too many token requests. Retry later. } } } }
+        '404': { description: 'MCP disabled. Answered exactly as an unknown reserved path, as problem+json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } } } }
+        '503': { description: 'Token service fault. Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Token service is temporarily unavailable. } } } }
+  /oauth/revoke:
+    post:
+      operationId: revokeMcpToken
+      summary: Revoke an MCP token (RFC 7009)
+      description: >-
+        Revokes the whole grant of an access or refresh token presented by the client that holds it. Form-encoded body
+        only; the same CORS, cookie and media rules as the token endpoint. A malformed, unknown, foreign or already revoked
+        token is a silent success. token_type_hint is accepted and ignored. Rate limited per client IP (30 per minute).
+        While MCP is disabled the operation answers the unknown-path 404 problem.
+      tags: [Mcp]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/McpRevocationRequest' }
+            example: { token: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB, client_id: 3vK9qZ0xYw1Lm7rT2pNcQaHs8fUeBj4dGkWoRyXiVtA }
+      responses:
+        '200':
+          description: The token was revoked or was not a revocable token of this client. The body is empty.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+        '400': { description: 'token or client_id is missing, or a parameter is repeated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: invalid_request, error_description: token and client_id are required. } } } }
+        '404': { description: 'MCP disabled. Answered exactly as an unknown reserved path, as problem+json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } } } }
+        '429': { description: 'Per-client-IP limit (30 per minute) reached.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { description: Seconds to wait before retrying., schema: { type: string, const: '60' } } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Too many revocation requests. Retry later. } } } }
+        '503': { description: 'Revocation fault. Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Revocation is temporarily unavailable. } } } }
 components:
   securitySchemes:
     SessionCookie:
@@ -2847,6 +3122,14 @@ components:
       required: false
       schema: { type: string }
       example: __Host-tendo_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax
+    SetMcpConsentCookie:
+      required: false
+      description: Set only on success (Location /connect#request=...); an error redirect sets no cookie. Browser binding of one pending MCP consent. HttpOnly; SameSite=Lax; Max-Age=300; Path is the request's own /api/v1/mcp/authorization-requests/<handle>. HTTPS public URL uses __Secure-tendo_mcp_consent with Secure; HTTP uses tendo_mcp_consent. The cookie is never read by /oauth/authorize.
+      schema: { type: string }
+    ClearMcpConsentCookie:
+      required: true
+      description: Expires the consent binding cookie on the same Path it was set with (Max-Age=-1).
+      schema: { type: string }
     SetSessionCookie:
       required: true
       description: Session cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. Login and a password change set Max-Age=2592000, logout sets Max-Age=0. HTTPS public URL uses the name __Host-tendo_session with Secure; HTTP public URL uses tendo_session.
@@ -3051,9 +3334,68 @@ components:
       description: RFC 6749 section 5.2 / RFC 7591 section 3.2.2 error response. Not problem+json.
       required: [error, error_description]
       properties:
-        error: { type: string, enum: [invalid_redirect_uri, invalid_client_metadata, temporarily_unavailable] }
+        error: { type: string, enum: [invalid_redirect_uri, invalid_client_metadata, temporarily_unavailable, invalid_request, unsupported_grant_type, invalid_grant, invalid_scope, invalid_target] }
         error_description: { type: string }
       additionalProperties: false
+    McpAuthorizationRequest:
+      type: object
+      description: The consent screen view of a pending MCP authorization request. Field names are camelCase, not the RFC wire names of /oauth/*.
+      required: [clientName, clientNameVerified, redirectUri, scopes, expiresAt]
+      additionalProperties: false
+      properties:
+        clientName: { type: string, description: The client's own registration name. Not verified. }
+        clientNameVerified: { type: boolean, const: false }
+        redirectUri: { type: string, maxLength: 2048 }
+        scopes: { type: array, items: { type: string, enum: [tendo:read, tendo:write] } }
+        expiresAt: { type: string, format: date-time }
+    McpAuthorizationDecisionRequest:
+      type: object
+      description: The person's decision. Strict JSON; unknown fields are refused.
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision: { type: string, enum: [approve, deny] }
+    McpAuthorizationDecisionResponse:
+      type: object
+      description: The client redirect URI with the authorization response appended. The existing query of the registered URI is kept.
+      required: [redirectTo]
+      additionalProperties: false
+      properties:
+        redirectTo: { type: string, format: uri }
+    McpTokenRequest:
+      type: object
+      description: RFC 6749 section 4.1.3 (authorization_code) or section 6 (refresh_token) form body. Parameters are read from the body only.
+      required: [grant_type]
+      properties:
+        grant_type: { type: string, enum: [authorization_code, refresh_token] }
+        code: { type: string, description: 'Required for authorization_code.' }
+        redirect_uri: { type: string, maxLength: 2048, description: 'Required for authorization_code; must equal the redirect URI of the authorization request.' }
+        client_id: { type: string, description: 'Required.' }
+        code_verifier: { type: string, minLength: 43, maxLength: 128, description: 'Required for authorization_code (PKCE).' }
+        refresh_token: { type: string, description: 'Required for refresh_token.' }
+        resource: { type: string, format: uri, description: 'Optional. When present it must equal the configured resource, else invalid_target.' }
+        scope: { type: string, description: 'Optional for refresh_token. When present it must equal the grant scopes as a set.' }
+      additionalProperties: true
+    McpTokenResponse:
+      type: object
+      description: RFC 6749 section 5.1 token response. Field names are RFC snake_case wire names.
+      required: [access_token, token_type, expires_in, refresh_token, scope]
+      additionalProperties: false
+      properties:
+        access_token: { type: string, minLength: 43, maxLength: 43 }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer, minimum: 1, description: Seconds until the access token expires. }
+        refresh_token: { type: string, minLength: 43, maxLength: 43 }
+        scope: { type: string, enum: ['tendo:read tendo:write', tendo:read, tendo:write] }
+    McpRevocationRequest:
+      type: object
+      description: RFC 7009 form body. token_type_hint is accepted and ignored.
+      required: [token, client_id]
+      properties:
+        token: { type: string }
+        client_id: { type: string }
+        token_type_hint: { type: string, enum: [access_token, refresh_token] }
+      additionalProperties: true
     McpProtectedResourceMetadata:
       type: object
       description: RFC 9728 protected resource metadata. Field names are RFC snake_case wire names.

@@ -189,6 +189,40 @@ func ValidateRedirectURIs(uris []string, publicHost string) error {
 	return nil
 }
 
+// MCPRedirectURIMatches reports whether a requested redirect URI is one the
+// client registered. An exact string match always counts. A loopback http URI
+// (RFC 8252 section 7.3) also matches a registered loopback URI whose only
+// difference is the port, present or absent on either side: the host must be
+// the same literal (no localhost/127.0.0.1 aliasing, no case folding), and the
+// path and query must be byte-equal. No other URI matches by port.
+func MCPRedirectURIMatches(registered []string, requested string) bool {
+	for _, reg := range registered {
+		if reg == requested {
+			return true
+		}
+	}
+	if ValidateRedirectURI(requested, "") != nil {
+		return false
+	}
+	req, err := url.Parse(requested)
+	if err != nil || req.Scheme != "http" {
+		return false
+	}
+	for _, reg := range registered {
+		if ValidateRedirectURI(reg, "") != nil {
+			continue
+		}
+		u, err := url.Parse(reg)
+		if err != nil || u.Scheme != "http" {
+			continue
+		}
+		if u.Hostname() == req.Hostname() && u.EscapedPath() == req.EscapedPath() && u.RawQuery == req.RawQuery {
+			return true
+		}
+	}
+	return false
+}
+
 // NormalizeClientName trims and NFC-normalizes a client_name and refuses control
 // or format characters, which can disguise a consent prompt (Trojan Source,
 // right-to-left override). An absent or empty name becomes MCPDefaultClientName.

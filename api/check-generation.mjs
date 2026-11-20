@@ -23,9 +23,14 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
       for (const [header, spec] of Object.entries(response.headers ?? {})) if (spec.$ref) assert.ok(contract.components.headers[spec.$ref.split('/').at(-1)], `${path} ${status} has unresolved header ref`)
     }
     if (operation.requestBody) {
-      const schema = operation.requestBody.content?.['application/json']?.schema
-      assert.ok(schema?.$ref && generated.includes(`components["schemas"]["${schema.$ref.split('/').at(-1)}"]`), `${operation.operationId}: missing generated request model`)
-      assert.ok(operation.requestBody.content['application/json'].example || Object.keys(operation.requestBody.content['application/json'].examples ?? {}).length, `${operation.operationId}: missing request example`)
+      // JSON is the API default. The OAuth token and revocation endpoints take the
+      // form media type that RFC 6749 and RFC 7009 require; nothing else may.
+      const mediaTypes = Object.keys(operation.requestBody.content ?? {})
+      const formOnly = path.startsWith('/oauth/') && mediaTypes.length === 1 && mediaTypes[0] === 'application/x-www-form-urlencoded'
+      assert.ok(formOnly || (mediaTypes.length === 1 && mediaTypes[0] === 'application/json'), `${operation.operationId}: request body must be application/json (form encoding only on /oauth/)`)
+      const media = operation.requestBody.content[mediaTypes[0]]
+      assert.ok(media.schema?.$ref && generated.includes(`components["schemas"]["${media.schema.$ref.split('/').at(-1)}"]`), `${operation.operationId}: missing generated request model`)
+      assert.ok(media.example || Object.keys(media.examples ?? {}).length, `${operation.operationId}: missing request example`)
     }
   }
 }

@@ -20,6 +20,9 @@ type Querier interface {
 	AnonymizeAccount(ctx context.Context, arg AnonymizeAccountParams) (int64, error)
 	CompletePasswordReset(ctx context.Context, arg CompletePasswordResetParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
+	// Single use: the delete and the return are one statement. A wrong binding or an
+	// expired row matches nothing and deletes nothing.
+	ConsumeMCPAuthorizationRequest(ctx context.Context, arg ConsumeMCPAuthorizationRequestParams) (ConsumeMCPAuthorizationRequestRow, error)
 	// Clamped to created_at against clock skew between instances.
 	ConsumeMCPRefreshToken(ctx context.Context, arg ConsumeMCPRefreshTokenParams) (int64, error)
 	ConsumeOIDCFlow(ctx context.Context, arg ConsumeOIDCFlowParams) (ConsumeOIDCFlowRow, error)
@@ -27,6 +30,13 @@ type Querier interface {
 	CreateLocalCredential(ctx context.Context, arg CreateLocalCredentialParams) error
 	CreateMCPAccessToken(ctx context.Context, arg CreateMCPAccessTokenParams) error
 	CreateMCPAuthorizationCode(ctx context.Context, arg CreateMCPAuthorizationCodeParams) error
+	// MCP authorization code flow, slice A3a (ADR 0023). Pending consents are keyed
+	// by the SHA-256 digests of the handle and of the browser binding; a consent is
+	// single use and never visible past expires_at. The lock order is the one in
+	// mcp_grants.sql: the client is held FOR KEY SHARE before a consent row, and a
+	// consent row is held before the code it issues.
+	// An empty state is stored as NULL: the CHECK refuses a zero-length state.
+	CreateMCPAuthorizationRequest(ctx context.Context, arg CreateMCPAuthorizationRequestParams) error
 	// One statement: the grantless-client count and the insert are not separate
 	// round trips. Concurrent registrations may each see room under the cap, so the
 	// cap is soft (ADR 0023).
@@ -89,6 +99,9 @@ type Querier interface {
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
 	// The unlocked pre-read: the account is locked before the code row.
 	FindMCPAuthorizationCodeOwner(ctx context.Context, codeHash []byte) (pgtype.UUID, error)
+	// The unlocked read. The client name comes from the joined client row; the
+	// foreign key guarantees it exists.
+	FindMCPAuthorizationRequest(ctx context.Context, arg FindMCPAuthorizationRequestParams) (FindMCPAuthorizationRequestRow, error)
 	// FOR KEY SHARE: an issuance that found the client keeps it until commit, so the
 	// sweep's FOR UPDATE delete skips it rather than orphaning a code being inserted.
 	// KEY SHARE does not block other registrations or the referencing-row inserts.
@@ -96,6 +109,10 @@ type Querier interface {
 	// The unlocked pre-read: the account is locked before the grant and token rows.
 	// A refresh token never moves to another grant, so grant_id is stable.
 	FindMCPRefreshTokenOwner(ctx context.Context, tokenHash []byte) (FindMCPRefreshTokenOwnerRow, error)
+	// The unlocked pre-read for revocation. An access token or a refresh token,
+	// consumed or not, names its grant. Revoked grants still answer: the service
+	// decides what a revoked grant means.
+	FindMCPTokenGrantOwner(ctx context.Context, tokenHash []byte) (FindMCPTokenGrantOwnerRow, error)
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
 	FindPasswordResetByToken(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenRow, error)
 	FindPasswordResetByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenForUpdateRow, error)
@@ -214,6 +231,8 @@ type Querier interface {
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
 	// One batch by primary key. The sweep loops while a batch comes back full.
 	SweepMCPAccessTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// One batch by primary key. The sweep loops while a batch comes back full.
+	SweepMCPAuthorizationRequestsExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	SweepMCPEndedGrantAccessTokens(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	// Codes that issued a grant past its expiry. Expiry is not revocation: the grant
 	// row stays and no event is written.
