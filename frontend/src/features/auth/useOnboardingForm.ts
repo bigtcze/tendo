@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createOwner, login, type Session } from './sessionApi';
+import { clearConnectEntry } from '../mcp/connectEntry';
 import {
   detectTimezone,
   errorTarget,
@@ -54,6 +55,8 @@ export function useOnboardingForm({
     }
 
     submitting.current = true;
+    // Onboarding is not a consent sign-in, so any pending consent is abandoned rather than returned to.
+    clearConnectEntry();
     setPending(true);
     setError(null);
     const result = await createOwner({

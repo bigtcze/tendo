@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import { browserNavigation, startOidc, type StartResult } from '../auth/oidcApi';
 import { useOidcProviderStatus } from '../auth/useOidcProviderStatus';
+import { clearConnectEntry } from '../mcp/connectEntry';
 
 type StartFailure = Exclude<StartResult['kind'], 'redirect'>;
 
@@ -41,6 +42,8 @@ export function InviteProviderSignIn({ token, disabled }: { token: string; disab
     pendingRef.current = true;
     setPending(true);
     setFailure(null);
+    // The provider return must land on the invitation, never on an abandoned consent page.
+    clearConnectEntry();
     const result = await startOidc({ purpose: 'login', invitationToken: token });
     if (!mountedRef.current) return;
     if (result.kind === 'redirect') {

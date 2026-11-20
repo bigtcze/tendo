@@ -905,6 +905,11 @@ describe('Home items', () => {
     installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-03-05' }), [subjectList]: (request) => json(200, { items: request.query.get('archived') === 'true' ? [] : roster, nextCursor: null }), [memberList]: memberPage() });
     app();
     await screen.findByText('Passport');
+    // Rows render before the subject list answers and show the neutral icon until then; read icons only once every
+    // row names its subject, so a slow subject read cannot be mistaken for a wrong type.
+    for (const [title, name] of [['Passport', 'Anna'], ['Water filter', 'Home'], ['Car service', 'Octavia'], ['Flea treatment', 'Rex'], ['Paint the shed', 'Shed']]) {
+      await waitFor(() => expect(screen.getByText(title).closest('li')).toHaveTextContent(name));
+    }
     const icon = async (title: string) => (await screen.findByText(title)).closest('li')!.querySelector('[data-subject-icon]')?.getAttribute('data-subject-icon');
     expect(await icon('Passport')).toBe('person');
     expect(await icon('Water filter')).toBe('home');

@@ -1,5 +1,7 @@
 import { InviteScreen } from '../features/members/InviteScreen';
-import { ResetPasswordScreen } from '../features/auth/ResetPasswordScreen';
+import { ConnectRoute } from './ConnectRoute';
+import { ResetRoute } from './ResetRoute';
+import { useConnectVisit } from './useConnectVisit';
 import { useHomeNotice } from './useHomeNotice';
 import { ScreenTransitionContext } from './Heading';
 import { SignedOutApp } from './SignedOutApp';
@@ -17,6 +19,7 @@ export function App() {
   const entry = useOidcEntry();
   const invite = useInviteVisit();
   const resetToken = usePasswordResetVisit();
+  const connect = useConnectVisit();
   const routeState = useAppRoute();
   const session = useAppSession({
     setRoute: routeState.setRoute,
@@ -34,18 +37,14 @@ export function App() {
     clearHomeNotice: dismissHomeNotice,
     state: session.state,
   });
-  const state = session.state;
+  const { state } = session;
 
-  // A reset link is its own destination for everyone, signed in or not: the link is the authority, not the
-  // current session, and success always ends at sign-in with the new password.
   if (routeState.route.kind === 'resetPassword') {
-    return (
-      <ScreenTransitionContext value={routeState.transitioned}>
-        <ResetPasswordScreen key={resetToken ?? 'no-token'} token={resetToken} signedIn={state.kind === 'signedIn'} onRedeemed={session.passwordResetCompleted} />
-      </ScreenTransitionContext>
-    );
+    return <ResetRoute token={resetToken} signedIn={state.kind === 'signedIn'} transitioned={routeState.transitioned} onRedeemed={session.passwordResetCompleted} />;
   }
-
+  if (state.kind === 'signedIn' && routeState.route.kind === 'connect') {
+    return <ConnectRoute visit={connect} session={state.session} transitioned={routeState.transitioned} onSignedOut={session.connectSignedOut} onHome={navigation.goHome} />;
+  }
   if (state.kind === 'signedIn') {
     return (
       <SignedInApp
@@ -91,6 +90,7 @@ export function App() {
           oidcContinueExpired={session.oidcContinueExpired}
           continueCancelled={session.continueCancelled}
           continueExpired={session.continueExpired}
+          connectOutcome={connect.outcome}
         />
       )}
     </ScreenTransitionContext>

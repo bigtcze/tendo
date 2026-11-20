@@ -9,9 +9,10 @@ export const ACCOUNT_PATH = '/account';
 export const ADMIN_PATH = '/admin';
 export const ADMIN_HOUSEHOLDS_PATH = '/admin/households';
 export const ADMIN_ACCOUNTS_PATH = '/admin/accounts';
+export const CONNECT_PATH = '/connect';
 
 export type Route =
-  | { kind: 'home' | 'people' | 'members' | 'invite' | 'resetPassword' | 'login' | 'account' | 'admin' | 'adminHouseholds' | 'adminAccounts' | 'allItems' | 'notFound' }
+  | { kind: 'home' | 'people' | 'members' | 'invite' | 'resetPassword' | 'login' | 'connect' | 'account' | 'admin' | 'adminHouseholds' | 'adminAccounts' | 'allItems' | 'notFound' }
   | { kind: 'item'; itemId: string }
   | { kind: 'invalidItem' }
   /** The installation-wide administration screens; they belong to the account, not to a household. */
@@ -23,6 +24,7 @@ const SIMPLE_ROUTES = new Map<string, Route>([
   [INVITE_PATH, { kind: 'invite' }],
   [RESET_PASSWORD_PATH, { kind: 'resetPassword' }],
   [LOGIN_PATH, { kind: 'login' }],
+  [CONNECT_PATH, { kind: 'connect' }],
   [ACCOUNT_PATH, { kind: 'account' }],
   [ADMIN_PATH, { kind: 'admin' }],
   [ADMIN_HOUSEHOLDS_PATH, { kind: 'adminHouseholds' }],
@@ -59,7 +61,7 @@ export function readRoute(path = window.location.pathname): Route {
 export function householdNavRoute(route: Route, hasHousehold: boolean): HouseholdRoute {
   if (route.kind === 'notFound') return 'home';
   if (route.kind === 'account') return 'account';
-  if (route.kind === 'resetPassword') return 'home';
+  if (route.kind === 'resetPassword' || route.kind === 'connect') return 'home';
   // The installation screens are the Admin center for an account that may hold no household at all.
   if (route.kind === 'adminHouseholds' || route.kind === 'adminAccounts' || route.kind === 'adminHousehold') return 'admin';
   if (!hasHousehold) return 'home';

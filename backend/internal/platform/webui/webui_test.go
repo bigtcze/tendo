@@ -305,3 +305,27 @@ func TestEmbeddedHandlerWithoutBuild(t *testing.T) {
 	w := do(Handler(), http.MethodGet, "/.gitkeep")
 	assertProblem(t, w, http.StatusNotFound)
 }
+
+// TestConsentPageCannotBeFramed pins the MCP consent page (/connect, ADR 0023
+// "Slice A3b") to the SPA document with the full framing and referrer policy:
+// a consent click must never be obtainable from a framing page, and the page's
+// address never leaves the origin in a Referer.
+func TestConsentPageCannotBeFramed(t *testing.T) {
+	h := New(testFS())
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		w := do(h, method, "/connect")
+		hd := w.Header()
+		if w.Code != http.StatusOK || !strings.HasPrefix(hd.Get("Content-Type"), "text/html") {
+			t.Fatalf("%s /connect status=%d type=%q", method, w.Code, hd.Get("Content-Type"))
+		}
+		if method == http.MethodGet && w.Body.String() != "<html>app</html>" {
+			t.Fatalf("/connect body=%q, want the SPA index", w.Body)
+		}
+		if hd.Get("Content-Security-Policy") != contentSecurityPolicy || !strings.Contains(hd.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+			t.Fatalf("%s /connect CSP=%q", method, hd.Get("Content-Security-Policy"))
+		}
+		if hd.Get("X-Frame-Options") != "DENY" || hd.Get("Referrer-Policy") != "same-origin" || hd.Get("Cache-Control") != "no-cache" {
+			t.Fatalf("%s /connect headers=%v", method, hd)
+		}
+	}
+}

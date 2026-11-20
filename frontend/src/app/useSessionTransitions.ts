@@ -5,9 +5,10 @@ import type { Session } from '../features/auth/sessionApi';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { clearPendingItemCreates } from '../features/items/pendingItemCreate';
 import { clearPendingSubjectCreates } from '../features/subjects/pendingSubjectCreate';
-import { INVITE_PATH, LOGIN_PATH, type Route } from './routes';
+import { CONNECT_PATH, INVITE_PATH, LOGIN_PATH, type Route } from './routes';
 import type { OidcEntryActions } from './useOidcEntry';
 import type { BootState } from './useAppSession';
+import { clearConnectEntry, markConnectReturn, takeConnectReturn } from '../features/mcp/connectEntry';
 
 export function clearPendingStores(): void {
   clearPendingCompletions();
@@ -25,6 +26,19 @@ function enterHome(transitionedRef: RefObject<boolean>, setRoute: Dispatch<SetSt
   transitionedRef.current = true;
   if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
   setRoute({ kind: 'home' });
+}
+
+/** The consent page after a sign-in that began there: the same transition as Home, but a different destination. */
+function enterConnect(transitionedRef: RefObject<boolean>, setRoute: Dispatch<SetStateAction<Route>>): void {
+  transitionedRef.current = true;
+  if (window.location.pathname !== CONNECT_PATH) window.history.replaceState(null, '', CONNECT_PATH);
+  setRoute({ kind: 'connect' });
+}
+
+/** A sign-in that began on the consent page returns there once; Home never renders in between. */
+function enterSignedIn(transitionedRef: RefObject<boolean>, setRoute: Dispatch<SetStateAction<Route>>): void {
+  if (takeConnectReturn()) enterConnect(transitionedRef, setRoute);
+  else enterHome(transitionedRef, setRoute);
 }
 
 /** Leaving and being removed read differently; so does having a household left and having none. */
@@ -72,6 +86,15 @@ function leaveSignedIn(deps: Deps, options: LeaveOptions): void {
   deps.setState({ kind: 'signedOut' });
 }
 
+/**
+ * A plain sign-out abandons any pending consent: the stored entry, return flag included, is removed, so the next
+ * sign-in at / is never sent back to /connect.
+ */
+function leaveAbandoningConsent(leave: (options: LeaveOptions) => void) {
+  clearConnectEntry();
+  leave({ path: '/' });
+}
+
 /** All session transitions in one place so every entry/exit clears the same transient state. */
 export function useSessionTransitions(deps: Deps) {
   const {
@@ -85,7 +108,7 @@ export function useSessionTransitions(deps: Deps) {
   useEffect(() => { depsRef.current = deps; });
 
   const leave = useCallback((options: LeaveOptions) => leaveSignedIn(depsRef.current, options), []);
-  const signedOut = useCallback(() => leave({ path: '/' }), [leave]);
+  const signedOut = useCallback(() => leaveAbandoningConsent(leave), [leave]);
 
   const inviteSignedOut = useCallback(() => {
     advanceSessionGeneration();
@@ -130,6 +153,15 @@ export function useSessionTransitions(deps: Deps) {
     leave({ path: LOGIN_PATH, route: { kind: 'login' }, expired: true });
   }, [leave]);
 
+  /**
+   * The consent session ended (expired, or "Not you? Sign out"). The request handle stays stored and the next sign-in
+   * is marked to return to the consent page, so the person finishes the same consent.
+   */
+  const connectSignedOut = useCallback(() => {
+    leave({ path: CONNECT_PATH, route: { kind: 'connect' } });
+    markConnectReturn();
+  }, [leave]);
+
   /** The link replaced the password and deleted that account's sessions, so the only next step is sign-in. */
   const passwordResetCompleted = useCallback((login: string) => {
     leave({ path: LOGIN_PATH, route: { kind: 'login' } });
@@ -160,13 +192,13 @@ export function useSessionTransitions(deps: Deps) {
     setOidcContinueExpired(false);
     setLoginPrefill(null);
     setPasswordResetNotice(false);
-    enterHome(transitionedRef, setRoute);
+    enterSignedIn(transitionedRef, setRoute);
     setOidcOutcome(null);
     setState({ kind: 'signedIn', session });
   }, [advanceSessionGeneration, clearContinue, setAccountReadyNotice, setOidcContinueExpired, setOidcOutcome, setRoute, setSessionEndedNotice, setState, setInviteFocusLogin, setLoginPrefill, setPasswordResetNotice, showNotice, transitionedRef]);
 
   return {
     inviteSignedOut, accountReady, signedOut, sessionEnded, pendingSignedOut, continueCancelled, continueExpired,
-    passwordResetCompleted, signedIn, householdLeft,
+    passwordResetCompleted, signedIn, householdLeft, connectSignedOut,
   };
 }
