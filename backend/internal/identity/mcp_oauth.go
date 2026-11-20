@@ -122,6 +122,7 @@ type MCPTransaction interface {
 	// RevokeGrant revokes a live grant with an audited cause and deletes its
 	// codes and tokens. Revoking an already revoked grant changes nothing.
 	RevokeGrant(ctx context.Context, grantID string, now time.Time, revocation MCPRevocation) error
+	MCPAuthorizationTransaction
 }
 
 // MCPRepository opens MCP transactions at READ COMMITTED and verifies access
@@ -222,15 +223,11 @@ func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthoriza
 	if err != nil {
 		return MCPIssuedCode{}, err
 	}
-	code, codeHash, err := newMCPSecret()
+	now := s.now()
+	code, record, err := newAuthorizationCode(in.Principal.UserID, in.ClientID, in.RedirectURI,
+		in.CodeChallenge, s.resource, scopes, now)
 	if err != nil {
 		return MCPIssuedCode{}, err
-	}
-	now := s.now()
-	record := MCPCodeRecord{
-		CodeHash: codeHash, UserID: in.Principal.UserID, ClientID: in.ClientID, RedirectURI: in.RedirectURI,
-		CodeChallenge: in.CodeChallenge, Resource: s.resource, Scopes: scopes,
-		CreatedAt: now, ExpiresAt: now.Add(MCPCodeLifetime),
 	}
 	err = s.repository.WithMCPTransaction(ctx, func(tx MCPTransaction) error {
 		if e := tx.LockLiveAccount(ctx, in.Principal.UserID); errors.Is(e, ErrNotFound) {
@@ -251,7 +248,7 @@ func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthoriza
 		} else if e != nil {
 			return e
 		}
-		if !slices.Contains(client.RedirectURIs, in.RedirectURI) {
+		if !MCPRedirectURIMatches(client.RedirectURIs, in.RedirectURI) {
 			return ErrMCPInvalidRequest
 		}
 		return tx.CreateAuthorizationCode(ctx, record)
@@ -260,6 +257,21 @@ func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthoriza
 		return MCPIssuedCode{}, err
 	}
 	return MCPIssuedCode{Code: code, ExpiresAt: record.ExpiresAt}, nil
+}
+
+// newAuthorizationCode mints the plaintext code and the record that stores only
+// its digest. IssueAuthorizationCode and DecideAuthorization share it, so an
+// approved consent yields the same code record as a direct issuance.
+func newAuthorizationCode(userID, clientID, redirectURI, codeChallenge, resource string, scopes []string, now time.Time) (string, MCPCodeRecord, error) {
+	code, codeHash, err := newMCPSecret()
+	if err != nil {
+		return "", MCPCodeRecord{}, err
+	}
+	return code, MCPCodeRecord{
+		CodeHash: codeHash, UserID: userID, ClientID: clientID, RedirectURI: redirectURI,
+		CodeChallenge: codeChallenge, Resource: resource, Scopes: scopes,
+		CreatedAt: now, ExpiresAt: now.Add(MCPCodeLifetime),
+	}, nil
 }
 
 // validAuthorization checks everything that needs no database read and returns

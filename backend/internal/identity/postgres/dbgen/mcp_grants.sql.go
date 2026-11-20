@@ -643,6 +643,7 @@ DELETE FROM mcp_clients WHERE client_id IN (
   WHERE c.created_at <= $1::timestamptz
     AND NOT EXISTS (SELECT 1 FROM mcp_grants g WHERE g.client_id = c.client_id)
     AND NOT EXISTS (SELECT 1 FROM mcp_authorization_codes k WHERE k.client_id = c.client_id)
+    AND NOT EXISTS (SELECT 1 FROM mcp_authorization_requests q WHERE q.client_id = c.client_id)
   ORDER BY c.client_id LIMIT 1000 FOR UPDATE SKIP LOCKED
 )
 `

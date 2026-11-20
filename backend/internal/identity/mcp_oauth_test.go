@@ -56,7 +56,9 @@ type mcpState struct {
 	access      map[string]MCPTokenIssue
 	refresh     map[string]MCPRefreshRecord
 	revocations map[string]MCPRevocation
-	nextGrant   int
+	// requests are pending consents keyed by handle digest.
+	requests  map[string]MCPAuthorizationRequestRecord
+	nextGrant int
 }
 
 func newMCPFake(now time.Time) *mcpFake {
@@ -73,6 +75,7 @@ func newMCPFake(now time.Time) *mcpFake {
 			access:      map[string]MCPTokenIssue{},
 			refresh:     map[string]MCPRefreshRecord{},
 			revocations: map[string]MCPRevocation{},
+			requests:    map[string]MCPAuthorizationRequestRecord{},
 		},
 	}
 }
@@ -84,6 +87,7 @@ func (s mcpState) clone() mcpState {
 		access:      maps.Clone(s.access),
 		refresh:     maps.Clone(s.refresh),
 		revocations: maps.Clone(s.revocations),
+		requests:    maps.Clone(s.requests),
 		nextGrant:   s.nextGrant,
 	}
 }
@@ -309,6 +313,66 @@ func (t *mcpTx) RevokeGrant(ctx context.Context, grantID string, now time.Time, 
 		}
 	}
 	return nil
+}
+
+// CreateAuthorizationRequest mirrors the foreign key: an unknown client is
+// ErrMCPInvalidClient.
+func (t *mcpTx) CreateAuthorizationRequest(ctx context.Context, request MCPAuthorizationRequestRecord) error {
+	if err := t.op("CreateAuthorizationRequest"); err != nil {
+		return err
+	}
+	if _, ok := t.f.clients[request.ClientID]; !ok {
+		return ErrMCPInvalidClient
+	}
+	t.s.requests[string(request.RequestHash)] = request
+	return nil
+}
+
+// pendingRequest returns the unexpired consent with this handle digest bound
+// to this binding digest, or ErrNotFound. A wrong binding matches nothing.
+func (t *mcpTx) pendingRequest(requestHash, bindingHash []byte, now time.Time) (MCPAuthorizationRequestRecord, error) {
+	rec, ok := t.s.requests[string(requestHash)]
+	if !ok || !slices.Equal(rec.BindingHash, bindingHash) || !rec.ExpiresAt.After(now) {
+		return MCPAuthorizationRequestRecord{}, ErrNotFound
+	}
+	rec.ClientName = t.f.clients[rec.ClientID].Name
+	return rec, nil
+}
+
+func (t *mcpTx) FindAuthorizationRequest(ctx context.Context, requestHash, bindingHash []byte, now time.Time) (MCPAuthorizationRequestRecord, error) {
+	if err := t.op("FindAuthorizationRequest"); err != nil {
+		return MCPAuthorizationRequestRecord{}, err
+	}
+	return t.pendingRequest(requestHash, bindingHash, now)
+}
+
+func (t *mcpTx) ConsumeAuthorizationRequest(ctx context.Context, requestHash, bindingHash []byte, now time.Time) (MCPAuthorizationRequestRecord, error) {
+	if err := t.op("ConsumeAuthorizationRequest"); err != nil {
+		return MCPAuthorizationRequestRecord{}, err
+	}
+	rec, err := t.pendingRequest(requestHash, bindingHash, now)
+	if err != nil {
+		return MCPAuthorizationRequestRecord{}, err
+	}
+	delete(t.s.requests, string(requestHash))
+	return rec, nil
+}
+
+// FindTokenGrantOwner resolves an access or refresh digest, consumed refresh
+// digests included, to the account and grant. It does not check expiry.
+func (t *mcpTx) FindTokenGrantOwner(ctx context.Context, tokenHash []byte) (string, string, error) {
+	if err := t.op("FindTokenGrantOwner"); err != nil {
+		return "", "", err
+	}
+	grantID := ""
+	if issue, ok := t.s.access[string(tokenHash)]; ok {
+		grantID = issue.GrantID
+	} else if refresh, ok := t.s.refresh[string(tokenHash)]; ok {
+		grantID = refresh.GrantID
+	} else {
+		return "", "", ErrNotFound
+	}
+	return t.s.grants[grantID].UserID, grantID, nil
 }
 
 // mcpFixture is an enabled service over a fresh fake at mcpTestStart.
@@ -952,7 +1016,7 @@ func TestMCPPKCES256Matches(t *testing.T) {
 
 func TestMCPRevokeReasonValid(t *testing.T) {
 	accepted := []MCPRevokeReason{"user", "password_change", "admin_reset", "cli_reset",
-		"account_deletion", "replay", "code_reuse"}
+		"account_deletion", "replay", "code_reuse", "client"}
 	for _, r := range accepted {
 		if !r.Valid() {
 			t.Errorf("%q rejected, want accepted", r)

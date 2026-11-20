@@ -30,9 +30,10 @@ identity framework".
   authorization code grant with PKCE `S256` only, and the refresh token grant.
   No implicit, password or client credentials grant, and no `plain` PKCE.
 - **Issuer and resource.** The issuer is `TENDO_PUBLIC_URL` and the protected
-  resource is `<TENDO_PUBLIC_URL>/mcp`. The RFC 8707 `resource` parameter is
-  required and must equal the configured resource on authorization, code
-  exchange and refresh. Every code, grant and token is bound to it.
+  resource is `<TENDO_PUBLIC_URL>/mcp`. The RFC 8707 `resource` parameter
+  must equal the configured resource on authorization, code exchange and
+  refresh; slice A3a lets an absent parameter default to it (see "Slice A3a").
+  Every code, grant and token is bound to it.
 - **Secrets.** Codes, access tokens and refresh tokens are 32 random bytes,
   base64url without padding (43 characters). Only their SHA-256 digests are
   stored, as for sessions. Plaintext is returned once and never logged.
@@ -69,7 +70,8 @@ identity framework".
   `'90 days'`, because day arithmetic on `timestamptz` follows the session
   TimeZone and a daylight-saving change would shorten the limit by an hour.
 - **Revocation causes.** `user`, `password_change`, `admin_reset`,
-  `cli_reset`, `account_deletion`, `replay`, `code_reuse`.
+  `cli_reset`, `account_deletion`, `replay`, `code_reuse`, and `client`
+  (RFC 7009 revocation by the holding client, added by migration 030).
   `CredentialReplacementTransaction.ReplaceLocalPassword` revokes every grant
   of the account after it deletes the sessions, so self-service change, admin
   reset redemption and the CLI reset all end MCP access. Account deletion does
@@ -116,6 +118,9 @@ extends:
    user row and session and before `mcp_authorization_codes`. The retention
    sweep deletes a client only `FOR UPDATE SKIP LOCKED`, so it skips a client an
    issuance holds rather than orphaning a code being inserted.
+6. `mcp_authorization_requests` (A3a): after `mcp_clients` and before
+   `mcp_authorization_codes`. Authorization and the consent decision take the
+   client `FOR KEY SHARE` before they insert or delete a pending request.
 
 Every MCP path reaches an MCP row only after its account lock, so the account
 and credential locks serialize issuance with deletion and with password
@@ -320,3 +325,118 @@ is never delayed.
   row may have been swept.
 - The RFC snake_case wire names of the OAuth endpoints are an exception to the
   camelCase rule of API.md.
+
+## Slice A3a: authorization, consent decision, token and revocation
+
+Slice A3a adds the backend half of the consent flow: migration 030, the pending
+consent store, `GET /oauth/authorize`, the session-authenticated consent API
+`GET /api/v1/mcp/authorization-requests/{requestHandle}` and
+`POST .../{requestHandle}/decision`, `POST /oauth/token` and
+`POST /oauth/revoke`. The consent screen (`/connect`) is slice A3b, and `/mcp`
+is A4. Production composition stays hard-disabled, so every new route answers
+the unknown-path 404 before authentication or body reads. The decisions below
+follow the independent review recorded on #456.
+
+### Pending consent
+
+- `/oauth/authorize` reads no cookie and never redirects to the client. Every
+  outcome is `303` to `/connect#request=<handle>` or `/connect#error=<code>`,
+  including a registered redirect URI with a bad `code_challenge`. An error
+  goes to the client's redirect URI only after the human decides (the
+  decision's `redirectTo`), which keeps Tendo from being an open redirector
+  (RFC 9700 §4.11.2).
+- A valid request is stored in `mcp_authorization_requests` for 5 minutes (the
+  CHECK allows at most 10). Only the SHA-256 digests of the 43-character handle
+  and of a browser binding are stored. The handle goes to the SPA in the URL
+  fragment. The binding goes to the browser in a cookie
+  (`__Secure-tendo_mcp_consent` on HTTPS, `tendo_mcp_consent` otherwise) that
+  is HttpOnly, SameSite=Lax, Secure on HTTPS, `Max-Age=300`, and scoped to
+  `/api/v1/mcp/authorization-requests/<handle>`, so parallel consents do not
+  collide. Reading or deciding a request needs both the handle and the binding,
+  compared by digest equality in SQL. A mismatch answers the same 404 as an
+  unknown, expired or consumed request. A leaked handle alone cannot be
+  approved from another browser. The cookie uses `__Secure-`, not `__Host-`,
+  because `__Host-` requires `Path=/`; a sibling subdomain could therefore
+  plant a binding cookie. That gains an attacker nothing over sending the
+  victim an ordinary authorize link, so the residual risk is accepted.
+- Authorization runs in one transaction: client `FOR KEY SHARE`, then the
+  redirect match, then the INSERT. A foreign-key failure (the sweep won) is
+  `invalid_client`.
+- The decision locks the account and checks the session (ADR lock steps 1-3),
+  reads the client `FOR KEY SHARE`, then consumes the request with
+  `DELETE ... RETURNING`. Approval and denial both consume it, so of two
+  concurrent decisions exactly one wins and at most one code exists. A
+  refusal rolls back and consumes nothing. The runtime role has `SELECT`,
+  `INSERT`, `DELETE` on the table and no `UPDATE`.
+- Expired requests answer 404 and are left to the sweep step
+  `authorization_requests_expired`, which runs before `grantless_clients`. The
+  client sweep keeps a client that has a pending request.
+
+### Redirect matching
+
+One matcher, `MCPRedirectURIMatches`, serves authorization, the decision and
+code issuance. A registered URI matches by byte equality. Otherwise only an
+`http` loopback URI matches, with a byte-equal host (`localhost` never equals
+`127.0.0.1`), path and query, and any port on either side (RFC 8252 §7.3,
+§8.3). The token endpoint still requires the presented `redirect_uri` to equal
+the one the code was issued for.
+
+### Parameters
+
+- Unknown parameters are ignored. A repeated recognized parameter is
+  `invalid_request`; a repeated `resource` is `invalid_target`.
+- An absent `resource` means the configured resource. A present one must equal
+  it exactly, else `invalid_target`. This amends the "required" wording of the
+  Decision section.
+- `code_challenge_method` must be present and `S256`.
+- An empty `scope` counts as absent (both Tendo scopes). Unknown scopes are
+  dropped and the known ones granted; an empty result is `invalid_scope`. On
+  refresh a present scope must equal the grant's scopes as a set; narrowing is
+  not supported and is `invalid_scope`, with nothing consumed.
+- `state` is optional, at most 1024 printable ASCII bytes.
+- The token and revocation endpoints read parameters from the body only, take
+  `application/x-www-form-urlencoded` with optional parameters such as
+  `charset`, bound the body to 8 KiB, and never read or set a cookie. They use
+  the A2 CORS policy (any Origin, no credentials) and `CrossOriginRoute`
+  exemptions.
+
+### Revocation
+
+`POST /oauth/revoke` (RFC 7009) revokes the whole grant of an access token or
+refresh token, consumed or not, when `client_id` names the grant's client. It
+writes reason `client` with no actor and exactly one event; a consumed refresh
+token presented here is a revocation, not a `replay`. A malformed, unknown,
+foreign-client or already revoked token answers 200 and changes nothing.
+
+Migration 030 widens `mcp_grants_revoke_reason_check` and
+`mcp_grant_events_reason_check` under the same names. Its Down maps `client` to
+`user` in both tables before it restores the 028 sets; the mapping is lossy and
+accepted, because a downgraded release has no `client` cause.
+
+### Limits
+
+- Authorize: 20 per minute per client IP and 120 per minute globally; a refusal
+  lands on `/connect#error=temporarily_unavailable`.
+- Decision: 30 per minute per user.
+- Token: 60 per minute per client IP and `client_id`, and 600 per minute
+  globally.
+- Revoke: 30 per minute per client IP.
+
+### Declared deviations (A3a)
+
+- An unknown client at the token endpoint is `invalid_grant` (400), not
+  `invalid_client` (401, RFC 6749 §5.2), so the endpoint is no client-existence
+  oracle.
+- `OAuthError.error` is widened to the RFC 6749, RFC 7591 and RFC 8707 codes
+  that the token and revocation endpoints emit.
+- The consent API under `/api/v1/mcp/` uses camelCase and problem+json; only
+  `/oauth/*` uses the RFC snake_case wire names.
+- Request logs carry the route template only, never a handle, binding, code,
+  token or query string.
+
+### Requirements for slice A3b
+
+- The login return path is restricted to `/connect` plus a handle matching the
+  handle pattern.
+- The consent screen shows "signed in as" and the unverified client name.
+- A test keeps `frame-ancestors 'none'` on `/connect`.

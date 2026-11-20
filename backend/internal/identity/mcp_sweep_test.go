@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -88,6 +89,23 @@ func TestSweepStorageFailureUsesFixedClass(t *testing.T) {
 	}
 	if err.Error() != ErrMCPSweepFailed.Error() {
 		t.Fatalf("Sweep err text %q leaked the driver error", err.Error())
+	}
+}
+
+// TestSweepStepOrderRunsAuthorizationRequestsBeforeGrantlessClients pins the
+// A3a step: pending consents are swept before the grantless-client step, whose
+// NOT EXISTS check counts them.
+func TestSweepStepOrderRunsAuthorizationRequestsBeforeGrantlessClients(t *testing.T) {
+	steps := MCPSweepSteps
+	reqAt, clientAt := slices.Index(steps, MCPSweepAuthorizationRequestsExpired), slices.Index(steps, MCPSweepGrantlessClients)
+	if reqAt < 0 || clientAt < 0 {
+		t.Fatalf("steps %v lack the authorization request or grantless client step", steps)
+	}
+	if reqAt >= clientAt {
+		t.Fatalf("authorization_requests_expired at %d must run before grantless_clients at %d", reqAt, clientAt)
+	}
+	if MCPSweepAuthorizationRequestsExpired != "authorization_requests_expired" {
+		t.Fatalf("step name = %q", MCPSweepAuthorizationRequestsExpired)
 	}
 }
 

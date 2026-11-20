@@ -26,6 +26,9 @@ const (
 	// MCPSweepGrantlessClients deletes clients older than MCPGrantlessClientLifetime
 	// that hold no grant and no authorization code.
 	MCPSweepGrantlessClients MCPSweepStep = "grantless_clients"
+	// MCPSweepAuthorizationRequestsExpired deletes pending consents past
+	// expires_at (migration 030).
+	MCPSweepAuthorizationRequestsExpired MCPSweepStep = "authorization_requests_expired"
 )
 
 // MCPSweepSteps is the run order: the steps are independent, and each one runs
@@ -35,6 +38,7 @@ var MCPSweepSteps = []MCPSweepStep{
 	MCPSweepRefreshTokensExpired,
 	MCPSweepEndedGrantSecrets,
 	MCPSweepUnusedCodesExpired,
+	MCPSweepAuthorizationRequestsExpired,
 	MCPSweepGrantlessClients,
 }
 

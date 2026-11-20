@@ -173,18 +173,18 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	}
 	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemMembers(membershipService.GetMembership), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
-	return registerMCP(routes, cfg, pool)
+	return registerMCP(routes, cfg, pool, sessionHandler)
 }
 
 // registerMCP mounts the MCP endpoints. MCP stays inert until its flow is
 // complete (ADR 0023): the service is built disabled, so every MCP endpoint
 // answers the unknown-path 404.
-func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error {
+func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler) error {
 	mcpService, err := newMCPService(cfg, pool)
 	if err != nil {
 		return err
 	}
-	identityhttp.NewMCP(mcpService, cfg.PublicURL).Register(routes)
+	identityhttp.NewMCP(mcpService, sessions, cfg.PublicURL).Register(routes)
 	return nil
 }
 

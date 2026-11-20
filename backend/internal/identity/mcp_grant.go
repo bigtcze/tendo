@@ -13,13 +13,16 @@ const (
 	MCPRevokeAccountDeletion MCPRevokeReason = "account_deletion"
 	MCPRevokeReplay          MCPRevokeReason = "replay"
 	MCPRevokeCodeReuse       MCPRevokeReason = "code_reuse"
+	// MCPRevokeClient is an RFC 7009 revocation requested by the client that
+	// holds the token (migration 030). It has no human actor.
+	MCPRevokeClient MCPRevokeReason = "client"
 )
 
 // Valid reports whether r is one of the values the database accepts.
 func (r MCPRevokeReason) Valid() bool {
 	switch r {
 	case MCPRevokeUser, MCPRevokePasswordChange, MCPRevokeAdminReset, MCPRevokeCLIReset,
-		MCPRevokeAccountDeletion, MCPRevokeReplay, MCPRevokeCodeReuse:
+		MCPRevokeAccountDeletion, MCPRevokeReplay, MCPRevokeCodeReuse, MCPRevokeClient:
 		return true
 	}
 	return false

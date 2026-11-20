@@ -26,7 +26,7 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 29)
+	requireSchemaVersion(t, ctx, admin, 30)
 	for _, relation := range []string{"household_member_assignments", "user_accounts_lower_login_id_idx"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
 			t.Fatalf("%s missing after migrate to the current version", relation)
@@ -146,7 +146,7 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 025 over populated version 24 schema: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 29)
+	requireSchemaVersion(t, ctx, admin, 30)
 	requireRemovalAuthority(t, ctx, admin, selfLeaveMember, "household_member")
 	requireRemovalAuthority(t, ctx, admin, adminRemoval, "household_admin")
 	requireRemovalAuthority(t, ctx, admin, selfLeaveAdmin, "household_admin")
@@ -176,7 +176,7 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("third apply of 025: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 29)
+	requireSchemaVersion(t, ctx, admin, 30)
 	requireRemovalAuthority(t, ctx, admin, selfLeaveMember, "household_member")
 	requireRemovalAuthority(t, ctx, admin, adminRemoval, "household_admin")
 	requireRemovalAuthority(t, ctx, admin, selfLeaveAdmin, "household_admin")
@@ -194,8 +194,8 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 	if after := migrationInt(t, ctx, admin, `SELECT count(*) FROM tendo_schema_migrations`); after != before {
 		t.Fatalf("ledger rows %d->%d after repeated Up", before, after)
 	}
-	if after := migrationInt(t, ctx, admin, `SELECT max(version) FROM tendo_schema_migrations`); after != beforeVersion || after != 29 {
-		t.Fatalf("ledger version=%d want 29", after)
+	if after := migrationInt(t, ctx, admin, `SELECT max(version) FROM tendo_schema_migrations`); after != beforeVersion || after != 30 {
+		t.Fatalf("ledger version=%d want 30", after)
 	}
 }
 

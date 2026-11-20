@@ -456,6 +456,57 @@ func (e ItemValidationProblemField) Valid() bool {
 	}
 }
 
+// Defines values for McpAuthorizationDecisionRequestDecision.
+const (
+	Approve McpAuthorizationDecisionRequestDecision = "approve"
+	Deny    McpAuthorizationDecisionRequestDecision = "deny"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationDecisionRequestDecision enum.
+func (e McpAuthorizationDecisionRequestDecision) Valid() bool {
+	switch e {
+	case Approve:
+		return true
+	case Deny:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationRequestClientNameVerified.
+const (
+	McpAuthorizationRequestClientNameVerifiedFalse McpAuthorizationRequestClientNameVerified = false
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationRequestClientNameVerified enum.
+func (e McpAuthorizationRequestClientNameVerified) Valid() bool {
+	switch e {
+	case McpAuthorizationRequestClientNameVerifiedFalse:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationRequestScopes.
+const (
+	McpAuthorizationRequestScopesTendoRead  McpAuthorizationRequestScopes = "tendo:read"
+	McpAuthorizationRequestScopesTendoWrite McpAuthorizationRequestScopes = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationRequestScopes enum.
+func (e McpAuthorizationRequestScopes) Valid() bool {
+	switch e {
+	case McpAuthorizationRequestScopesTendoRead:
+		return true
+	case McpAuthorizationRequestScopesTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported.
 const (
 	McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupportedTrue McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported = true
@@ -473,13 +524,13 @@ func (e McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported
 
 // Defines values for McpAuthorizationServerMetadataCodeChallengeMethodsSupported.
 const (
-	S256 McpAuthorizationServerMetadataCodeChallengeMethodsSupported = "S256"
+	McpAuthorizationServerMetadataCodeChallengeMethodsSupportedS256 McpAuthorizationServerMetadataCodeChallengeMethodsSupported = "S256"
 )
 
 // Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataCodeChallengeMethodsSupported enum.
 func (e McpAuthorizationServerMetadataCodeChallengeMethodsSupported) Valid() bool {
 	switch e {
-	case S256:
+	case McpAuthorizationServerMetadataCodeChallengeMethodsSupportedS256:
 		return true
 	default:
 		return false
@@ -617,13 +668,13 @@ func (e McpClientRegistrationResponseResponseTypes) Valid() bool {
 
 // Defines values for McpClientRegistrationResponseScope.
 const (
-	TendoReadTendoWrite McpClientRegistrationResponseScope = "tendo:read tendo:write"
+	McpClientRegistrationResponseScopeTendoReadTendoWrite McpClientRegistrationResponseScope = "tendo:read tendo:write"
 )
 
 // Valid indicates whether the value is a known member of the McpClientRegistrationResponseScope enum.
 func (e McpClientRegistrationResponseScope) Valid() bool {
 	switch e {
-	case TendoReadTendoWrite:
+	case McpClientRegistrationResponseScopeTendoReadTendoWrite:
 		return true
 	default:
 		return false
@@ -687,6 +738,78 @@ func (e McpProtectedResourceMetadataScopesSupported) Valid() bool {
 	case McpProtectedResourceMetadataScopesSupportedTendoRead:
 		return true
 	case McpProtectedResourceMetadataScopesSupportedTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpRevocationRequestTokenTypeHint.
+const (
+	McpRevocationRequestTokenTypeHintAccessToken  McpRevocationRequestTokenTypeHint = "access_token"
+	McpRevocationRequestTokenTypeHintRefreshToken McpRevocationRequestTokenTypeHint = "refresh_token"
+)
+
+// Valid indicates whether the value is a known member of the McpRevocationRequestTokenTypeHint enum.
+func (e McpRevocationRequestTokenTypeHint) Valid() bool {
+	switch e {
+	case McpRevocationRequestTokenTypeHintAccessToken:
+		return true
+	case McpRevocationRequestTokenTypeHintRefreshToken:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpTokenRequestGrantType.
+const (
+	McpTokenRequestGrantTypeAuthorizationCode McpTokenRequestGrantType = "authorization_code"
+	McpTokenRequestGrantTypeRefreshToken      McpTokenRequestGrantType = "refresh_token"
+)
+
+// Valid indicates whether the value is a known member of the McpTokenRequestGrantType enum.
+func (e McpTokenRequestGrantType) Valid() bool {
+	switch e {
+	case McpTokenRequestGrantTypeAuthorizationCode:
+		return true
+	case McpTokenRequestGrantTypeRefreshToken:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpTokenResponseScope.
+const (
+	McpTokenResponseScopeTendoRead           McpTokenResponseScope = "tendo:read"
+	McpTokenResponseScopeTendoReadTendoWrite McpTokenResponseScope = "tendo:read tendo:write"
+	McpTokenResponseScopeTendoWrite          McpTokenResponseScope = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpTokenResponseScope enum.
+func (e McpTokenResponseScope) Valid() bool {
+	switch e {
+	case McpTokenResponseScopeTendoRead:
+		return true
+	case McpTokenResponseScopeTendoReadTendoWrite:
+		return true
+	case McpTokenResponseScopeTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpTokenResponseTokenType.
+const (
+	Bearer McpTokenResponseTokenType = "Bearer"
+)
+
+// Valid indicates whether the value is a known member of the McpTokenResponseTokenType enum.
+func (e McpTokenResponseTokenType) Valid() bool {
+	switch e {
+	case Bearer:
 		return true
 	default:
 		return false
@@ -759,8 +882,13 @@ func (e MembershipRole) Valid() bool {
 // Defines values for OAuthErrorError.
 const (
 	InvalidClientMetadata  OAuthErrorError = "invalid_client_metadata"
+	InvalidGrant           OAuthErrorError = "invalid_grant"
 	InvalidRedirectUri     OAuthErrorError = "invalid_redirect_uri"
+	InvalidRequest         OAuthErrorError = "invalid_request"
+	InvalidScope           OAuthErrorError = "invalid_scope"
+	InvalidTarget          OAuthErrorError = "invalid_target"
 	TemporarilyUnavailable OAuthErrorError = "temporarily_unavailable"
+	UnsupportedGrantType   OAuthErrorError = "unsupported_grant_type"
 )
 
 // Valid indicates whether the value is a known member of the OAuthErrorError enum.
@@ -768,9 +896,19 @@ func (e OAuthErrorError) Valid() bool {
 	switch e {
 	case InvalidClientMetadata:
 		return true
+	case InvalidGrant:
+		return true
 	case InvalidRedirectUri:
 		return true
+	case InvalidRequest:
+		return true
+	case InvalidScope:
+		return true
+	case InvalidTarget:
+		return true
 	case TemporarilyUnavailable:
+		return true
+	case UnsupportedGrantType:
 		return true
 	default:
 		return false
@@ -1299,6 +1437,36 @@ func (e ListItemCompletionsParamsOrder) Valid() bool {
 	}
 }
 
+// Defines values for AuthorizeMcpClientParamsResponseType.
+const (
+	AuthorizeMcpClientParamsResponseTypeCode AuthorizeMcpClientParamsResponseType = "code"
+)
+
+// Valid indicates whether the value is a known member of the AuthorizeMcpClientParamsResponseType enum.
+func (e AuthorizeMcpClientParamsResponseType) Valid() bool {
+	switch e {
+	case AuthorizeMcpClientParamsResponseTypeCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuthorizeMcpClientParamsCodeChallengeMethod.
+const (
+	AuthorizeMcpClientParamsCodeChallengeMethodS256 AuthorizeMcpClientParamsCodeChallengeMethod = "S256"
+)
+
+// Valid indicates whether the value is a known member of the AuthorizeMcpClientParamsCodeChallengeMethod enum.
+func (e AuthorizeMcpClientParamsCodeChallengeMethod) Valid() bool {
+	switch e {
+	case AuthorizeMcpClientParamsCodeChallengeMethodS256:
+		return true
+	default:
+		return false
+	}
+}
+
 // AcceptInvitationNewAccountRequest defines model for AcceptInvitationNewAccountRequest.
 type AcceptInvitationNewAccountRequest struct {
 	Login string `json:"login"`
@@ -1756,6 +1924,35 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// McpAuthorizationDecisionRequest The person's decision. Strict JSON; unknown fields are refused.
+type McpAuthorizationDecisionRequest struct {
+	Decision McpAuthorizationDecisionRequestDecision `json:"decision"`
+}
+
+// McpAuthorizationDecisionRequestDecision defines model for McpAuthorizationDecisionRequest.Decision.
+type McpAuthorizationDecisionRequestDecision string
+
+// McpAuthorizationDecisionResponse The client redirect URI with the authorization response appended. The existing query of the registered URI is kept.
+type McpAuthorizationDecisionResponse struct {
+	RedirectTo string `json:"redirectTo"`
+}
+
+// McpAuthorizationRequest The consent screen view of a pending MCP authorization request. Field names are camelCase, not the RFC wire names of /oauth/*.
+type McpAuthorizationRequest struct {
+	// ClientName The client's own registration name. Not verified.
+	ClientName         string                                    `json:"clientName"`
+	ClientNameVerified McpAuthorizationRequestClientNameVerified `json:"clientNameVerified"`
+	ExpiresAt          time.Time                                 `json:"expiresAt"`
+	RedirectUri        string                                    `json:"redirectUri"`
+	Scopes             []McpAuthorizationRequestScopes           `json:"scopes"`
+}
+
+// McpAuthorizationRequestClientNameVerified defines model for McpAuthorizationRequest.ClientNameVerified.
+type McpAuthorizationRequestClientNameVerified bool
+
+// McpAuthorizationRequestScopes defines model for McpAuthorizationRequest.Scopes.
+type McpAuthorizationRequestScopes string
+
 // McpAuthorizationServerMetadata RFC 8414 authorization server metadata. Field names are RFC snake_case wire names.
 type McpAuthorizationServerMetadata struct {
 	AuthorizationEndpoint                      string                                                                   `json:"authorization_endpoint"`
@@ -1860,6 +2057,63 @@ type McpProtectedResourceMetadataResourceName string
 
 // McpProtectedResourceMetadataScopesSupported defines model for McpProtectedResourceMetadata.ScopesSupported.
 type McpProtectedResourceMetadataScopesSupported string
+
+// McpRevocationRequest RFC 7009 form body. token_type_hint is accepted and ignored.
+type McpRevocationRequest struct {
+	ClientId             string                             `json:"client_id"`
+	Token                string                             `json:"token"`
+	TokenTypeHint        *McpRevocationRequestTokenTypeHint `json:"token_type_hint,omitempty"`
+	AdditionalProperties map[string]interface{}             `json:"-"`
+}
+
+// McpRevocationRequestTokenTypeHint defines model for McpRevocationRequest.TokenTypeHint.
+type McpRevocationRequestTokenTypeHint string
+
+// McpTokenRequest RFC 6749 section 4.1.3 (authorization_code) or section 6 (refresh_token) form body. Parameters are read from the body only.
+type McpTokenRequest struct {
+	// ClientId Required.
+	ClientId *string `json:"client_id,omitempty"`
+
+	// Code Required for authorization_code.
+	Code *string `json:"code,omitempty"`
+
+	// CodeVerifier Required for authorization_code (PKCE).
+	CodeVerifier *string                  `json:"code_verifier,omitempty"`
+	GrantType    McpTokenRequestGrantType `json:"grant_type"`
+
+	// RedirectUri Required for authorization_code; must equal the redirect URI of the authorization request.
+	RedirectUri *string `json:"redirect_uri,omitempty"`
+
+	// RefreshToken Required for refresh_token.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+
+	// Resource Optional. When present it must equal the configured resource, else invalid_target.
+	Resource *string `json:"resource,omitempty"`
+
+	// Scope Optional for refresh_token. When present it must equal the grant scopes as a set.
+	Scope                *string                `json:"scope,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// McpTokenRequestGrantType defines model for McpTokenRequest.GrantType.
+type McpTokenRequestGrantType string
+
+// McpTokenResponse RFC 6749 section 5.1 token response. Field names are RFC snake_case wire names.
+type McpTokenResponse struct {
+	AccessToken string `json:"access_token"`
+
+	// ExpiresIn Seconds until the access token expires.
+	ExpiresIn    int                       `json:"expires_in"`
+	RefreshToken string                    `json:"refresh_token"`
+	Scope        McpTokenResponseScope     `json:"scope"`
+	TokenType    McpTokenResponseTokenType `json:"token_type"`
+}
+
+// McpTokenResponseScope defines model for McpTokenResponse.Scope.
+type McpTokenResponseScope string
+
+// McpTokenResponseTokenType defines model for McpTokenResponse.TokenType.
+type McpTokenResponseTokenType string
 
 // Member defines model for Member.
 type Member struct {
@@ -2838,6 +3092,21 @@ type AcceptInvitationParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// GetMcpAuthorizationRequestParams defines parameters for GetMcpAuthorizationRequest.
+type GetMcpAuthorizationRequestParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// DecideMcpAuthorizationRequestParams defines parameters for DecideMcpAuthorizationRequest.
+type DecideMcpAuthorizationRequestParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
@@ -2880,8 +3149,47 @@ type GetReadinessParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// AuthorizeMcpClientParams defines parameters for AuthorizeMcpClient.
+type AuthorizeMcpClientParams struct {
+	ResponseType        AuthorizeMcpClientParamsResponseType        `form:"response_type" json:"response_type"`
+	ClientId            string                                      `form:"client_id" json:"client_id"`
+	RedirectUri         string                                      `form:"redirect_uri" json:"redirect_uri"`
+	CodeChallenge       string                                      `form:"code_challenge" json:"code_challenge"`
+	CodeChallengeMethod AuthorizeMcpClientParamsCodeChallengeMethod `form:"code_challenge_method" json:"code_challenge_method"`
+
+	// Scope Space-separated scopes. Absent or empty requests both Tendo scopes. Unknown scopes are dropped.
+	Scope *string `form:"scope,omitempty" json:"scope,omitempty"`
+
+	// Resource The configured resource, <public URL>/mcp. Any other value is invalid_target.
+	Resource *string `form:"resource,omitempty" json:"resource,omitempty"`
+
+	// State Opaque client state, 1 to 1024 printable ASCII bytes, returned unchanged to the client.
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// AuthorizeMcpClientParamsResponseType defines parameters for AuthorizeMcpClient.
+type AuthorizeMcpClientParamsResponseType string
+
+// AuthorizeMcpClientParamsCodeChallengeMethod defines parameters for AuthorizeMcpClient.
+type AuthorizeMcpClientParamsCodeChallengeMethod string
+
 // RegisterMcpClientParams defines parameters for RegisterMcpClient.
 type RegisterMcpClientParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// RevokeMcpTokenParams defines parameters for RevokeMcpToken.
+type RevokeMcpTokenParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// ExchangeMcpTokenParams defines parameters for ExchangeMcpToken.
+type ExchangeMcpTokenParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
@@ -2949,6 +3257,9 @@ type UpdateSubjectJSONRequestBody = UpdateSubjectRequest
 // AcceptInvitationJSONRequestBody defines body for AcceptInvitation for application/json ContentType.
 type AcceptInvitationJSONRequestBody = AcceptInvitationRequest
 
+// DecideMcpAuthorizationRequestJSONRequestBody defines body for DecideMcpAuthorizationRequest for application/json ContentType.
+type DecideMcpAuthorizationRequestJSONRequestBody = McpAuthorizationDecisionRequest
+
 // UpdateSessionJSONRequestBody defines body for UpdateSession for application/json ContentType.
 type UpdateSessionJSONRequestBody = UpdateSessionRequest
 
@@ -2957,6 +3268,12 @@ type CreateSessionJSONRequestBody = LoginRequest
 
 // RegisterMcpClientJSONRequestBody defines body for RegisterMcpClient for application/json ContentType.
 type RegisterMcpClientJSONRequestBody = McpClientRegistrationRequest
+
+// RevokeMcpTokenFormdataRequestBody defines body for RevokeMcpToken for application/x-www-form-urlencoded ContentType.
+type RevokeMcpTokenFormdataRequestBody = McpRevocationRequest
+
+// ExchangeMcpTokenFormdataRequestBody defines body for ExchangeMcpToken for application/x-www-form-urlencoded ContentType.
+type ExchangeMcpTokenFormdataRequestBody = McpTokenRequest
 
 // Getter for additional properties for AdminAccountDeletionProblem. Returns the specified
 // element and whether it was found
@@ -4133,6 +4450,271 @@ func (a McpClientRegistrationRequest) MarshalJSON() ([]byte, error) {
 		object["token_endpoint_auth_method"], err = json.Marshal(a.TokenEndpointAuthMethod)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'token_endpoint_auth_method': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpRevocationRequest. Returns the specified
+// element and whether it was found
+func (a McpRevocationRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpRevocationRequest
+func (a *McpRevocationRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpRevocationRequest to handle AdditionalProperties
+func (a *McpRevocationRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["client_id"]; found {
+		err = json.Unmarshal(raw, &a.ClientId)
+		if err != nil {
+			return fmt.Errorf("error reading 'client_id': %w", err)
+		}
+		delete(object, "client_id")
+	}
+
+	if raw, found := object["token"]; found {
+		err = json.Unmarshal(raw, &a.Token)
+		if err != nil {
+			return fmt.Errorf("error reading 'token': %w", err)
+		}
+		delete(object, "token")
+	}
+
+	if raw, found := object["token_type_hint"]; found {
+		err = json.Unmarshal(raw, &a.TokenTypeHint)
+		if err != nil {
+			return fmt.Errorf("error reading 'token_type_hint': %w", err)
+		}
+		delete(object, "token_type_hint")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpRevocationRequest to handle AdditionalProperties
+func (a McpRevocationRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["client_id"], err = json.Marshal(a.ClientId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'client_id': %w", err)
+	}
+
+	object["token"], err = json.Marshal(a.Token)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'token': %w", err)
+	}
+
+	if a.TokenTypeHint != nil {
+		object["token_type_hint"], err = json.Marshal(a.TokenTypeHint)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'token_type_hint': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpTokenRequest. Returns the specified
+// element and whether it was found
+func (a McpTokenRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpTokenRequest
+func (a *McpTokenRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpTokenRequest to handle AdditionalProperties
+func (a *McpTokenRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["client_id"]; found {
+		err = json.Unmarshal(raw, &a.ClientId)
+		if err != nil {
+			return fmt.Errorf("error reading 'client_id': %w", err)
+		}
+		delete(object, "client_id")
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["code_verifier"]; found {
+		err = json.Unmarshal(raw, &a.CodeVerifier)
+		if err != nil {
+			return fmt.Errorf("error reading 'code_verifier': %w", err)
+		}
+		delete(object, "code_verifier")
+	}
+
+	if raw, found := object["grant_type"]; found {
+		err = json.Unmarshal(raw, &a.GrantType)
+		if err != nil {
+			return fmt.Errorf("error reading 'grant_type': %w", err)
+		}
+		delete(object, "grant_type")
+	}
+
+	if raw, found := object["redirect_uri"]; found {
+		err = json.Unmarshal(raw, &a.RedirectUri)
+		if err != nil {
+			return fmt.Errorf("error reading 'redirect_uri': %w", err)
+		}
+		delete(object, "redirect_uri")
+	}
+
+	if raw, found := object["refresh_token"]; found {
+		err = json.Unmarshal(raw, &a.RefreshToken)
+		if err != nil {
+			return fmt.Errorf("error reading 'refresh_token': %w", err)
+		}
+		delete(object, "refresh_token")
+	}
+
+	if raw, found := object["resource"]; found {
+		err = json.Unmarshal(raw, &a.Resource)
+		if err != nil {
+			return fmt.Errorf("error reading 'resource': %w", err)
+		}
+		delete(object, "resource")
+	}
+
+	if raw, found := object["scope"]; found {
+		err = json.Unmarshal(raw, &a.Scope)
+		if err != nil {
+			return fmt.Errorf("error reading 'scope': %w", err)
+		}
+		delete(object, "scope")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpTokenRequest to handle AdditionalProperties
+func (a McpTokenRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.ClientId != nil {
+		object["client_id"], err = json.Marshal(a.ClientId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'client_id': %w", err)
+		}
+	}
+
+	if a.Code != nil {
+		object["code"], err = json.Marshal(a.Code)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'code': %w", err)
+		}
+	}
+
+	if a.CodeVerifier != nil {
+		object["code_verifier"], err = json.Marshal(a.CodeVerifier)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'code_verifier': %w", err)
+		}
+	}
+
+	object["grant_type"], err = json.Marshal(a.GrantType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'grant_type': %w", err)
+	}
+
+	if a.RedirectUri != nil {
+		object["redirect_uri"], err = json.Marshal(a.RedirectUri)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'redirect_uri': %w", err)
+		}
+	}
+
+	if a.RefreshToken != nil {
+		object["refresh_token"], err = json.Marshal(a.RefreshToken)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'refresh_token': %w", err)
+		}
+	}
+
+	if a.Resource != nil {
+		object["resource"], err = json.Marshal(a.Resource)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'resource': %w", err)
+		}
+	}
+
+	if a.Scope != nil {
+		object["scope"], err = json.Marshal(a.Scope)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scope': %w", err)
 		}
 	}
 

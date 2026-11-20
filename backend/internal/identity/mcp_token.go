@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -25,6 +26,10 @@ type MCPCodeExchange struct {
 // MCPRefresh is a refresh_token token request from a public client.
 type MCPRefresh struct {
 	RefreshToken, ClientID, Resource string
+	// Scopes is the space-split scope parameter; nil or empty means absent. A
+	// present set must equal the grant's scopes as a set (no narrowing), else
+	// ErrMCPInvalidScope.
+	Scopes []string
 }
 
 // ExchangeCode redeems a single-use code. The grant is created here, bound to
@@ -119,13 +124,22 @@ func (s *MCPService) Refresh(ctx context.Context, in MCPRefresh) (MCPTokens, err
 	if !mcpSecretPattern.MatchString(in.RefreshToken) || in.Resource != s.resource {
 		return MCPTokens{}, ErrMCPInvalidGrant
 	}
+	// An unknown scope can never match a grant: refused before any database
+	// work. A known set is compared with the grant's under its lock.
+	var requested []string
+	if len(in.Scopes) > 0 {
+		var err error
+		if requested, err = refreshScopeSet(in.Scopes); err != nil {
+			return MCPTokens{}, err
+		}
+	}
 	now := s.now()
 	refreshHash := tokenDigest(in.RefreshToken)
 	var tokens MCPTokens
 	var outcome error
 	err := s.repository.WithMCPTransaction(ctx, func(tx MCPTransaction) error {
 		var e error
-		tokens, outcome, e = s.refreshLocked(ctx, tx, in, refreshHash, now)
+		tokens, outcome, e = s.refreshLocked(ctx, tx, in, requested, refreshHash, now)
 		return e
 	})
 	if err != nil {
@@ -137,7 +151,31 @@ func (s *MCPService) Refresh(ctx context.Context, in MCPRefresh) (MCPTokens, err
 	return tokens, nil
 }
 
-func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MCPRefresh, refreshHash []byte, now time.Time) (MCPTokens, error, error) {
+// refreshScopeSet normalizes a refresh request's scope parameter: every scope
+// must be a Tendo scope, duplicates collapse and the order is irrelevant.
+func refreshScopeSet(requested []string) ([]string, error) {
+	scopes := make([]string, 0, 2)
+	for _, scope := range requested {
+		if scope != MCPScopeRead && scope != MCPScopeWrite {
+			return nil, ErrMCPInvalidScope
+		}
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	slices.Sort(scopes)
+	return scopes, nil
+}
+
+// refreshScopesMatch reports whether a requested scope set may refresh a grant.
+// nil means the parameter was absent, which keeps the grant's scopes.
+func refreshScopesMatch(requested, granted []string) bool {
+	return requested == nil || slices.Equal(requested, granted)
+}
+
+// refreshLocked returns requested as the scope set to compare with the grant's
+// scopes; nil means the parameter was absent.
+func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MCPRefresh, requested []string, refreshHash []byte, now time.Time) (MCPTokens, error, error) {
 	owner, grantID, err := tx.FindRefreshOwner(ctx, refreshHash)
 	if errors.Is(err, ErrNotFound) {
 		return MCPTokens{}, ErrMCPInvalidGrant, nil
@@ -166,6 +204,10 @@ func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MC
 	}
 	if !refresh.ExpiresAt.After(now) || !grant.refreshableBy(in, now) {
 		return MCPTokens{}, ErrMCPInvalidGrant, nil
+	}
+	// Narrowing and widening are both refused; the token is not consumed.
+	if !refreshScopesMatch(requested, grant.Scopes) {
+		return MCPTokens{}, ErrMCPInvalidScope, nil
 	}
 	if err = tx.ConsumeRefreshToken(ctx, refreshHash, now); err != nil {
 		return MCPTokens{}, nil, err

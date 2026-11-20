@@ -432,14 +432,14 @@ for name, count in before.items():
     if name == 'subjects':
         continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'account_deletions', 'household_creations', 'instance_admin_revocations', 'household_member_assignments', 'household_member_removals', 'household_role_changes', 'instance_admins', 'mcp_access_tokens', 'mcp_authorization_codes', 'mcp_clients', 'mcp_grant_events', 'mcp_grants', 'mcp_refresh_tokens', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
+unexpected = set(after) - set(before) - {'account_deletions', 'household_creations', 'instance_admin_revocations', 'household_member_assignments', 'household_member_removals', 'household_role_changes', 'instance_admins', 'mcp_access_tokens', 'mcp_authorization_codes', 'mcp_authorization_requests', 'mcp_clients', 'mcp_grant_events', 'mcp_grants', 'mcp_refresh_tokens', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 # Migration tables must exist afterwards. A source release that already shipped the
 # migration keeps its rows (the generic preservation check above); a source that
 # predates it must get an empty table. member_person_migration_unlinks may hold
 # deliberate non-canonical unlink rows, so only its existence is required here and its
 # count is asserted against the measured expectation below.
-for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020'), ('household_member_removals', '024'), ('household_member_assignments', '025'), ('household_creations', '026'), ('account_deletions', '027'), ('instance_admin_revocations', '027'), ('mcp_clients', '028'), ('mcp_grants', '028'), ('mcp_authorization_codes', '028'), ('mcp_access_tokens', '028'), ('mcp_refresh_tokens', '028'), ('mcp_grant_events', '028')):
+for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020'), ('household_member_removals', '024'), ('household_member_assignments', '025'), ('household_creations', '026'), ('account_deletions', '027'), ('instance_admin_revocations', '027'), ('mcp_clients', '028'), ('mcp_grants', '028'), ('mcp_authorization_codes', '028'), ('mcp_access_tokens', '028'), ('mcp_refresh_tokens', '028'), ('mcp_grant_events', '028'), ('mcp_authorization_requests', '030')):
     assert name in after, (f'migration {migration} table missing after upgrade', sorted(after))
     if name not in before:
         assert after[name] == '0', (f'migration {migration} must create {name} empty', name, after[name])

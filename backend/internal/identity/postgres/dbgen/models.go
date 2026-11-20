@@ -136,6 +136,19 @@ type McpAuthorizationCode struct {
 	IssuedGrantID pgtype.UUID
 }
 
+type McpAuthorizationRequest struct {
+	RequestHash   []byte
+	BindingHash   []byte
+	ClientID      string
+	RedirectUri   string
+	CodeChallenge string
+	Scopes        []string
+	Resource      string
+	State         pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	ExpiresAt     pgtype.Timestamptz
+}
+
 type McpClient struct {
 	ClientID     string
 	ClientName   string

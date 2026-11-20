@@ -203,6 +203,17 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 			t.Errorf("%s: declared in the contract but not routed", key)
 			continue
 		}
+		// The MCP consent operations are SessionCookie operations under /api/v1,
+		// but MCP is disabled in production and the disabled check runs before
+		// session authentication, so they answer the unknown-path 404. Their 401
+		// and session wiring are pinned with MCP enabled in the httpapi tests.
+		if strings.HasPrefix(op.path, "/api/v1/mcp/") {
+			if op.scheme != "SessionCookie" {
+				t.Errorf("%s: MCP consent operation must declare SessionCookie, got %q", key, op.scheme)
+			}
+			checkMCPDisabledOperation(t, production, op.method, contractPathParam.ReplaceAllString(op.path, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"), cfg.PublicURL)
+			continue
+		}
 		target := contractPathParam.ReplaceAllString(op.path, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61")
 		sendWith := func(body string, header http.Header, cookies ...string) *httptest.ResponseRecorder {
 			client++
@@ -291,6 +302,8 @@ var mcpPreflightRoutes = map[string]bool{
 	"OPTIONS /oauth/register":                           true,
 	"OPTIONS /.well-known/oauth-protected-resource/mcp": true,
 	"OPTIONS /.well-known/oauth-authorization-server":   true,
+	"OPTIONS /oauth/token":                              true,
+	"OPTIONS /oauth/revoke":                             true,
 }
 
 // TestContractUnsafeOperationsRequireOriginBeforeAuthentication pins the global
