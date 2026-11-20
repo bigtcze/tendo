@@ -84,8 +84,9 @@ identity framework".
   revocation or deletion takes effect on the next request. An upstream OIDC ID
   token is never a bearer token.
 - **Disabled MCP** is refused inside the service for issuance, exchange, refresh
-  and verification, not only by routing. Production composition is hard-disabled
-  until the flow is complete; no runtime setting enables it yet.
+  and verification, not only by routing. Until slice A4a production composition
+  was hard-disabled; since A4a the `TENDO_MCP_ENABLED` setting (default `false`)
+  is the only switch (see "Slice A4a").
 - **No CIMD initially.** Client ID Metadata Documents need outbound fetches,
   which ARCHITECTURE does not allow beyond optional OIDC. Dynamic client
   registration (slice A2) covers the supported clients.
@@ -286,8 +287,8 @@ prevent a determined client from filling the cap each day.
 
 The sweep runs regardless of whether MCP is enabled, so a disabled installation
 still clears expired secrets. Production composition hard-disables MCP
-(`Enabled: false`) until the flow is complete. No `TENDO_MCP_ENABLED` setting
-exists. Each step runs in its own transaction with `lock_timeout = 100ms`, and
+(`Enabled: false`) until the flow is complete; slice A4a replaced this with the
+`TENDO_MCP_ENABLED` setting, default `false`. Each step runs in its own transaction with `lock_timeout = 100ms`, and
 deletes at most 1000 rows per statement by primary key. A step that cannot get
 a lock yields for the run and the next run retries it. Other storage failures
 are returned as fixed error classes, with no driver text.
@@ -484,3 +485,123 @@ decisions below follow the independent design review recorded on #456.
 Deferred to A4, where a real pending request exists without mocking the
 backend: the visual baselines of a live consent, the consent screen in E2E
 journey 17, and the user documentation.
+
+## Slice A4a: the `/mcp` endpoint and the kill switch
+
+Slice A4a adds `POST /mcp`, the `TENDO_MCP_ENABLED` setting and one read-only
+tool, `list_households`. Connected apps (listing and revoking one's own grants)
+are slice A4b; E2E journey 17, live smoke coverage, consent visual baselines and
+user documentation are A4c. The decisions below follow the independent design
+review recorded on #456.
+
+### Kill switch
+
+- `TENDO_MCP_ENABLED` absent or empty means `false`; only the exact values
+  `true` and `false` are accepted, anything else stops startup. `true` requires
+  an HTTPS `TENDO_PUBLIC_URL` or a loopback HTTP origin, because bearer tokens
+  must not cross a reachable plain-HTTP origin. Compose passes
+  `${TENDO_MCP_ENABLED:-false}`.
+- The setting feeds `MCPService.Enabled`, so the service keeps refusing
+  issuance, exchange, refresh and verification when disabled, independent of
+  routing. Every MCP route, `/mcp` included, answers the unknown-path 404.
+- Turning MCP off deletes nothing. Unexpired grants and refresh tokens work
+  again when it is turned back on; access tokens last 10 minutes, so a long
+  off period leaves only refresh tokens usable. Owners who want grants gone
+  must revoke them (A4b) rather than toggle the switch.
+- The admin documentation marks the setting incomplete until A4b ships,
+  because users cannot yet see or revoke their connected apps.
+
+### Endpoint
+
+- One handler serves every method on `/mcp`. Disabled gives the unknown-path
+  404; enabled non-POST gives 405 problem+json with `Allow: POST`. Every
+  enabled response carries `Cache-Control: no-store`. The SDK sets its own
+  `no-cache, no-transform` on success, so the endpoint wraps the response writer
+  and forces `no-store` when the status is written.
+- Order of front checks: per-IP limit (300 per minute), exactly one
+  `Authorization: Bearer` value, database verification of token, grant and
+  account (bounded by `TENDO_DB_TIMEOUT`), per-grant (120) and per-user (240)
+  limits, scope admission, body limit (64 KiB), batch refusal, the protocol
+  header rule, then the SDK. No body is read before authentication, so an
+  oversized anonymous request is 401, not 413.
+- The SDK is `github.com/modelcontextprotocol/go-sdk` v1.8.0 with
+  `Stateless: true` and `JSONResponse: true`. No session state exists, so
+  `Mcp-Session-Id` from the client is removed before the SDK and none is ever
+  returned. Server capabilities are tools only with `listChanged: false`.
+  Tools are registered once, before the handler is built; the tool list is
+  fixed for the process.
+- Protocol revisions are pinned to `2026-07-28`, `2025-11-25` and
+  `2025-06-18`. `2025-03-26` is excluded because it allows JSON-RPC batching.
+  A JSON array body is refused with 400 before the SDK for every revision.
+  Without an `MCP-Protocol-Version` header the SDK would assume `2025-03-26`,
+  so every message except `initialize` must carry the header (the spec requires
+  it after negotiation); a message without it is refused with a JSON-RPC
+  `-32600` 400 before the SDK. The check decodes the message with the SDK's
+  own JSON-RPC decoder, so it cannot disagree with the SDK about the method
+  (case-insensitive or duplicate keys).
+- Stateless answers complete when the handler returns, so an event-stream
+  answer is never long-lived. The request logger's writer now unwraps, so SDK
+  flushes reach the connection.
+- Transport-layer refusals stay the SDK's own: plain-text 400 and 415, and,
+  under `2026-07-28`, a JSON-RPC 404 for an unhandled method. The OpenAPI
+  contract lists each.
+- `DisableLocalhostProtection` is safe here. The SDK's localhost protection
+  defends unauthenticated local servers against DNS rebinding. `/mcp` never
+  acts without a bearer token that the browser never holds (no cookies are
+  read), and the shared origin policy refuses a present `Origin` other than the
+  public origin.
+- The principal comes from one fail-closed helper, `MCPUserID(req, scope)`. It
+  returns the user only with a canonical user ID, a grant and the given scope.
+  The SDK bearer middleware only re-reads the already verified result.
+- The SDK copies the HTTP request headers into every tool request. The endpoint
+  therefore deletes `Authorization`, `Proxy-Authorization` and `Cookie` after
+  bearer verification and before the SDK handler, so no tool can read or
+  forward a credential. An architecture test forbids tool packages
+  (`internal/*/mcptool`) from touching the SDK request extras, token info or
+  headers.
+
+### Scopes
+
+- Scope is checked in a receiving middleware on `tools/call`, and again by
+  each handler through `MCPUserID(req, scope)`. A tool declares exactly one
+  required scope; `tendo:write` does not imply `tendo:read`. A refused call is
+  a tool error result inside a 200 JSON-RPC response. The middleware also
+  refuses a tool name the build did not declare, and construction lists the
+  server's tools over an in-memory client and fails unless they equal the
+  declared set, so `Install` cannot add an unchecked tool.
+- At the front, a token holding none of the scopes any registered tool needs
+  gets 403 `insufficient_scope` with a challenge. In A4a that is a
+  `tendo:write`-only token, since the only tool needs `tendo:read`.
+- Intersection with admin, user and household limits, write tools and
+  cross-household tool tests remain #457.
+
+### `list_households`
+
+Input `{cursor?}` (at most 64 characters), output
+`{households: [{id, name, role}], nextCursor}`, fixed page size 50,
+`readOnlyHint: true`, scope `tendo:read`. It calls the household service with
+the verified user ID, so it sees exactly the caller's current memberships; a
+removed membership disappears on the next call.
+
+### Declared deviations (A4a)
+
+- A malformed or duplicated `Authorization` header is 401 `invalid_token`
+  rather than RFC 6750 `invalid_request` with 400, so a client always gets the
+  challenge that leads it back to discovery.
+- A request without any credential gets 401 with a challenge that has no
+  `error=` attribute (RFC 6750 section 3.1); its JSON body says
+  `invalid_request`.
+- An oversized body is 413 `payload_too_large` problem+json, as elsewhere in
+  the API, not a JSON-RPC error. Any other body read failure is 400
+  `invalid_request`.
+- A non-positive verification timeout defaults to 5 seconds; production always
+  passes the positive `TENDO_DB_TIMEOUT`.
+- `MCPGODEBUG=allowsessionsinstateless=1` is unsupported. Compose does not pass
+  it, and the endpoint strips `Mcp-Session-Id` regardless.
+
+### Smoke scope
+
+No live smoke run enables MCP yet, so `api/check-health.test.mjs` keeps
+excluding the MCP operations, now including `callMcp`. The endpoint is covered
+by composition tests in `backend/cmd/tendo` and real-PostgreSQL tests. A4c adds
+the live MCP smoke and removes the exclusion.

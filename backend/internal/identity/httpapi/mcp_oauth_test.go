@@ -321,6 +321,7 @@ func TestMCPCrossOriginRoutesExactList(t *testing.T) {
 		{Method: http.MethodGet, Path: "/.well-known/oauth-authorization-server", Mode: httpx.CrossOriginAny},
 		{Method: http.MethodPost, Path: "/oauth/token", Mode: httpx.CrossOriginAny},
 		{Method: http.MethodPost, Path: "/oauth/revoke", Mode: httpx.CrossOriginAny},
+		{Method: http.MethodPost, Path: "/mcp", Mode: httpx.CrossOriginNoneOrPublic},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("routes=%+v", got)

@@ -44,7 +44,7 @@ for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem
 assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goModels), 'Generated Go Session must have optional DefaultHouseholdId')
 // oapi-codegen v2.8.0 no longer emits SessionCookieScopes/SetupTokenScopes. Those constants never enforced
 // authentication; enforcement is verified against this contract by backend/cmd/tendo/security_contract_test.go.
-assert.deepEqual(Object.keys(contract.components.securitySchemes).sort(), ['SessionCookie', 'SetupToken'], 'Contract security schemes changed; update security_contract_test.go')
+assert.deepEqual(Object.keys(contract.components.securitySchemes).sort(), ['McpBearer', 'SessionCookie', 'SetupToken'], 'Contract security schemes changed; update security_contract_test.go')
 for (const [path, pathItem] of Object.entries(contract.paths)) {
   for (const [method, operation] of Object.entries(pathItem)) {
     if (!operation || typeof operation !== 'object' || !operation.operationId) continue

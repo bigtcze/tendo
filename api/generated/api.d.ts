@@ -999,6 +999,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send one MCP JSON-RPC message (Streamable HTTP)
+         * @description The MCP endpoint (Streamable HTTP, stateless, JSON responses only). The body is exactly one JSON-RPC 2.0 message; a batch (a JSON array) is refused with 400. Pinned protocol revisions are 2026-07-28, 2025-11-25 and 2025-06-18 (MCP-Protocol-Version). Mcp-Session-Id is ignored and never returned. The bearer access token is the only credential: cookies, query and form tokens are never read, and an upstream OIDC ID token is never accepted. Every request re-verifies the token, its grant and the account. An absent Origin is accepted; a present Origin must be the public origin (403 otherwise). Other methods on /mcp answer 405 with Allow: POST. Limits: 300 requests per minute per client IP before authentication, then 120 per minute per grant and 240 per minute per user. Body limit 64 KiB. Every message except initialize must carry MCP-Protocol-Version; without it the request is refused with 400, so the excluded 2025-03-26 default never applies. Tool scope refusals and unknown tools are tool error results inside a 200 JSON-RPC response. Responses from the MCP protocol layer are plain MCP Streamable HTTP responses: text/plain 400 (malformed payload, unsupported protocol version, missing Accept value, an unhandled method under 2025-11-25 or 2025-06-18), text/plain 415, 202 for a notification-only body, a JSON-RPC 404 (-32601) for an unhandled method under 2026-07-28, and a finite text/event-stream answer where the SDK frames one (for example subscriptions/listen). While MCP is disabled every method answers the unknown-path 404 problem. Every response is Cache-Control no-store, including SDK responses.
+         */
+        post: operations["callMcp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1093,7 +1113,7 @@ export interface components {
         /** @description RFC 6749 section 5.2 / RFC 7591 section 3.2.2 error response. Not problem+json. */
         OAuthError: {
             /** @enum {string} */
-            error: "invalid_redirect_uri" | "invalid_client_metadata" | "temporarily_unavailable" | "invalid_request" | "unsupported_grant_type" | "invalid_grant" | "invalid_scope" | "invalid_target";
+            error: "invalid_redirect_uri" | "invalid_client_metadata" | "temporarily_unavailable" | "invalid_request" | "unsupported_grant_type" | "invalid_grant" | "invalid_scope" | "invalid_target" | "invalid_token" | "insufficient_scope";
             error_description: string;
         };
         /** @description The consent screen view of a pending MCP authorization request. Field names are camelCase, not the RFC wire names of /oauth/*. */
@@ -1138,6 +1158,17 @@ export interface components {
             resource?: string;
             /** @description Optional for refresh_token. When present it must equal the grant scopes as a set. */
             scope?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A finite text/event-stream body whose events carry JSON-RPC messages; it ends after the JSON-RPC response. */
+        McpEventStream: string;
+        /** @description A plain-text refusal written by the MCP SDK transport layer. */
+        McpPlainTextError: string;
+        /** @description One JSON-RPC 2.0 message as defined by the MCP specification. The MCP SDK validates the message; this schema only fixes the envelope. */
+        McpJsonRpcMessage: {
+            /** @constant */
+            jsonrpc: "2.0";
         } & {
             [key: string]: unknown;
         };
@@ -13432,6 +13463,270 @@ export interface operations {
                      * @example {
                      *       "error": "temporarily_unavailable",
                      *       "error_description": "Revocation is temporarily unavailable."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    callMcp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "jsonrpc": "2.0",
+                 *       "id": 1,
+                 *       "method": "tools/call",
+                 *       "params": {
+                 *         "name": "list_households",
+                 *         "arguments": {}
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["McpJsonRpcMessage"];
+            };
+        };
+        responses: {
+            /** @description The JSON-RPC response. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "jsonrpc": "2.0",
+                     *       "id": 1,
+                     *       "result": {
+                     *         "content": [
+                     *           {
+                     *             "type": "text",
+                     *             "text": "{\"households\":[]}"
+                     *           }
+                     *         ],
+                     *         "structuredContent": {
+                     *           "households": []
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpJsonRpcMessage"];
+                    "text/event-stream": components["schemas"]["McpEventStream"];
+                };
+            };
+            /** @description The body held only a notification or response; no content. */
+            202: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A JSON-RPC batch or a non-initialize message without MCP-Protocol-Version (JSON-RPC -32600 as application/json), or an SDK refusal as text/plain: malformed payload, unsupported protocol version, an Accept header lacking application/json and text/event-stream, or an unhandled method under 2025-11-25 or 2025-06-18. A body that cannot be read is problem+json invalid_request. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "jsonrpc": "2.0",
+                     *       "id": null,
+                     *       "error": {
+                     *         "code": -32600,
+                     *         "message": "batch requests are not supported"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpJsonRpcMessage"];
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                    /** @example Bad Request: Unsupported protocol version (supported versions: 2026-07-28,2025-11-25,2025-06-18) */
+                    "text/plain": components["schemas"]["McpPlainTextError"];
+                };
+            };
+            /** @description No bearer token, or a malformed, duplicated, unknown, expired, revoked or foreign-resource token. A malformed or duplicated Authorization header is invalid_token rather than RFC 6750 invalid_request (declared deviation). WWW-Authenticate carries resource_metadata and scope; error="invalid_token" is present unless no credential was sent. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /**
+                     * @description RFC 6750 and RFC 9728 bearer challenge.
+                     * @example Bearer error="invalid_token", resource_metadata="https://tendo.example/.well-known/oauth-protected-resource/mcp", scope="tendo:read tendo:write"
+                     */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "invalid_token",
+                     *       "error_description": "The access token is missing, malformed, expired or revoked."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description The token holds no scope any tool requires (insufficient_scope with a WWW-Authenticate challenge), or a present Origin is not the public origin (problem+json from the origin check). */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /**
+                     * @description Sent only for insufficient_scope.
+                     * @example Bearer error="insufficient_scope", scope="tendo:read", resource_metadata="https://tendo.example/.well-known/oauth-protected-resource/mcp"
+                     */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "insufficient_scope",
+                     *       "error_description": "The token does not grant a scope this endpoint requires."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description MCP disabled: answered exactly as an unknown reserved path, as problem+json. With MCP enabled and protocol 2026-07-28, an unhandled JSON-RPC method is a JSON-RPC -32601 error as application/json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                    /**
+                     * @example {
+                     *       "jsonrpc": "2.0",
+                     *       "id": 1,
+                     *       "error": {
+                     *         "code": -32601,
+                     *         "message": "JSON RPC not handled: \"nope/nope\" unsupported"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpJsonRpcMessage"];
+                };
+            };
+            /** @description The body exceeds 64 KiB. Only an authenticated request body is read. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Request Entity Too Large",
+                     *       "status": 413,
+                     *       "code": "payload_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Content-Type is not application/json. Plain-text SDK refusal. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /** @example Content-Type must be 'application/json' */
+                    "text/plain": components["schemas"]["McpPlainTextError"];
+                };
+            };
+            /** @description Per-IP (300 per minute), per-grant (120 per minute) or per-user (240 per minute) limit reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description SDK internal fault: the stateless server connection could not start. Not expected in normal operation; retry. */
+            500: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /** @example failed connection */
+                    "text/plain": components["schemas"]["McpPlainTextError"];
+                };
+            };
+            /** @description Token verification fault. Retry later. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Token service is temporarily unavailable."
                      *     }
                      */
                     "application/json": components["schemas"]["OAuthError"];

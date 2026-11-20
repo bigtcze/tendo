@@ -696,6 +696,21 @@ func (e McpClientRegistrationResponseTokenEndpointAuthMethod) Valid() bool {
 	}
 }
 
+// Defines values for McpJsonRpcMessageJsonrpc.
+const (
+	N20 McpJsonRpcMessageJsonrpc = "2.0"
+)
+
+// Valid indicates whether the value is a known member of the McpJsonRpcMessageJsonrpc enum.
+func (e McpJsonRpcMessageJsonrpc) Valid() bool {
+	switch e {
+	case N20:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpProtectedResourceMetadataBearerMethodsSupported.
 const (
 	Header McpProtectedResourceMetadataBearerMethodsSupported = "header"
@@ -881,12 +896,14 @@ func (e MembershipRole) Valid() bool {
 
 // Defines values for OAuthErrorError.
 const (
+	InsufficientScope      OAuthErrorError = "insufficient_scope"
 	InvalidClientMetadata  OAuthErrorError = "invalid_client_metadata"
 	InvalidGrant           OAuthErrorError = "invalid_grant"
 	InvalidRedirectUri     OAuthErrorError = "invalid_redirect_uri"
 	InvalidRequest         OAuthErrorError = "invalid_request"
 	InvalidScope           OAuthErrorError = "invalid_scope"
 	InvalidTarget          OAuthErrorError = "invalid_target"
+	InvalidToken           OAuthErrorError = "invalid_token"
 	TemporarilyUnavailable OAuthErrorError = "temporarily_unavailable"
 	UnsupportedGrantType   OAuthErrorError = "unsupported_grant_type"
 )
@@ -894,6 +911,8 @@ const (
 // Valid indicates whether the value is a known member of the OAuthErrorError enum.
 func (e OAuthErrorError) Valid() bool {
 	switch e {
+	case InsufficientScope:
+		return true
 	case InvalidClientMetadata:
 		return true
 	case InvalidGrant:
@@ -905,6 +924,8 @@ func (e OAuthErrorError) Valid() bool {
 	case InvalidScope:
 		return true
 	case InvalidTarget:
+		return true
+	case InvalidToken:
 		return true
 	case TemporarilyUnavailable:
 		return true
@@ -2040,6 +2061,21 @@ type McpClientRegistrationResponseScope string
 // McpClientRegistrationResponseTokenEndpointAuthMethod defines model for McpClientRegistrationResponse.TokenEndpointAuthMethod.
 type McpClientRegistrationResponseTokenEndpointAuthMethod string
 
+// McpEventStream A finite text/event-stream body whose events carry JSON-RPC messages; it ends after the JSON-RPC response.
+type McpEventStream = string
+
+// McpJsonRpcMessage One JSON-RPC 2.0 message as defined by the MCP specification. The MCP SDK validates the message; this schema only fixes the envelope.
+type McpJsonRpcMessage struct {
+	Jsonrpc              McpJsonRpcMessageJsonrpc `json:"jsonrpc"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
+}
+
+// McpJsonRpcMessageJsonrpc defines model for McpJsonRpcMessage.Jsonrpc.
+type McpJsonRpcMessageJsonrpc string
+
+// McpPlainTextError A plain-text refusal written by the MCP SDK transport layer.
+type McpPlainTextError = string
+
 // McpProtectedResourceMetadata RFC 9728 protected resource metadata. Field names are RFC snake_case wire names.
 type McpProtectedResourceMetadata struct {
 	AuthorizationServers   []string                                             `json:"authorization_servers"`
@@ -3149,6 +3185,12 @@ type GetReadinessParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// CallMcpParams defines parameters for CallMcp.
+type CallMcpParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // AuthorizeMcpClientParams defines parameters for AuthorizeMcpClient.
 type AuthorizeMcpClientParams struct {
 	ResponseType        AuthorizeMcpClientParamsResponseType        `form:"response_type" json:"response_type"`
@@ -3265,6 +3307,9 @@ type UpdateSessionJSONRequestBody = UpdateSessionRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// CallMcpJSONRequestBody defines body for CallMcp for application/json ContentType.
+type CallMcpJSONRequestBody = McpJsonRpcMessage
 
 // RegisterMcpClientJSONRequestBody defines body for RegisterMcpClient for application/json ContentType.
 type RegisterMcpClientJSONRequestBody = McpClientRegistrationRequest
@@ -4451,6 +4496,72 @@ func (a McpClientRegistrationRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'token_endpoint_auth_method': %w", err)
 		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpJsonRpcMessage. Returns the specified
+// element and whether it was found
+func (a McpJsonRpcMessage) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpJsonRpcMessage
+func (a *McpJsonRpcMessage) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpJsonRpcMessage to handle AdditionalProperties
+func (a *McpJsonRpcMessage) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["jsonrpc"]; found {
+		err = json.Unmarshal(raw, &a.Jsonrpc)
+		if err != nil {
+			return fmt.Errorf("error reading 'jsonrpc': %w", err)
+		}
+		delete(object, "jsonrpc")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpJsonRpcMessage to handle AdditionalProperties
+func (a McpJsonRpcMessage) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["jsonrpc"], err = json.Marshal(a.Jsonrpc)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'jsonrpc': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

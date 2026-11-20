@@ -1,6 +1,6 @@
 # Dependency and toolchain inventory
 
-Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../../mise.toml) with download checksums in [`mise.lock`](../../mise.lock); image, workflow and generator pins live where they are used. Renovate discovers each of them natively (see below).
+Snapshot date: 2026-10-09 (Go module rows re-synchronized 2026-11-20; see below). Developer and CI tool pins live in [`mise.toml`](../../mise.toml) with download checksums in [`mise.lock`](../../mise.lock); image, workflow and generator pins live where they are used. Renovate discovers each of them natively (see below).
 
 ## Runtimes, images, and native tools
 
@@ -23,18 +23,24 @@ Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../.
 | Module | Version | Type |
 | --- | --- | --- |
 | `github.com/coreos/go-oidc/v3` | v3.21.0 | direct |
-| `github.com/go-chi/chi/v5` | v5.4.0 | direct |
-| `github.com/jackc/pgx/v5` | v5.11.0 | direct |
+| `github.com/go-chi/chi/v5` | v5.5.0 | direct |
+| `github.com/jackc/pgx/v5` | v5.12.0 | direct |
+| `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | direct; official MCP SDK serving `POST /mcp` (stateless Streamable HTTP, ADR 0023). Apache-2.0, with older contributions MIT during the project's relicensing |
 | `golang.org/x/crypto` | v0.58.0 | direct |
 | `golang.org/x/oauth2` | v0.37.0 | direct |
 | `golang.org/x/term` | v0.47.0 | direct; reads the new password without echo in `tendo users set-password` |
-| `github.com/go-jose/go-jose/v4` | v4.1.5 | indirect |
+| `github.com/go-jose/go-jose/v4` | v4.1.9 | indirect |
+| `github.com/google/jsonschema-go` | v0.4.3 | indirect; MCP SDK tool schemas; MIT |
 | `github.com/jackc/puddle/v2` | v2.2.3 | indirect |
+| `github.com/segmentio/asm` | v1.1.3 | indirect; MCP SDK JSON decoding; MIT |
+| `github.com/segmentio/encoding` | v0.5.4 | indirect; MCP SDK JSON decoding; MIT |
+| `github.com/yosida95/uritemplate/v3` | v3.0.2 | indirect; MCP SDK resource templates (unused by Tendo); BSD-3-Clause |
 | `golang.org/x/sync` | v0.24.0 | indirect |
 | `golang.org/x/sys` | v0.49.0 | indirect |
-| `golang.org/x/text` | v0.43.0 | indirect |
+| `golang.org/x/text` | v0.43.0 | direct |
+| `golang.org/x/time` | v0.15.0 | indirect; MCP SDK; BSD-3-Clause |
 
-All direct and required indirect modules are at their latest releases. `go list -m -u all` lists only newer versions for module-graph entries that do not enter the build.
+The table mirrors `backend/go.mod` (rows re-synchronized on 2026-11-20 when the MCP SDK and its modules were added). Newer releases of these modules arrive through Renovate dependency PRs, not through feature work; the go-sdk pin brings in `segmentio/asm` v1.1.3 by minimum version selection. The SDK reads no `MCPGODEBUG` setting that Tendo supports; `MCPGODEBUG=allowsessionsinstateless=1` is unsupported (ADR 0023, A4a).
 
 `govulncheck` (x/vuln v1.8.0, Go 1.27.4): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
 

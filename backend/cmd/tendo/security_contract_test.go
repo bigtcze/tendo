@@ -106,7 +106,7 @@ func readContractSecurity(t *testing.T) []contractOperation {
 	}
 	for _, op := range ops {
 		switch op.scheme {
-		case "", "SessionCookie", "SetupToken":
+		case "", "SessionCookie", "SetupToken", "McpBearer":
 		default:
 			t.Fatalf("%s %s: missing or unknown security scheme %q", op.method, op.path, op.scheme)
 		}
@@ -286,7 +286,7 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		})
 	}
 	for key := range registered {
-		if !contract[key] && !mcpPreflightRoutes[key] {
+		if !contract[key] && !mcpPreflightRoutes[key] && !mcpEndpointRoutes[key] {
 			t.Errorf("%s: routed but not declared in the contract", key)
 		}
 	}
@@ -304,6 +304,24 @@ var mcpPreflightRoutes = map[string]bool{
 	"OPTIONS /.well-known/oauth-authorization-server":   true,
 	"OPTIONS /oauth/token":                              true,
 	"OPTIONS /oauth/revoke":                             true,
+}
+
+// mcpEndpointRoutes are the methods the /mcp endpoint is routed for. POST /mcp
+// is the Streamable HTTP operation and is declared in the OpenAPI contract by
+// the lead (McpBearer). The other methods are answered by the endpoint itself
+// with 405 + Allow: POST (or 404 while MCP is disabled), so they are routed but
+// not declared, the same as the preflights above.
+var mcpEndpointRoutes = map[string]bool{
+	"POST /mcp":    true,
+	"GET /mcp":     true,
+	"DELETE /mcp":  true,
+	"PUT /mcp":     true,
+	"PATCH /mcp":   true,
+	"HEAD /mcp":    true,
+	"OPTIONS /mcp": true,
+	"TRACE /mcp":   true,
+	"CONNECT /mcp": true,
+	"QUERY /mcp":   true,
 }
 
 // TestContractUnsafeOperationsRequireOriginBeforeAuthentication pins the global

@@ -14,14 +14,20 @@ const schemas = Object.fromEntries(
   Object.entries(contract.components.schemas).map(([name, schema]) => [name, ajv.compile(schema)]),
 )
 
-function assertBody(path, status, body, method) {
+// assertBody validates against the documented media type. A response that
+// documents both JSON and problem+json (POST /mcp 403) is checked against the
+// media type the response or example actually carries.
+function assertBody(path, status, body, method, actualMedia) {
   const responseSpec = contract.paths[path][method]?.responses[String(status)]
   assert.ok(responseSpec, `${path}: undocumented HTTP ${status}`)
   if (!responseSpec.content) {
     assert.equal(body, undefined, `${path} HTTP ${status} must have an empty body`)
     return
   }
-  const media = responseSpec.content['application/json'] ? 'application/json' : 'application/problem+json'
+  const declared = actualMedia?.split(';')[0].trim()
+  const media = declared && responseSpec.content[declared]
+    ? declared
+    : responseSpec.content['application/json'] ? 'application/json' : 'application/problem+json'
   const schema = responseSpec.content[media]?.schema
   assert.ok(schema, `${path}: response schema missing`)
   const validate = ajv.compile(schema)
@@ -238,7 +244,7 @@ function assertResponse(path, status, body, method, headers = {}) {
       if (locationSchema.pattern) assert.match(headers.location, new RegExp(locationSchema.pattern), `${path} HTTP ${status} has invalid Location`)
     }
   }
-  assertBody(path, status, body, method)
+  assertBody(path, status, body, method, headers['content-type'])
   if (path === '/api/v1/auth/oidc' && method === 'get' && status === 200) {
     assert.equal(typeof body.enabled, 'boolean', `${path} enabled must be boolean`)
     assert.equal(Object.hasOwn(body, 'displayName'), body.enabled, `${path} displayName must be present exactly when enabled`)
@@ -263,7 +269,7 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
     if (!operation?.responses) continue
     for (const [status, response] of Object.entries(operation.responses)) {
       for (const [media, content] of Object.entries(response.content ?? {})) {
-        if (content.example) assertBody(path, Number(status), content.example, method)
+        if (content.example) assertBody(path, Number(status), content.example, method, media)
         const schemaName = content.schema?.$ref?.split('/').at(-1)
         assert.ok(schemaName && schemas[schemaName], `${path} ${method} ${status} ${media}: response schema missing`)
       }
