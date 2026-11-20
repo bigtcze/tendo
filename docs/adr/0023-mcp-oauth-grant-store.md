@@ -463,7 +463,11 @@ decisions below follow the independent design review recorded on #456.
   sign-in screen sets the return flag. A successful sign-in consumes it once
   and opens `/connect`. On boot it is consumed only at `/`, `/login` and
   `/connect`. The literal `/connect` with a stored, pattern-valid handle is the
-  only possible target.
+  only possible target. A sign-in started anywhere else (Home, an invitation,
+  onboarding) and a plain sign-out drop the stored entry. A signed-out visit
+  to `/connect` without a usable stored request shows the problem state, not
+  a sign-in. If the stored entry expires while the sign-in form is open, the
+  sign-in ends on Home without a message; the app has to start again anyway.
 - The page shows the client name marked as unverified and the redirect target:
   the punycode host name for https, "an app on this computer" for loopback, and
   "an app on this device" plus the scheme for a private-use scheme (RFC 8252
