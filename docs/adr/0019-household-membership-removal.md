@@ -138,7 +138,9 @@ the same protocol.
    change.
 6. items, subjects, and `password_reset_tokens`.
 7. `local_credentials` and sessions, in the ADR 0018 replacement order.
-8. MCP rows last: `mcp_authorization_codes`, then `mcp_grants`, then
+8. MCP rows last: `mcp_clients` (read `FOR KEY SHARE` by issuance, after
+   sessions and before codes; the retention sweep deletes it `FOR UPDATE SKIP
+   LOCKED`), then `mcp_authorization_codes`, then `mcp_grants`, then
    `mcp_access_tokens` / `mcp_refresh_tokens`
    ([ADR 0023](0023-mcp-oauth-grant-store.md)). MCP issuance takes
    `user_accounts FOR SHARE` (step 4) and `local_credentials FOR SHARE`
