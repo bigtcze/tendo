@@ -71,6 +71,7 @@ CREATE TABLE mcp_authorization_codes (
  CHECK ((used_at IS NULL) = (issued_grant_id IS NULL))
 );
 CREATE INDEX mcp_authorization_codes_user_id_idx ON mcp_authorization_codes(user_id);
+CREATE INDEX mcp_authorization_codes_issued_grant_id_idx ON mcp_authorization_codes(issued_grant_id);
 REVOKE ALL ON mcp_authorization_codes FROM PUBLIC;
 GRANT SELECT, INSERT, DELETE ON mcp_authorization_codes TO tendo;
 GRANT UPDATE (used_at, issued_grant_id) ON mcp_authorization_codes TO tendo;

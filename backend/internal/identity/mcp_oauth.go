@@ -1,0 +1,300 @@
+package identity
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"regexp"
+	"slices"
+	"time"
+)
+
+// MCP OAuth lifetimes (ADR 0023). The grant lifetime is absolute; a refresh
+// token is rotated on every use and dies after MCPRefreshIdleLifetime unused.
+const (
+	MCPCodeLifetime        = 60 * time.Second
+	MCPAccessTokenLifetime = 10 * time.Minute
+	MCPRefreshIdleLifetime = 30 * 24 * time.Hour
+	MCPGrantLifetime       = 90 * 24 * time.Hour
+)
+
+// The MCP scopes. #457 intersects them with the admin, user and household
+// limits; this slice only stores and returns them.
+const (
+	MCPScopeRead  = "tendo:read"
+	MCPScopeWrite = "tendo:write"
+)
+
+var (
+	// ErrMCPDisabled refuses every issuance and verification while
+	// TENDO_MCP_ENABLED is off, independently of HTTP routing.
+	ErrMCPDisabled = errors.New("mcp disabled")
+	// ErrMCPInvalidRequest is a malformed authorization request: unsupported
+	// PKCE method, malformed challenge, unknown scope, wrong resource or a
+	// redirect URI the client never registered.
+	ErrMCPInvalidRequest = errors.New("mcp invalid request")
+	// ErrMCPInvalidClient is an unknown client.
+	ErrMCPInvalidClient = errors.New("mcp invalid client")
+	// ErrMCPInvalidGrant is the single OAuth invalid_grant outcome: unknown,
+	// expired, used or mismatched code or refresh token, or a failed PKCE proof.
+	// It never says which.
+	ErrMCPInvalidGrant = errors.New("mcp invalid grant")
+	// ErrMCPInvalidToken is any access token that does not authorize a request.
+	ErrMCPInvalidToken = errors.New("mcp invalid token")
+)
+
+var (
+	mcpSecretPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	mcpCodeVerifierPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+)
+
+// MCPOptions is the installation's MCP configuration. Resource is the
+// canonical protected resource URI (<public URL>/mcp); every code, grant and
+// token is bound to it.
+type MCPOptions struct {
+	Enabled  bool
+	Resource string
+}
+
+// MCPClient is a registered OAuth public client.
+type MCPClient struct {
+	ID, Name     string
+	RedirectURIs []string
+}
+
+// MCPCodeRecord is a stored authorization code. Only the digest is stored.
+type MCPCodeRecord struct {
+	CodeHash                                               []byte
+	UserID, ClientID, RedirectURI, CodeChallenge, Resource string
+	Scopes                                                 []string
+	CreatedAt, ExpiresAt                                   time.Time
+	Used                                                   bool
+	IssuedGrantID                                          string
+}
+
+// MCPGrantRecord is a user's authorization of one client for one resource.
+type MCPGrantRecord struct {
+	ID, UserID, ClientID, Resource string
+	Scopes                         []string
+	CreatedAt, ExpiresAt           time.Time
+	Revoked                        bool
+}
+
+// MCPRefreshRecord is a stored refresh token digest.
+type MCPRefreshRecord struct {
+	GrantID   string
+	ExpiresAt time.Time
+	Consumed  bool
+}
+
+// MCPTokenIssue is one access and refresh token pair for a grant.
+type MCPTokenIssue struct {
+	GrantID                                      string
+	AccessHash, RefreshHash                      []byte
+	CreatedAt, AccessExpiresAt, RefreshExpiresAt time.Time
+}
+
+// MCPTransaction is the transaction-scoped persistence surface. Every issuance
+// path takes its locks in the ADR 0023 order: LockLiveAccount (the account
+// FOR SHARE, then its local credential FOR SHARE), then authorization codes,
+// then the grant, then token rows. Not-found lookups return ErrNotFound.
+type MCPTransaction interface {
+	LockLiveAccount(ctx context.Context, userID string) error
+	ActiveSessionExists(ctx context.Context, userID string, tokenHash []byte, now time.Time) (bool, error)
+	FindClient(ctx context.Context, clientID string) (MCPClient, error)
+	CreateAuthorizationCode(ctx context.Context, code MCPCodeRecord) error
+	// FindCodeOwner is the unlocked pre-read that names the account to lock.
+	FindCodeOwner(ctx context.Context, codeHash []byte) (string, error)
+	LockAuthorizationCode(ctx context.Context, codeHash []byte) (MCPCodeRecord, error)
+	MarkAuthorizationCodeUsed(ctx context.Context, codeHash []byte, grantID string, now time.Time) error
+	// CreateGrant inserts the grant and its audited creation event.
+	CreateGrant(ctx context.Context, grant MCPGrantRecord) (string, error)
+	CreateTokens(ctx context.Context, issue MCPTokenIssue) error
+	// FindRefreshOwner is the unlocked pre-read that names the account and
+	// grant to lock.
+	FindRefreshOwner(ctx context.Context, refreshHash []byte) (userID, grantID string, err error)
+	// LockGrant locks the grant's used codes, then the grant, FOR UPDATE.
+	LockGrant(ctx context.Context, grantID string) (MCPGrantRecord, error)
+	LockRefreshToken(ctx context.Context, refreshHash []byte) (MCPRefreshRecord, error)
+	ConsumeRefreshToken(ctx context.Context, refreshHash []byte, now time.Time) error
+	// RevokeGrant revokes a live grant with an audited cause and deletes its
+	// codes and tokens. Revoking an already revoked grant changes nothing.
+	RevokeGrant(ctx context.Context, grantID string, now time.Time, revocation MCPRevocation) error
+}
+
+// MCPRepository opens MCP transactions at READ COMMITTED and verifies access
+// tokens without a transaction.
+type MCPRepository interface {
+	WithMCPTransaction(ctx context.Context, work func(MCPTransaction) error) error
+	// FindActiveAccessToken returns the live grant of an unexpired access token
+	// whose grant is unrevoked and unexpired and whose account is not deleted.
+	FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (MCPGrantRecord, error)
+}
+
+// MCPService is the hand-written OAuth 2.1 authorization server core for MCP
+// public clients (ADR 0023). It has no HTTP surface.
+type MCPService struct {
+	repository MCPRepository
+	clock      func() time.Time
+	enabled    bool
+	resource   string
+}
+
+func NewMCPService(repository MCPRepository, options MCPOptions, clock func() time.Time) (*MCPService, error) {
+	if repository == nil {
+		return nil, errors.New("mcp repository is required")
+	}
+	if options.Enabled && options.Resource == "" {
+		return nil, errors.New("mcp resource is required when mcp is enabled")
+	}
+	if clock == nil {
+		clock = time.Now
+	}
+	return &MCPService{repository: repository, clock: clock, enabled: options.Enabled, resource: options.Resource}, nil
+}
+
+func (s *MCPService) now() time.Time { return s.clock().UTC().Truncate(time.Microsecond) }
+
+// MCPAuthorization is an approved consent: the signed-in human, the browser
+// session that approved it and the validated authorization request.
+type MCPAuthorization struct {
+	Principal                                                 Principal
+	SessionToken                                              string
+	ClientID, RedirectURI, CodeChallenge, CodeChallengeMethod string
+	Resource                                                  string
+	Scopes                                                    []string
+}
+
+// MCPIssuedCode is the plaintext authorization code; it is never stored.
+type MCPIssuedCode struct {
+	Code      string
+	ExpiresAt time.Time
+}
+
+// IssueAuthorizationCode stores a single-use PKCE code for an approved
+// consent. The approving session must still exist under the account and
+// credential share locks, so a password replacement or deletion that already
+// signed the browser out cannot be followed by a fresh code.
+func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthorization) (MCPIssuedCode, error) {
+	if !s.enabled {
+		return MCPIssuedCode{}, ErrMCPDisabled
+	}
+	scopes, err := s.validAuthorization(in)
+	if err != nil {
+		return MCPIssuedCode{}, err
+	}
+	code, codeHash, err := newMCPSecret()
+	if err != nil {
+		return MCPIssuedCode{}, err
+	}
+	now := s.now()
+	record := MCPCodeRecord{
+		CodeHash: codeHash, UserID: in.Principal.UserID, ClientID: in.ClientID, RedirectURI: in.RedirectURI,
+		CodeChallenge: in.CodeChallenge, Resource: s.resource, Scopes: scopes,
+		CreatedAt: now, ExpiresAt: now.Add(MCPCodeLifetime),
+	}
+	err = s.repository.WithMCPTransaction(ctx, func(tx MCPTransaction) error {
+		if e := tx.LockLiveAccount(ctx, in.Principal.UserID); errors.Is(e, ErrNotFound) {
+			return ErrUnauthenticated
+		} else if e != nil {
+			return e
+		}
+		active, e := tx.ActiveSessionExists(ctx, in.Principal.UserID, tokenDigest(in.SessionToken), now)
+		if e != nil {
+			return e
+		}
+		if !active {
+			return ErrUnauthenticated
+		}
+		client, e := tx.FindClient(ctx, in.ClientID)
+		if errors.Is(e, ErrNotFound) {
+			return ErrMCPInvalidClient
+		} else if e != nil {
+			return e
+		}
+		if !slices.Contains(client.RedirectURIs, in.RedirectURI) {
+			return ErrMCPInvalidRequest
+		}
+		return tx.CreateAuthorizationCode(ctx, record)
+	})
+	if err != nil {
+		return MCPIssuedCode{}, err
+	}
+	return MCPIssuedCode{Code: code, ExpiresAt: record.ExpiresAt}, nil
+}
+
+// validAuthorization checks everything that needs no database read and returns
+// the normalized scopes.
+func (s *MCPService) validAuthorization(in MCPAuthorization) ([]string, error) {
+	if in.Principal.UserID == "" || in.SessionToken == "" {
+		return nil, ErrUnauthenticated
+	}
+	if in.CodeChallengeMethod != "S256" || !mcpSecretPattern.MatchString(in.CodeChallenge) {
+		return nil, ErrMCPInvalidRequest
+	}
+	if in.Resource != s.resource || in.ClientID == "" || in.RedirectURI == "" {
+		return nil, ErrMCPInvalidRequest
+	}
+	return normalizeMCPScopes(in.Scopes)
+}
+
+// normalizeMCPScopes deduplicates and sorts the requested scopes and refuses an
+// empty set or an unknown scope.
+func normalizeMCPScopes(requested []string) ([]string, error) {
+	scopes := make([]string, 0, 2)
+	for _, scope := range requested {
+		if scope != MCPScopeRead && scope != MCPScopeWrite {
+			return nil, ErrMCPInvalidRequest
+		}
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	if len(scopes) == 0 {
+		return nil, ErrMCPInvalidRequest
+	}
+	slices.Sort(scopes)
+	return scopes, nil
+}
+
+// MCPAccess is what a verified access token authorizes. It is resolved from
+// the database on every request.
+type MCPAccess struct {
+	GrantID, UserID, ClientID string
+	Scopes                    []string
+}
+
+// VerifyAccessToken resolves a bearer token for the configured resource. The
+// grant, its expiry and the account are re-read on every call, so a revocation
+// or deletion takes effect on the next request.
+func (s *MCPService) VerifyAccessToken(ctx context.Context, token string) (MCPAccess, error) {
+	if !s.enabled {
+		return MCPAccess{}, ErrMCPDisabled
+	}
+	if !mcpSecretPattern.MatchString(token) {
+		return MCPAccess{}, ErrMCPInvalidToken
+	}
+	grant, err := s.repository.FindActiveAccessToken(ctx, tokenDigest(token), s.now())
+	if errors.Is(err, ErrNotFound) {
+		return MCPAccess{}, ErrMCPInvalidToken
+	}
+	if err != nil {
+		return MCPAccess{}, err
+	}
+	if grant.Resource != s.resource {
+		return MCPAccess{}, ErrMCPInvalidToken
+	}
+	return MCPAccess{GrantID: grant.ID, UserID: grant.UserID, ClientID: grant.ClientID, Scopes: grant.Scopes}, nil
+}
+
+// newMCPSecret mints a 32-byte base64url secret and its SHA-256 digest. The
+// plaintext never leaves the caller's response.
+func newMCPSecret() (string, []byte, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", nil, errors.New("mcp secret generation failed")
+	}
+	secret := base64.RawURLEncoding.EncodeToString(raw[:])
+	return secret, tokenDigest(secret), nil
+}

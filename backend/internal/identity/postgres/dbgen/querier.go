@@ -20,9 +20,14 @@ type Querier interface {
 	AnonymizeAccount(ctx context.Context, arg AnonymizeAccountParams) (int64, error)
 	CompletePasswordReset(ctx context.Context, arg CompletePasswordResetParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
+	ConsumeMCPRefreshToken(ctx context.Context, arg ConsumeMCPRefreshTokenParams) (int64, error)
 	ConsumeOIDCFlow(ctx context.Context, arg ConsumeOIDCFlowParams) (ConsumeOIDCFlowRow, error)
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (CreateInvitationRow, error)
 	CreateLocalCredential(ctx context.Context, arg CreateLocalCredentialParams) error
+	CreateMCPAccessToken(ctx context.Context, arg CreateMCPAccessTokenParams) error
+	CreateMCPAuthorizationCode(ctx context.Context, arg CreateMCPAuthorizationCodeParams) error
+	CreateMCPGrant(ctx context.Context, arg CreateMCPGrantParams) (pgtype.UUID, error)
+	CreateMCPRefreshToken(ctx context.Context, arg CreateMCPRefreshTokenParams) error
 	CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (CreatePasswordResetRow, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateUser(ctx context.Context, login string) (string, error)
@@ -50,8 +55,17 @@ type Querier interface {
 	DeleteAccountSessions(ctx context.Context, userID pgtype.UUID) error
 	DeleteAllUserSessions(ctx context.Context, userID pgtype.UUID) ([]DeleteAllUserSessionsRow, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
+	DeleteMCPAuthorizationCode(ctx context.Context, codeHash []byte) error
+	DeleteMCPGrantAccessTokens(ctx context.Context, grantID pgtype.UUID) error
+	// Used codes that issued the grant: once it is revoked a replayed code finds
+	// nothing and fails like any unknown code.
+	DeleteMCPGrantCodes(ctx context.Context, issuedGrantID pgtype.UUID) error
+	DeleteMCPGrantRefreshTokens(ctx context.Context, grantID pgtype.UUID) error
 	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
+	// Verification re-reads the grant and the account on every request, so a
+	// revocation or deletion takes effect on the next request.
+	FindActiveMCPAccessToken(ctx context.Context, arg FindActiveMCPAccessTokenParams) (FindActiveMCPAccessTokenRow, error)
 	// A session of a deleted account is inert even if a racing insert survived.
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
 	// The identity-owned side of a global account deletion (ADR 0022). Every
@@ -68,6 +82,12 @@ type Querier interface {
 	// A deleted account is not found: its tombstone login is never a valid
 	// invitation target.
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
+	// The unlocked pre-read: the account is locked before the code row.
+	FindMCPAuthorizationCodeOwner(ctx context.Context, codeHash []byte) (pgtype.UUID, error)
+	FindMCPClient(ctx context.Context, clientID string) (FindMCPClientRow, error)
+	// The unlocked pre-read: the account is locked before the grant and token rows.
+	// A refresh token never moves to another grant, so grant_id is stable.
+	FindMCPRefreshTokenOwner(ctx context.Context, tokenHash []byte) (FindMCPRefreshTokenOwnerRow, error)
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
 	FindPasswordResetByToken(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenRow, error)
 	FindPasswordResetByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenForUpdateRow, error)
@@ -102,7 +122,17 @@ type Querier interface {
 	// FOR NO KEY UPDATE, never FOR UPDATE: a session insert takes KEY SHARE here
 	// and must not be blocked into a deadlock (ADR 0018, ADR 0019 step 4).
 	LockDeletableAccount(ctx context.Context, id pgtype.UUID) (string, error)
+	// Every MCP issuance takes the live account FOR SHARE first. It conflicts with
+	// account deletion's FOR NO KEY UPDATE, so no MCP secret row can be inserted
+	// for an account whose deletion committed or is in progress.
+	LockLiveMCPAccount(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
+	LockMCPAuthorizationCode(ctx context.Context, codeHash []byte) (LockMCPAuthorizationCodeRow, error)
+	LockMCPGrant(ctx context.Context, id pgtype.UUID) (LockMCPGrantRow, error)
+	// The used codes that issued the grant, FOR UPDATE, before the grant row: the
+	// ADR 0023 order puts codes before grants, and revoking a grant deletes them.
+	LockMCPGrantCodes(ctx context.Context, issuedGrantID pgtype.UUID) error
+	LockMCPRefreshToken(ctx context.Context, tokenHash []byte) (LockMCPRefreshTokenRow, error)
 	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
 	// conflicting with the foreign-key KEY SHARE that inserting a session takes on
 	// the same row. A plain FOR UPDATE would let reset issuance and a password
@@ -117,6 +147,7 @@ type Querier interface {
 	// that conflict (ADR 0018). A deleted account is not found, so an invitation
 	// never revives a tombstone.
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
+	MarkMCPAuthorizationCodeUsed(ctx context.Context, arg MarkMCPAuthorizationCodeUsedParams) (int64, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	// A link replaces the account-wide password, so it is reported whichever
 	// household it was issued through, but only when its issuer currently
@@ -136,6 +167,7 @@ type Querier interface {
 	// constraint fails the removal. The lowest-id remaining membership is
 	// deterministic; no membership leaves NULL.
 	ReassignDefaultHousehold(ctx context.Context, arg ReassignDefaultHouseholdParams) error
+	RecordMCPGrantCreated(ctx context.Context, id pgtype.UUID) error
 	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
 	// Revokes every live grant of the account and audits each one with its cause in
 	// the same statement. The grant row stays (secret-free) as history.
@@ -145,6 +177,7 @@ type Querier interface {
 	// catches links in households the account was never a member of.
 	RevokeAccountPasswordResets(ctx context.Context, arg RevokeAccountPasswordResetsParams) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
+	RevokeMCPGrant(ctx context.Context, arg RevokeMCPGrantParams) (int64, error)
 	// Reset links the removed member is party to inside this household stop
 	// working: as a target they cannot be redeemed by an admin of a household they
 	// left, and as an issuer they lose the admin role that redemption re-checks.
@@ -158,6 +191,10 @@ type Querier interface {
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	// An instance-admin assignment never moves an existing navigation hint.
 	SetDefaultHouseholdIfUnset(ctx context.Context, arg SetDefaultHouseholdIfUnsetParams) error
+	// The credential row, when the account has one, FOR SHARE: a password
+	// replacement holding it FOR UPDATE either finishes first (and the issuance
+	// then sees the grant revoked) or waits and revokes what was issued.
+	ShareLocalCredential(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error)
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
 	UserSessionActive(ctx context.Context, arg UserSessionActiveParams) (bool, error)
 }

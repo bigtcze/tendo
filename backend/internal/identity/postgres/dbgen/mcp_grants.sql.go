@@ -11,6 +11,125 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const consumeMCPRefreshToken = `-- name: ConsumeMCPRefreshToken :execrows
+UPDATE mcp_refresh_tokens SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL
+`
+
+type ConsumeMCPRefreshTokenParams struct {
+	TokenHash  []byte
+	ConsumedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ConsumeMCPRefreshToken(ctx context.Context, arg ConsumeMCPRefreshTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, consumeMCPRefreshToken, arg.TokenHash, arg.ConsumedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const createMCPAccessToken = `-- name: CreateMCPAccessToken :exec
+INSERT INTO mcp_access_tokens(token_hash, grant_id, created_at, expires_at) VALUES ($1, $2, $3, $4)
+`
+
+type CreateMCPAccessTokenParams struct {
+	TokenHash []byte
+	GrantID   pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) CreateMCPAccessToken(ctx context.Context, arg CreateMCPAccessTokenParams) error {
+	_, err := q.db.Exec(ctx, createMCPAccessToken,
+		arg.TokenHash,
+		arg.GrantID,
+		arg.CreatedAt,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const createMCPAuthorizationCode = `-- name: CreateMCPAuthorizationCode :exec
+INSERT INTO mcp_authorization_codes(code_hash, user_id, client_id, redirect_uri, code_challenge, scopes, resource, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+`
+
+type CreateMCPAuthorizationCodeParams struct {
+	CodeHash      []byte
+	UserID        pgtype.UUID
+	ClientID      string
+	RedirectUri   string
+	CodeChallenge string
+	Scopes        []string
+	Resource      string
+	CreatedAt     pgtype.Timestamptz
+	ExpiresAt     pgtype.Timestamptz
+}
+
+func (q *Queries) CreateMCPAuthorizationCode(ctx context.Context, arg CreateMCPAuthorizationCodeParams) error {
+	_, err := q.db.Exec(ctx, createMCPAuthorizationCode,
+		arg.CodeHash,
+		arg.UserID,
+		arg.ClientID,
+		arg.RedirectUri,
+		arg.CodeChallenge,
+		arg.Scopes,
+		arg.Resource,
+		arg.CreatedAt,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const createMCPGrant = `-- name: CreateMCPGrant :one
+INSERT INTO mcp_grants(user_id, client_id, scopes, resource, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+`
+
+type CreateMCPGrantParams struct {
+	UserID    pgtype.UUID
+	ClientID  string
+	Scopes    []string
+	Resource  string
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) CreateMCPGrant(ctx context.Context, arg CreateMCPGrantParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, createMCPGrant,
+		arg.UserID,
+		arg.ClientID,
+		arg.Scopes,
+		arg.Resource,
+		arg.CreatedAt,
+		arg.ExpiresAt,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createMCPRefreshToken = `-- name: CreateMCPRefreshToken :exec
+INSERT INTO mcp_refresh_tokens(token_hash, grant_id, created_at, expires_at) VALUES ($1, $2, $3, $4)
+`
+
+type CreateMCPRefreshTokenParams struct {
+	TokenHash []byte
+	GrantID   pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) CreateMCPRefreshToken(ctx context.Context, arg CreateMCPRefreshTokenParams) error {
+	_, err := q.db.Exec(ctx, createMCPRefreshToken,
+		arg.TokenHash,
+		arg.GrantID,
+		arg.CreatedAt,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
 const deleteAccountMCPAccessTokens = `-- name: DeleteAccountMCPAccessTokens :exec
 DELETE FROM mcp_access_tokens a USING mcp_grants g WHERE g.id = a.grant_id AND g.user_id = $1
 `
@@ -47,6 +166,273 @@ func (q *Queries) DeleteAccountMCPRefreshTokens(ctx context.Context, userID pgty
 	return err
 }
 
+const deleteMCPAuthorizationCode = `-- name: DeleteMCPAuthorizationCode :exec
+DELETE FROM mcp_authorization_codes WHERE code_hash = $1
+`
+
+func (q *Queries) DeleteMCPAuthorizationCode(ctx context.Context, codeHash []byte) error {
+	_, err := q.db.Exec(ctx, deleteMCPAuthorizationCode, codeHash)
+	return err
+}
+
+const deleteMCPGrantAccessTokens = `-- name: DeleteMCPGrantAccessTokens :exec
+DELETE FROM mcp_access_tokens WHERE grant_id = $1
+`
+
+func (q *Queries) DeleteMCPGrantAccessTokens(ctx context.Context, grantID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteMCPGrantAccessTokens, grantID)
+	return err
+}
+
+const deleteMCPGrantCodes = `-- name: DeleteMCPGrantCodes :exec
+DELETE FROM mcp_authorization_codes WHERE issued_grant_id = $1
+`
+
+// Used codes that issued the grant: once it is revoked a replayed code finds
+// nothing and fails like any unknown code.
+func (q *Queries) DeleteMCPGrantCodes(ctx context.Context, issuedGrantID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteMCPGrantCodes, issuedGrantID)
+	return err
+}
+
+const deleteMCPGrantRefreshTokens = `-- name: DeleteMCPGrantRefreshTokens :exec
+DELETE FROM mcp_refresh_tokens WHERE grant_id = $1
+`
+
+func (q *Queries) DeleteMCPGrantRefreshTokens(ctx context.Context, grantID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteMCPGrantRefreshTokens, grantID)
+	return err
+}
+
+const findActiveMCPAccessToken = `-- name: FindActiveMCPAccessToken :one
+SELECT g.id, g.user_id, g.client_id, g.scopes, g.resource
+FROM mcp_access_tokens a
+JOIN mcp_grants g ON g.id = a.grant_id
+JOIN user_accounts u ON u.id = g.user_id
+WHERE a.token_hash = $1 AND a.expires_at > $2
+  AND g.revoked_at IS NULL AND g.expires_at > $2 AND u.deleted_at IS NULL
+`
+
+type FindActiveMCPAccessTokenParams struct {
+	TokenHash []byte
+	ExpiresAt pgtype.Timestamptz
+}
+
+type FindActiveMCPAccessTokenRow struct {
+	ID       pgtype.UUID
+	UserID   pgtype.UUID
+	ClientID string
+	Scopes   []string
+	Resource string
+}
+
+// Verification re-reads the grant and the account on every request, so a
+// revocation or deletion takes effect on the next request.
+func (q *Queries) FindActiveMCPAccessToken(ctx context.Context, arg FindActiveMCPAccessTokenParams) (FindActiveMCPAccessTokenRow, error) {
+	row := q.db.QueryRow(ctx, findActiveMCPAccessToken, arg.TokenHash, arg.ExpiresAt)
+	var i FindActiveMCPAccessTokenRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ClientID,
+		&i.Scopes,
+		&i.Resource,
+	)
+	return i, err
+}
+
+const findMCPAuthorizationCodeOwner = `-- name: FindMCPAuthorizationCodeOwner :one
+SELECT user_id FROM mcp_authorization_codes WHERE code_hash = $1
+`
+
+// The unlocked pre-read: the account is locked before the code row.
+func (q *Queries) FindMCPAuthorizationCodeOwner(ctx context.Context, codeHash []byte) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, findMCPAuthorizationCodeOwner, codeHash)
+	var user_id pgtype.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const findMCPClient = `-- name: FindMCPClient :one
+SELECT client_id, client_name, redirect_uris FROM mcp_clients WHERE client_id = $1
+`
+
+type FindMCPClientRow struct {
+	ClientID     string
+	ClientName   string
+	RedirectUris []string
+}
+
+func (q *Queries) FindMCPClient(ctx context.Context, clientID string) (FindMCPClientRow, error) {
+	row := q.db.QueryRow(ctx, findMCPClient, clientID)
+	var i FindMCPClientRow
+	err := row.Scan(&i.ClientID, &i.ClientName, &i.RedirectUris)
+	return i, err
+}
+
+const findMCPRefreshTokenOwner = `-- name: FindMCPRefreshTokenOwner :one
+SELECT g.user_id, g.id AS grant_id FROM mcp_refresh_tokens r JOIN mcp_grants g ON g.id = r.grant_id WHERE r.token_hash = $1
+`
+
+type FindMCPRefreshTokenOwnerRow struct {
+	UserID  pgtype.UUID
+	GrantID pgtype.UUID
+}
+
+// The unlocked pre-read: the account is locked before the grant and token rows.
+// A refresh token never moves to another grant, so grant_id is stable.
+func (q *Queries) FindMCPRefreshTokenOwner(ctx context.Context, tokenHash []byte) (FindMCPRefreshTokenOwnerRow, error) {
+	row := q.db.QueryRow(ctx, findMCPRefreshTokenOwner, tokenHash)
+	var i FindMCPRefreshTokenOwnerRow
+	err := row.Scan(&i.UserID, &i.GrantID)
+	return i, err
+}
+
+const lockLiveMCPAccount = `-- name: LockLiveMCPAccount :one
+SELECT id FROM user_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE
+`
+
+// Every MCP issuance takes the live account FOR SHARE first. It conflicts with
+// account deletion's FOR NO KEY UPDATE, so no MCP secret row can be inserted
+// for an account whose deletion committed or is in progress.
+func (q *Queries) LockLiveMCPAccount(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockLiveMCPAccount, id)
+	var id_2 pgtype.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const lockMCPAuthorizationCode = `-- name: LockMCPAuthorizationCode :one
+SELECT code_hash, user_id, client_id, redirect_uri, code_challenge, scopes, resource,
+  expires_at, used_at, issued_grant_id
+FROM mcp_authorization_codes WHERE code_hash = $1 FOR UPDATE
+`
+
+type LockMCPAuthorizationCodeRow struct {
+	CodeHash      []byte
+	UserID        pgtype.UUID
+	ClientID      string
+	RedirectUri   string
+	CodeChallenge string
+	Scopes        []string
+	Resource      string
+	ExpiresAt     pgtype.Timestamptz
+	UsedAt        pgtype.Timestamptz
+	IssuedGrantID pgtype.UUID
+}
+
+func (q *Queries) LockMCPAuthorizationCode(ctx context.Context, codeHash []byte) (LockMCPAuthorizationCodeRow, error) {
+	row := q.db.QueryRow(ctx, lockMCPAuthorizationCode, codeHash)
+	var i LockMCPAuthorizationCodeRow
+	err := row.Scan(
+		&i.CodeHash,
+		&i.UserID,
+		&i.ClientID,
+		&i.RedirectUri,
+		&i.CodeChallenge,
+		&i.Scopes,
+		&i.Resource,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.IssuedGrantID,
+	)
+	return i, err
+}
+
+const lockMCPGrant = `-- name: LockMCPGrant :one
+SELECT id, user_id, client_id, scopes, resource, expires_at, revoked_at
+FROM mcp_grants WHERE id = $1 FOR UPDATE
+`
+
+type LockMCPGrantRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ClientID  string
+	Scopes    []string
+	Resource  string
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) LockMCPGrant(ctx context.Context, id pgtype.UUID) (LockMCPGrantRow, error) {
+	row := q.db.QueryRow(ctx, lockMCPGrant, id)
+	var i LockMCPGrantRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ClientID,
+		&i.Scopes,
+		&i.Resource,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const lockMCPGrantCodes = `-- name: LockMCPGrantCodes :exec
+SELECT code_hash FROM mcp_authorization_codes WHERE issued_grant_id = $1 ORDER BY code_hash FOR UPDATE
+`
+
+// The used codes that issued the grant, FOR UPDATE, before the grant row: the
+// ADR 0023 order puts codes before grants, and revoking a grant deletes them.
+func (q *Queries) LockMCPGrantCodes(ctx context.Context, issuedGrantID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, lockMCPGrantCodes, issuedGrantID)
+	return err
+}
+
+const lockMCPRefreshToken = `-- name: LockMCPRefreshToken :one
+SELECT token_hash, grant_id, expires_at, consumed_at FROM mcp_refresh_tokens WHERE token_hash = $1 FOR UPDATE
+`
+
+type LockMCPRefreshTokenRow struct {
+	TokenHash  []byte
+	GrantID    pgtype.UUID
+	ExpiresAt  pgtype.Timestamptz
+	ConsumedAt pgtype.Timestamptz
+}
+
+func (q *Queries) LockMCPRefreshToken(ctx context.Context, tokenHash []byte) (LockMCPRefreshTokenRow, error) {
+	row := q.db.QueryRow(ctx, lockMCPRefreshToken, tokenHash)
+	var i LockMCPRefreshTokenRow
+	err := row.Scan(
+		&i.TokenHash,
+		&i.GrantID,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+	)
+	return i, err
+}
+
+const markMCPAuthorizationCodeUsed = `-- name: MarkMCPAuthorizationCodeUsed :execrows
+UPDATE mcp_authorization_codes SET used_at = $2, issued_grant_id = $3
+WHERE code_hash = $1 AND used_at IS NULL
+`
+
+type MarkMCPAuthorizationCodeUsedParams struct {
+	CodeHash      []byte
+	UsedAt        pgtype.Timestamptz
+	IssuedGrantID pgtype.UUID
+}
+
+func (q *Queries) MarkMCPAuthorizationCodeUsed(ctx context.Context, arg MarkMCPAuthorizationCodeUsedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markMCPAuthorizationCodeUsed, arg.CodeHash, arg.UsedAt, arg.IssuedGrantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const recordMCPGrantCreated = `-- name: RecordMCPGrantCreated :exec
+INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, actor_user_id, occurred_at)
+SELECT g.id, g.user_id, g.client_id, c.client_name, 'created', g.user_id, g.created_at
+FROM mcp_grants g JOIN mcp_clients c ON c.client_id = g.client_id WHERE g.id = $1
+`
+
+func (q *Queries) RecordMCPGrantCreated(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, recordMCPGrantCreated, id)
+	return err
+}
+
 const revokeAccountMCPGrants = `-- name: RevokeAccountMCPGrants :execrows
 WITH revoked AS (
   UPDATE mcp_grants
@@ -79,4 +465,63 @@ func (q *Queries) RevokeAccountMCPGrants(ctx context.Context, arg RevokeAccountM
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const revokeMCPGrant = `-- name: RevokeMCPGrant :execrows
+WITH revoked AS (
+  UPDATE mcp_grants
+  SET revoked_at = $3, revoke_reason = $1
+  WHERE mcp_grants.id = $4 AND revoked_at IS NULL
+  RETURNING id, mcp_grants.user_id, client_id
+)
+INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, reason, actor_user_id, occurred_at)
+SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', $1, $2::uuid, $3
+FROM revoked r JOIN mcp_clients c ON c.client_id = r.client_id
+`
+
+type RevokeMCPGrantParams struct {
+	RevokeReason pgtype.Text
+	ActorUserID  pgtype.UUID
+	RevokedAt    pgtype.Timestamptz
+	GrantID      pgtype.UUID
+}
+
+func (q *Queries) RevokeMCPGrant(ctx context.Context, arg RevokeMCPGrantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeMCPGrant,
+		arg.RevokeReason,
+		arg.ActorUserID,
+		arg.RevokedAt,
+		arg.GrantID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const shareLocalCredential = `-- name: ShareLocalCredential :many
+SELECT user_id FROM local_credentials WHERE user_id = $1 FOR SHARE
+`
+
+// The credential row, when the account has one, FOR SHARE: a password
+// replacement holding it FOR UPDATE either finishes first (and the issuance
+// then sees the grant revoked) or waits and revokes what was issued.
+func (q *Queries) ShareLocalCredential(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, shareLocalCredential, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
