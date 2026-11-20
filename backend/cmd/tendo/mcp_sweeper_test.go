@@ -28,7 +28,10 @@ func TestSweeperRunsAtStartupAndStopsOnShutdown(t *testing.T) {
 		mu.Lock()
 		calls++
 		mu.Unlock()
-		started <- struct{}{}
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 		return identityapp.MCPSweepReport{Deleted: map[identityapp.MCPSweepStep]int{}}, nil
 	}
 	s := mcpSweeper{sweep: sweep, interval: 5 * time.Millisecond, timeout: time.Second, logger: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}

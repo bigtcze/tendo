@@ -53,6 +53,35 @@ func newProductionTestApp(t *testing.T) (http.Handler, config.Config) {
 	return app, cfg
 }
 
+// productionTestApp builds the production handler once per call with the same
+// fixture as the composition tests.
+func productionTestApp(t *testing.T, cfg config.Config) http.Handler {
+	t.Helper()
+	pool, err := pgxpool.New(t.Context(), "postgres://tendo@127.0.0.1:1/tendo?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	app, err := productionApp(cfg, pool, fakeSPA, make(chan struct{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app
+}
+
+// checkMCPDisabledOperation asserts that one non-/api contract operation answers
+// the unknown-path 404 problem+json in the production composition, with the
+// canonical Origin so routing alone decides the response.
+func checkMCPDisabledOperation(t *testing.T, app http.Handler, method, path, publicURL string) {
+	t.Helper()
+	t.Run(method+" "+path+" disabled", func(t *testing.T) {
+		w := serveAt(app, method, publicURL+path, publicURL)
+		if w.Code != http.StatusNotFound || w.Header().Get("Content-Type") != "application/problem+json" || strings.Contains(w.Body.String(), "spa-fallback") {
+			t.Fatalf("status=%d type=%q body=%s; want 404 problem+json while MCP is disabled", w.Code, w.Header().Get("Content-Type"), w.Body)
+		}
+	})
+}
+
 func serveAt(h http.Handler, method, target, origin string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, nil)
 	if origin != "" {
