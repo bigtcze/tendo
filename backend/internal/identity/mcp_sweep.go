@@ -17,8 +17,9 @@ const (
 	// MCPSweepRefreshTokensExpired deletes unconsumed refresh tokens past expires_at.
 	// A consumed digest is kept until its grant ends, so replay stays detectable.
 	MCPSweepRefreshTokensExpired MCPSweepStep = "refresh_tokens_expired"
-	// MCPSweepEndedGrantSecrets deletes the codes and token rows of unrevoked
-	// grants past expires_at. The grant row itself is kept.
+	// MCPSweepEndedGrantSecrets deletes the codes and token rows of grants past
+	// expires_at, revoked or not (a revoked grant already holds none). The grant
+	// row itself is kept.
 	MCPSweepEndedGrantSecrets MCPSweepStep = "ended_grant_secrets"
 	// MCPSweepUnusedCodesExpired deletes unused authorization codes past expires_at.
 	MCPSweepUnusedCodesExpired MCPSweepStep = "unused_codes_expired"

@@ -98,7 +98,7 @@ func TestMigrationTwentyEightUpAndPrivileges(t *testing.T) {
 	requireSchemaVersion(t, ctx, admin, 29)
 	for _, table := range mcpTables {
 		if !migrationRelationExists(t, ctx, admin, table) {
-			t.Fatalf("%s missing after migrate to 28", table)
+			t.Fatalf("%s missing after migrate to 29", table)
 		}
 	}
 

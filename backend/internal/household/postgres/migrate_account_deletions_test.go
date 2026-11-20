@@ -29,11 +29,11 @@ func TestMigrationTwentySevenUpAndPrivileges(t *testing.T) {
 	requireSchemaVersion(t, ctx, admin, 29)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
-			t.Fatalf("%s missing after migrate to 28", relation)
+			t.Fatalf("%s missing after migrate to 29", relation)
 		}
 	}
 	if !migrationColumnExists(t, ctx, admin, "user_accounts", "deleted_at") {
-		t.Fatal("user_accounts.deleted_at missing after migrate to 28")
+		t.Fatal("user_accounts.deleted_at missing after migrate to 29")
 	}
 	var tombstoneConstraint string
 	if err := admin.QueryRow(ctx, `SELECT conname FROM pg_constraint

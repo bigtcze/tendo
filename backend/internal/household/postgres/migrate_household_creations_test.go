@@ -26,7 +26,7 @@ func TestMigrationTwentySixUpDownAndPrivileges(t *testing.T) {
 
 	requireSchemaVersion(t, ctx, admin, 29)
 	if !migrationRelationExists(t, ctx, admin, "household_creations") {
-		t.Fatal("household_creations missing after migrate to 28")
+		t.Fatal("household_creations missing after migrate to 29")
 	}
 	for _, check := range []struct {
 		privilege string

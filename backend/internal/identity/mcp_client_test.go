@@ -203,8 +203,9 @@ func TestDecodeClientRegistrationAndMetadata(t *testing.T) {
 }
 
 // TestRealClientRegistrationBodiesAccepted replays representative bodies from
-// real MCP clients through the whole policy. Each must be accepted (201 at the
-// HTTP layer, which is out of this slice).
+// real MCP clients through the decode and policy functions. Each must be
+// accepted. The HTTP-level 201 for the same bodies is pinned in
+// internal/identity/httpapi.
 func TestRealClientRegistrationBodiesAccepted(t *testing.T) {
 	bodies := map[string]string{
 		"claude.ai":    `{"client_name":"Claude","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"scope":"claudeai","token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}`,

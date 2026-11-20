@@ -77,9 +77,10 @@ func TestMigrationTwentyNineDownRevokesAndKeepsRows(t *testing.T) {
 			t.Fatalf("index %s survived Down", name)
 		}
 	}
-	var insertOrDelete bool
-	if err := admin.QueryRow(ctx, `SELECT has_table_privilege('tendo','mcp_clients','INSERT') OR has_table_privilege('tendo','mcp_clients','DELETE')`).Scan(&insertOrDelete); err != nil || insertOrDelete {
-		t.Fatalf("tendo still holds INSERT/DELETE on mcp_clients after Down (err=%v)", err)
+	var insertOrDelete, updateLastUsed bool
+	if err := admin.QueryRow(ctx, `SELECT has_table_privilege('tendo','mcp_clients','INSERT') OR has_table_privilege('tendo','mcp_clients','DELETE'),
+		has_column_privilege('tendo','mcp_clients','last_used_at','UPDATE')`).Scan(&insertOrDelete, &updateLastUsed); err != nil || insertOrDelete || updateLastUsed {
+		t.Fatalf("tendo still holds INSERT/DELETE or UPDATE(last_used_at) on mcp_clients after Down: insertOrDelete=%v updateLastUsed=%v err=%v", insertOrDelete, updateLastUsed, err)
 	}
 	if got := migrationInt(t, ctx, admin, `SELECT count(*) FROM mcp_clients`); got != clients {
 		t.Fatalf("mcp_clients after Down=%d want %d", got, clients)

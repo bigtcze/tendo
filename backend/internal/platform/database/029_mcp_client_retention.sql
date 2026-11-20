@@ -7,10 +7,11 @@
 -- them after 24 hours without a grant or code. The sweep and expiry deletes
 -- need the expiry indexes below to stay short under lock_timeout.
 --
--- Lock grants on mcp_clients: FOR KEY SHARE (taken by code issuance) needs only
--- SELECT. The sweep's FOR UPDATE SKIP LOCKED needs UPDATE privilege on a column,
--- so UPDATE (last_used_at) is granted for that. No other client column is
--- writable by the runtime role.
+-- Lock grants on mcp_clients: PostgreSQL requires UPDATE privilege on at least
+-- one column for every row-locking clause, including FOR KEY SHARE. UPDATE
+-- (last_used_at) is therefore granted so the runtime role can take the FOR KEY
+-- SHARE lock in code issuance and the FOR UPDATE SKIP LOCKED lock in the client
+-- sweep. No other client column is writable by the runtime role.
 
 GRANT INSERT, DELETE ON mcp_clients TO tendo;
 GRANT UPDATE (last_used_at) ON mcp_clients TO tendo;
