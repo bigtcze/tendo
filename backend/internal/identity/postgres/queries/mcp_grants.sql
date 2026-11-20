@@ -47,7 +47,10 @@ SELECT id FROM user_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE;
 SELECT user_id FROM local_credentials WHERE user_id = $1 FOR SHARE;
 
 -- name: FindMCPClient :one
-SELECT client_id, client_name, redirect_uris FROM mcp_clients WHERE client_id = $1;
+-- FOR KEY SHARE: an issuance that found the client keeps it until commit, so the
+-- sweep's FOR UPDATE delete skips it rather than orphaning a code being inserted.
+-- KEY SHARE does not block other registrations or the referencing-row inserts.
+SELECT client_id, client_name, redirect_uris FROM mcp_clients WHERE client_id = $1 FOR KEY SHARE;
 
 -- name: CreateMCPAuthorizationCode :exec
 INSERT INTO mcp_authorization_codes(code_hash, user_id, client_id, redirect_uri, code_challenge, scopes, resource, created_at, expires_at)
@@ -142,3 +145,67 @@ JOIN mcp_grants g ON g.id = a.grant_id
 JOIN user_accounts u ON u.id = g.user_id
 WHERE a.token_hash = $1 AND a.expires_at > $2
   AND g.revoked_at IS NULL AND g.expires_at > $2 AND u.deleted_at IS NULL;
+
+-- name: CreateMCPClientWithinCap :execrows
+-- One statement: the grantless-client count and the insert are not separate
+-- round trips. Concurrent registrations may each see room under the cap, so the
+-- cap is soft (ADR 0023).
+INSERT INTO mcp_clients(client_id, client_name, redirect_uris, created_at)
+SELECT sqlc.arg(client_id)::text, sqlc.arg(client_name)::text, sqlc.arg(redirect_uris)::text[], sqlc.arg(created_at)::timestamptz
+WHERE (
+  SELECT count(*) FROM mcp_clients c
+  WHERE NOT EXISTS (SELECT 1 FROM mcp_grants g WHERE g.client_id = c.client_id)
+) < sqlc.arg(client_cap)::bigint;
+
+-- name: SweepMCPAccessTokensExpired :execrows
+-- One batch by primary key. The sweep loops while a batch comes back full.
+DELETE FROM mcp_access_tokens WHERE token_hash IN (
+  SELECT token_hash FROM mcp_access_tokens WHERE expires_at <= sqlc.arg(cutoff)::timestamptz ORDER BY token_hash LIMIT 1000
+);
+
+-- name: SweepMCPRefreshTokensExpired :execrows
+-- Unconsumed digests only: a consumed digest is kept until its grant ends, so a
+-- replayed refresh token is still detected.
+DELETE FROM mcp_refresh_tokens WHERE token_hash IN (
+  SELECT token_hash FROM mcp_refresh_tokens
+  WHERE consumed_at IS NULL AND expires_at <= sqlc.arg(cutoff)::timestamptz ORDER BY token_hash LIMIT 1000
+);
+
+-- name: SweepMCPEndedGrantCodes :execrows
+-- Codes that issued a grant past its expiry. Expiry is not revocation: the grant
+-- row stays and no event is written.
+DELETE FROM mcp_authorization_codes WHERE code_hash IN (
+  SELECT c.code_hash FROM mcp_authorization_codes c JOIN mcp_grants g ON g.id = c.issued_grant_id
+  WHERE g.expires_at <= sqlc.arg(cutoff)::timestamptz ORDER BY c.code_hash LIMIT 1000
+);
+
+-- name: SweepMCPEndedGrantAccessTokens :execrows
+DELETE FROM mcp_access_tokens WHERE token_hash IN (
+  SELECT a.token_hash FROM mcp_access_tokens a JOIN mcp_grants g ON g.id = a.grant_id
+  WHERE g.expires_at <= sqlc.arg(cutoff)::timestamptz ORDER BY a.token_hash LIMIT 1000
+);
+
+-- name: SweepMCPEndedGrantRefreshTokens :execrows
+DELETE FROM mcp_refresh_tokens WHERE token_hash IN (
+  SELECT r.token_hash FROM mcp_refresh_tokens r JOIN mcp_grants g ON g.id = r.grant_id
+  WHERE g.expires_at <= sqlc.arg(cutoff)::timestamptz ORDER BY r.token_hash LIMIT 1000
+);
+
+-- name: SweepMCPUnusedCodesExpired :execrows
+DELETE FROM mcp_authorization_codes WHERE code_hash IN (
+  SELECT code_hash FROM mcp_authorization_codes
+  WHERE used_at IS NULL AND expires_at <= sqlc.arg(cutoff)::timestamptz ORDER BY code_hash LIMIT 1000
+);
+
+-- name: SweepMCPGrantlessClients :execrows
+-- A client is kept while any grant or authorization code references it. The
+-- SKIP LOCKED skips a client an issuance holds (its FOR KEY SHARE from
+-- FindMCPClient conflicts with FOR UPDATE), so the sweep never orphans a code
+-- being inserted. The set of referencing tables is pinned by a test.
+DELETE FROM mcp_clients WHERE client_id IN (
+  SELECT c.client_id FROM mcp_clients c
+  WHERE c.created_at <= sqlc.arg(cutoff)::timestamptz
+    AND NOT EXISTS (SELECT 1 FROM mcp_grants g WHERE g.client_id = c.client_id)
+    AND NOT EXISTS (SELECT 1 FROM mcp_authorization_codes k WHERE k.client_id = c.client_id)
+  ORDER BY c.client_id LIMIT 1000 FOR UPDATE SKIP LOCKED
+);

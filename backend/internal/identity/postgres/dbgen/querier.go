@@ -27,6 +27,10 @@ type Querier interface {
 	CreateLocalCredential(ctx context.Context, arg CreateLocalCredentialParams) error
 	CreateMCPAccessToken(ctx context.Context, arg CreateMCPAccessTokenParams) error
 	CreateMCPAuthorizationCode(ctx context.Context, arg CreateMCPAuthorizationCodeParams) error
+	// One statement: the grantless-client count and the insert are not separate
+	// round trips. Concurrent registrations may each see room under the cap, so the
+	// cap is soft (ADR 0023).
+	CreateMCPClientWithinCap(ctx context.Context, arg CreateMCPClientWithinCapParams) (int64, error)
 	CreateMCPGrant(ctx context.Context, arg CreateMCPGrantParams) (pgtype.UUID, error)
 	CreateMCPRefreshToken(ctx context.Context, arg CreateMCPRefreshTokenParams) error
 	CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (CreatePasswordResetRow, error)
@@ -85,6 +89,9 @@ type Querier interface {
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
 	// The unlocked pre-read: the account is locked before the code row.
 	FindMCPAuthorizationCodeOwner(ctx context.Context, codeHash []byte) (pgtype.UUID, error)
+	// FOR KEY SHARE: an issuance that found the client keeps it until commit, so the
+	// sweep's FOR UPDATE delete skips it rather than orphaning a code being inserted.
+	// KEY SHARE does not block other registrations or the referencing-row inserts.
 	FindMCPClient(ctx context.Context, clientID string) (FindMCPClientRow, error)
 	// The unlocked pre-read: the account is locked before the grant and token rows.
 	// A refresh token never moves to another grant, so grant_id is stable.
@@ -205,6 +212,22 @@ type Querier interface {
 	// then sees the grant revoked) or waits and revokes what was issued.
 	ShareLocalCredential(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error)
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
+	// One batch by primary key. The sweep loops while a batch comes back full.
+	SweepMCPAccessTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	SweepMCPEndedGrantAccessTokens(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// Codes that issued a grant past its expiry. Expiry is not revocation: the grant
+	// row stays and no event is written.
+	SweepMCPEndedGrantCodes(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	SweepMCPEndedGrantRefreshTokens(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// A client is kept while any grant or authorization code references it. The
+	// SKIP LOCKED skips a client an issuance holds (its FOR KEY SHARE from
+	// FindMCPClient conflicts with FOR UPDATE), so the sweep never orphans a code
+	// being inserted. The set of referencing tables is pinned by a test.
+	SweepMCPGrantlessClients(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// Unconsumed digests only: a consumed digest is kept until its grant ends, so a
+	// replayed refresh token is still detected.
+	SweepMCPRefreshTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	SweepMCPUnusedCodesExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	UserSessionActive(ctx context.Context, arg UserSessionActiveParams) (bool, error)
 }
 

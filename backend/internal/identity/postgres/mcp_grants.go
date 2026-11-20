@@ -8,6 +8,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -43,6 +44,136 @@ func revokeAccountMCPAccess(ctx context.Context, q *identitydb.Queries, user pgt
 		return err
 	}
 	return q.DeleteAccountMCPRefreshTokens(ctx, user)
+}
+
+// sweepClientReferencingTables names every foreign key into mcp_clients. The
+// grantless-client sweep keeps a client while any of them references it, so the
+// sweep's NOT EXISTS set must match this list; a test reads pg_constraint.
+var sweepClientReferencingTables = []string{"mcp_authorization_codes", "mcp_grants"}
+
+// sweepLockTimeout bounds how long one retention step waits for a row lock.
+// A step that waits longer yields and the next run retries it (ADR 0023).
+const sweepLockTimeout = "100ms"
+
+// CreateClientWithinCap inserts a registered client only while fewer than cap
+// grantless clients exist. It is one statement outside any issuance transaction.
+func (r *MCPRepository) CreateClientWithinCap(ctx context.Context, client identity.MCPClient, createdAt time.Time, cap int) (bool, error) {
+	rows, err := identitydb.New(r.pool).CreateMCPClientWithinCap(ctx, identitydb.CreateMCPClientWithinCapParams{
+		ClientID: client.ID, ClientName: client.Name, RedirectUris: client.RedirectURIs,
+		CreatedAt: ts(createdAt.UTC()), ClientCap: int64(cap),
+	})
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
+}
+
+// SweepStep runs one retention step in its own transaction. Each batch is a
+// bounded statement; the step loops while batches come back full, and it ends
+// on the context. lock_timeout (55P03) yields the step without failing the run.
+func (r *MCPRepository) SweepStep(ctx context.Context, step identity.MCPSweepStep, now time.Time) (int, error) {
+	fn, ok := sweepStatements[step]
+	if !ok {
+		return 0, errors.New("unknown mcp sweep step")
+	}
+	total := 0
+	for {
+		deleted, full, err := r.sweepBatch(ctx, fn, now)
+		total += deleted
+		if err != nil {
+			return total, err
+		}
+		if !full {
+			return total, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+	}
+}
+
+// sweepBatchFunc runs one bounded batch. full reports that some statement hit
+// the batch bound, so another batch may hold more rows.
+type sweepBatchFunc func(q *identitydb.Queries, ctx context.Context, now time.Time) (deleted int64, full bool, err error)
+
+// sweepBatch runs one batch in its own transaction with the lock timeout set.
+func (r *MCPRepository) sweepBatch(ctx context.Context, fn sweepBatchFunc, now time.Time) (int, bool, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return 0, false, classifySweepError(err)
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '"+sweepLockTimeout+"'"); err != nil {
+		return 0, false, classifySweepError(err)
+	}
+	n, full, err := fn(identitydb.New(tx), ctx, now)
+	if err != nil {
+		return 0, false, classifySweepError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, false, classifySweepError(err)
+	}
+	return int(n), full, nil
+}
+
+// classifySweepError maps driver errors to fixed identity-layer classes, so no
+// pgx text reaches the sweep's callers.
+func classifySweepError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+		return identity.ErrMCPSweepLocked
+	}
+	return identity.ErrMCPSweepFailed
+}
+
+// sweepStatements maps each retention step to its bounded batch statement.
+var sweepStatements = map[identity.MCPSweepStep]sweepBatchFunc{
+	identity.MCPSweepAccessTokensExpired: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
+		return q.SweepMCPAccessTokensExpired(ctx, ts(now))
+	}),
+	identity.MCPSweepRefreshTokensExpired: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
+		return q.SweepMCPRefreshTokensExpired(ctx, ts(now))
+	}),
+	identity.MCPSweepEndedGrantSecrets: endedGrantSweep,
+	identity.MCPSweepUnusedCodesExpired: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
+		return q.SweepMCPUnusedCodesExpired(ctx, ts(now))
+	}),
+	identity.MCPSweepGrantlessClients: singleSweep(func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, error) {
+		return q.SweepMCPGrantlessClients(ctx, ts(now.Add(-identity.MCPGrantlessClientLifetime)))
+	}),
+}
+
+// singleSweep adapts one bounded statement to a batch: full when it hit the bound.
+func singleSweep(run func(*identitydb.Queries, context.Context, time.Time) (int64, error)) sweepBatchFunc {
+	return func(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, bool, error) {
+		n, err := run(q, ctx, now)
+		return n, n == identity.MCPSweepBatchSize, err
+	}
+}
+
+// endedGrantSweep deletes, in one transaction per batch, the codes, access
+// tokens and refresh tokens of grants past expiry, in the ADR 0023 order: codes,
+// then token rows. All three run every batch, so a short batch of one kind never
+// hides a full batch of another.
+func endedGrantSweep(q *identitydb.Queries, ctx context.Context, now time.Time) (int64, bool, error) {
+	codes, err := q.SweepMCPEndedGrantCodes(ctx, ts(now))
+	if err != nil {
+		return 0, false, err
+	}
+	access, err := q.SweepMCPEndedGrantAccessTokens(ctx, ts(now))
+	if err != nil {
+		return 0, false, err
+	}
+	refresh, err := q.SweepMCPEndedGrantRefreshTokens(ctx, ts(now))
+	if err != nil {
+		return 0, false, err
+	}
+	bound := int64(identity.MCPSweepBatchSize)
+	return codes + access + refresh, codes == bound || access == bound || refresh == bound, nil
 }
 
 // MCPRepository is the PostgreSQL MCP grant store (ADR 0023).

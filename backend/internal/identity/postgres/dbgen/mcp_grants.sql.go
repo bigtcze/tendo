@@ -83,6 +83,40 @@ func (q *Queries) CreateMCPAuthorizationCode(ctx context.Context, arg CreateMCPA
 	return err
 }
 
+const createMCPClientWithinCap = `-- name: CreateMCPClientWithinCap :execrows
+INSERT INTO mcp_clients(client_id, client_name, redirect_uris, created_at)
+SELECT $1::text, $2::text, $3::text[], $4::timestamptz
+WHERE (
+  SELECT count(*) FROM mcp_clients c
+  WHERE NOT EXISTS (SELECT 1 FROM mcp_grants g WHERE g.client_id = c.client_id)
+) < $5::bigint
+`
+
+type CreateMCPClientWithinCapParams struct {
+	ClientID     string
+	ClientName   string
+	RedirectUris []string
+	CreatedAt    pgtype.Timestamptz
+	ClientCap    int64
+}
+
+// One statement: the grantless-client count and the insert are not separate
+// round trips. Concurrent registrations may each see room under the cap, so the
+// cap is soft (ADR 0023).
+func (q *Queries) CreateMCPClientWithinCap(ctx context.Context, arg CreateMCPClientWithinCapParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createMCPClientWithinCap,
+		arg.ClientID,
+		arg.ClientName,
+		arg.RedirectUris,
+		arg.CreatedAt,
+		arg.ClientCap,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createMCPGrant = `-- name: CreateMCPGrant :one
 INSERT INTO mcp_grants(user_id, client_id, scopes, resource, created_at, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
@@ -256,7 +290,7 @@ func (q *Queries) FindMCPAuthorizationCodeOwner(ctx context.Context, codeHash []
 }
 
 const findMCPClient = `-- name: FindMCPClient :one
-SELECT client_id, client_name, redirect_uris FROM mcp_clients WHERE client_id = $1
+SELECT client_id, client_name, redirect_uris FROM mcp_clients WHERE client_id = $1 FOR KEY SHARE
 `
 
 type FindMCPClientRow struct {
@@ -265,6 +299,9 @@ type FindMCPClientRow struct {
 	RedirectUris []string
 }
 
+// FOR KEY SHARE: an issuance that found the client keeps it until commit, so the
+// sweep's FOR UPDATE delete skips it rather than orphaning a code being inserted.
+// KEY SHARE does not block other registrations or the referencing-row inserts.
 func (q *Queries) FindMCPClient(ctx context.Context, clientID string) (FindMCPClientRow, error) {
 	row := q.db.QueryRow(ctx, findMCPClient, clientID)
 	var i FindMCPClientRow
@@ -536,4 +573,120 @@ func (q *Queries) ShareLocalCredential(ctx context.Context, userID pgtype.UUID) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const sweepMCPAccessTokensExpired = `-- name: SweepMCPAccessTokensExpired :execrows
+DELETE FROM mcp_access_tokens WHERE token_hash IN (
+  SELECT token_hash FROM mcp_access_tokens WHERE expires_at <= $1::timestamptz ORDER BY token_hash LIMIT 1000
+)
+`
+
+// One batch by primary key. The sweep loops while a batch comes back full.
+func (q *Queries) SweepMCPAccessTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPAccessTokensExpired, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepMCPEndedGrantAccessTokens = `-- name: SweepMCPEndedGrantAccessTokens :execrows
+DELETE FROM mcp_access_tokens WHERE token_hash IN (
+  SELECT a.token_hash FROM mcp_access_tokens a JOIN mcp_grants g ON g.id = a.grant_id
+  WHERE g.expires_at <= $1::timestamptz ORDER BY a.token_hash LIMIT 1000
+)
+`
+
+func (q *Queries) SweepMCPEndedGrantAccessTokens(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPEndedGrantAccessTokens, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepMCPEndedGrantCodes = `-- name: SweepMCPEndedGrantCodes :execrows
+DELETE FROM mcp_authorization_codes WHERE code_hash IN (
+  SELECT c.code_hash FROM mcp_authorization_codes c JOIN mcp_grants g ON g.id = c.issued_grant_id
+  WHERE g.expires_at <= $1::timestamptz ORDER BY c.code_hash LIMIT 1000
+)
+`
+
+// Codes that issued a grant past its expiry. Expiry is not revocation: the grant
+// row stays and no event is written.
+func (q *Queries) SweepMCPEndedGrantCodes(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPEndedGrantCodes, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepMCPEndedGrantRefreshTokens = `-- name: SweepMCPEndedGrantRefreshTokens :execrows
+DELETE FROM mcp_refresh_tokens WHERE token_hash IN (
+  SELECT r.token_hash FROM mcp_refresh_tokens r JOIN mcp_grants g ON g.id = r.grant_id
+  WHERE g.expires_at <= $1::timestamptz ORDER BY r.token_hash LIMIT 1000
+)
+`
+
+func (q *Queries) SweepMCPEndedGrantRefreshTokens(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPEndedGrantRefreshTokens, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepMCPGrantlessClients = `-- name: SweepMCPGrantlessClients :execrows
+DELETE FROM mcp_clients WHERE client_id IN (
+  SELECT c.client_id FROM mcp_clients c
+  WHERE c.created_at <= $1::timestamptz
+    AND NOT EXISTS (SELECT 1 FROM mcp_grants g WHERE g.client_id = c.client_id)
+    AND NOT EXISTS (SELECT 1 FROM mcp_authorization_codes k WHERE k.client_id = c.client_id)
+  ORDER BY c.client_id LIMIT 1000 FOR UPDATE SKIP LOCKED
+)
+`
+
+// A client is kept while any grant or authorization code references it. The
+// SKIP LOCKED skips a client an issuance holds (its FOR KEY SHARE from
+// FindMCPClient conflicts with FOR UPDATE), so the sweep never orphans a code
+// being inserted. The set of referencing tables is pinned by a test.
+func (q *Queries) SweepMCPGrantlessClients(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPGrantlessClients, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepMCPRefreshTokensExpired = `-- name: SweepMCPRefreshTokensExpired :execrows
+DELETE FROM mcp_refresh_tokens WHERE token_hash IN (
+  SELECT token_hash FROM mcp_refresh_tokens
+  WHERE consumed_at IS NULL AND expires_at <= $1::timestamptz ORDER BY token_hash LIMIT 1000
+)
+`
+
+// Unconsumed digests only: a consumed digest is kept until its grant ends, so a
+// replayed refresh token is still detected.
+func (q *Queries) SweepMCPRefreshTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPRefreshTokensExpired, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepMCPUnusedCodesExpired = `-- name: SweepMCPUnusedCodesExpired :execrows
+DELETE FROM mcp_authorization_codes WHERE code_hash IN (
+  SELECT code_hash FROM mcp_authorization_codes
+  WHERE used_at IS NULL AND expires_at <= $1::timestamptz ORDER BY code_hash LIMIT 1000
+)
+`
+
+func (q *Queries) SweepMCPUnusedCodesExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepMCPUnusedCodesExpired, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
