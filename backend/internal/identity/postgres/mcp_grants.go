@@ -46,11 +46,6 @@ func revokeAccountMCPAccess(ctx context.Context, q *identitydb.Queries, user pgt
 	return q.DeleteAccountMCPRefreshTokens(ctx, user)
 }
 
-// sweepClientReferencingTables names every foreign key into mcp_clients. The
-// grantless-client sweep keeps a client while any of them references it, so the
-// sweep's NOT EXISTS set must match this list; a test reads pg_constraint.
-var sweepClientReferencingTables = []string{"mcp_authorization_codes", "mcp_grants"}
-
 // sweepLockTimeout bounds how long one retention step waits for a row lock.
 // A step that waits longer yields and the next run retries it (ADR 0023).
 const sweepLockTimeout = "100ms"
@@ -100,7 +95,7 @@ type sweepBatchFunc func(q *identitydb.Queries, ctx context.Context, now time.Ti
 func (r *MCPRepository) sweepBatch(ctx context.Context, fn sweepBatchFunc, now time.Time) (int, bool, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return 0, false, classifySweepError(err)
+		return 0, false, classifySweepError(ctx, err)
 	}
 	defer func() {
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -108,21 +103,27 @@ func (r *MCPRepository) sweepBatch(ctx context.Context, fn sweepBatchFunc, now t
 		_ = tx.Rollback(rollbackCtx)
 	}()
 	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '"+sweepLockTimeout+"'"); err != nil {
-		return 0, false, classifySweepError(err)
+		return 0, false, classifySweepError(ctx, err)
 	}
 	n, full, err := fn(identitydb.New(tx), ctx, now)
 	if err != nil {
-		return 0, false, classifySweepError(err)
+		return 0, false, classifySweepError(ctx, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, false, classifySweepError(err)
+		return 0, false, classifySweepError(ctx, err)
 	}
 	return int(n), full, nil
 }
 
 // classifySweepError maps driver errors to fixed identity-layer classes, so no
-// pgx text reaches the sweep's callers.
-func classifySweepError(err error) error {
+// pgx text reaches the sweep's callers. A finished context is reported as its
+// own error, so a caller can tell a timeout or cancellation from a storage
+// failure. The driver error is not wrapped, so the context error is the only
+// text returned.
+func classifySweepError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
 		return identity.ErrMCPSweepLocked

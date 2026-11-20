@@ -82,6 +82,10 @@ func (s *MCPService) Sweep(ctx context.Context, now time.Time) (MCPSweepReport, 
 		switch {
 		case errors.Is(err, ErrMCPSweepLocked):
 			report.Locked = append(report.Locked, step)
+		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+			// A finished context ends the run with its own error, so the caller
+			// can classify a timeout or a cancellation.
+			return report, err
 		case err != nil:
 			return report, ErrMCPSweepFailed
 		default:

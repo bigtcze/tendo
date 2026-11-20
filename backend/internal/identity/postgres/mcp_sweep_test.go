@@ -1,8 +1,13 @@
 package postgres
 
 import (
+	"context"
+	"errors"
+	"os"
+	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,9 +241,67 @@ func TestSweepSkipsClientHeldByIssuance(t *testing.T) {
 	}
 }
 
-// TestSweepCoversEveryClientReferencingTable pins the grantless-client NOT EXISTS
-// set to the foreign keys that reference mcp_clients in the catalog. A new
-// referencing table must join the sweep, or this test fails.
+// TestSweepEndedContextReturnsContextError proves a sweep whose context is
+// already done returns context.Canceled from the real repository, not the fixed
+// storage class, so the sweeper can log class=canceled. No row is touched.
+func TestSweepEndedContextReturnsContextError(t *testing.T) {
+	env := newMCPEnv(t)
+	sweepSeed(t, env)
+	svc, err := identity.NewMCPService(NewMCPRepository(env.app), identity.MCPOptions{Enabled: false}, env.clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(env.ctx)
+	cancel()
+	_, err = svc.Sweep(ctx, env.clock.now())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Sweep err=%v, want context.Canceled", err)
+	}
+	if errors.Is(err, identity.ErrMCPSweepFailed) {
+		t.Fatal("a cancelled sweep was reported as a storage failure")
+	}
+	var survivors int
+	if err := env.admin.QueryRow(env.ctx, `SELECT count(*) FROM mcp_access_tokens WHERE token_hash=$1`, sha256Sum("a_expired_deleted")).Scan(&survivors); err != nil || survivors != 1 {
+		t.Fatalf("cancelled sweep changed rows: survivors=%d err=%v", survivors, err)
+	}
+}
+
+// grantlessClientSweepTables returns the tables the SweepMCPGrantlessClients
+// statement in queries/mcp_grants.sql checks with NOT EXISTS. It reads the SQL
+// itself, so the test follows the statement that runs, not a copy of it.
+func grantlessClientSweepTables(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile("queries/mcp_grants.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const header = "-- name: SweepMCPGrantlessClients"
+	text := string(raw)
+	start := strings.Index(text, header)
+	if start < 0 {
+		t.Fatalf("%s block not found in queries/mcp_grants.sql", header)
+	}
+	block := text[start+len(header):]
+	if end := strings.Index(block, "-- name:"); end >= 0 {
+		block = block[:end]
+	}
+	matches := notExistsTablePattern.FindAllStringSubmatch(block, -1)
+	if len(matches) == 0 {
+		t.Fatal("no NOT EXISTS clause found in SweepMCPGrantlessClients")
+	}
+	tables := make([]string, 0, len(matches))
+	for _, m := range matches {
+		tables = append(tables, m[1])
+	}
+	return tables
+}
+
+var notExistsTablePattern = regexp.MustCompile(`NOT EXISTS \(SELECT 1 FROM (\w+)`)
+
+// TestSweepCoversEveryClientReferencingTable pins the grantless-client sweep to
+// the foreign keys into mcp_clients. The NOT EXISTS tables in the SQL that runs
+// must equal the catalog's referencing tables, so a new referencing table must
+// join the sweep or this test fails.
 func TestSweepCoversEveryClientReferencingTable(t *testing.T) {
 	env := newMCPEnv(t)
 	rows, err := env.admin.Query(env.ctx, `SELECT conrelid::regclass::text FROM pg_constraint
@@ -258,10 +321,10 @@ func TestSweepCoversEveryClientReferencingTable(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := append([]string(nil), sweepClientReferencingTables...)
+	want := grantlessClientSweepTables(t)
 	sort.Strings(got)
 	sort.Strings(want)
 	if !slices.Equal(got, want) {
-		t.Fatalf("foreign keys to mcp_clients = %v; sweep covers %v", got, want)
+		t.Fatalf("foreign keys to mcp_clients = %v; the grantless-client sweep checks %v", got, want)
 	}
 }
