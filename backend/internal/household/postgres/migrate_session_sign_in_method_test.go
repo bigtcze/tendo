@@ -130,7 +130,7 @@ func TestMigrationTwentyThreeSessionSignInMethodBackfillsLegacy(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE sign_in_method<>'legacy'`).Scan(&reclassified); err != nil || reclassified != 0 {
 		t.Fatalf("sessions reclassified as password/oidc by the round trip=%d err=%v", reclassified, err)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 28 {
+	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 29 {
 		t.Fatalf("ledger after round trip=%d err=%v", version, err)
 	}
 }
