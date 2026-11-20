@@ -963,7 +963,7 @@ export interface components {
         /** @description RFC 7591 client metadata. Only the listed fields are read; every other field is ignored. Field names are the RFC-defined snake_case wire names. */
         McpClientRegistrationRequest: {
             redirect_uris: string[];
-            /** @description Trimmed and NFC-normalized; 1 to 100 characters, no control or format characters. Absent or empty becomes "MCP client". */
+            /** @description Trimmed and NFC-normalized; 1 to 100 code points after normalization, no control, format or line/paragraph separator characters. Absent or empty becomes "MCP client". */
             client_name?: string;
             /** @description If present, must contain authorization_code. The response always lists authorization_code and refresh_token. */
             grant_types?: string[];
