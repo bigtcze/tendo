@@ -207,7 +207,9 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		// but MCP is disabled in production and the disabled check runs before
 		// session authentication, so they answer the unknown-path 404. Their 401
 		// and session wiring are pinned with MCP enabled in the httpapi tests.
-		if strings.HasPrefix(op.path, "/api/v1/mcp/") {
+		// The connected-apps operations are the exception: they work whether or
+		// not MCP is enabled, so they are ordinary SessionCookie operations below.
+		if strings.HasPrefix(op.path, "/api/v1/mcp/") && !mcpConnectedAppsPaths[op.path] {
 			if op.scheme != "SessionCookie" {
 				t.Errorf("%s: MCP consent operation must declare SessionCookie, got %q", key, op.scheme)
 			}
@@ -290,6 +292,14 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 			t.Errorf("%s: routed but not declared in the contract", key)
 		}
 	}
+}
+
+// mcpConnectedAppsPaths are the connected-apps operations (ADR 0023, slice A4b).
+// They are signed-in browser operations that work with MCP disabled, so the
+// contract checks them as ordinary SessionCookie operations, not the disabled 404.
+var mcpConnectedAppsPaths = map[string]bool{
+	"/api/v1/mcp/grants":           true,
+	"/api/v1/mcp/grants/{grantId}": true,
 }
 
 // mcpPreflightRoutes are the CORS preflight routes of the MCP endpoints. The
