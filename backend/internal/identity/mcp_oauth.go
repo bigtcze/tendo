@@ -29,7 +29,7 @@ const (
 
 var (
 	// ErrMCPDisabled refuses every issuance and verification while
-	// TENDO_MCP_ENABLED is off, independently of HTTP routing.
+	// MCP is disabled, independently of HTTP routing.
 	ErrMCPDisabled = errors.New("mcp disabled")
 	// ErrMCPInvalidRequest is a malformed authorization request: unsupported
 	// PKCE method, malformed challenge, unknown scope, wrong resource or a

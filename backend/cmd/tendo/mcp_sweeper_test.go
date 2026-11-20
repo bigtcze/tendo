@@ -19,7 +19,8 @@ import (
 
 // TestSweeperRunsAtStartupAndStopsOnShutdown pins the goroutine lifecycle: the
 // first sweep happens at once (before the first interval elapses), later sweeps
-// follow the interval, and stop cancels the context and waits for the loop.
+// follow the interval, and stop cancels the context and waits for the loop. stop
+// reports whether the goroutine exited, so no sleep is needed to observe that.
 func TestSweeperRunsAtStartupAndStopsOnShutdown(t *testing.T) {
 	started := make(chan struct{}, 8)
 	var mu sync.Mutex
@@ -46,11 +47,12 @@ func TestSweeperRunsAtStartupAndStopsOnShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("sweep did not repeat on the interval")
 	}
-	stop(time.Second)
+	if !stop(time.Second) {
+		t.Fatal("sweeper goroutine did not exit within the stop timeout")
+	}
 	mu.Lock()
 	before := calls
 	mu.Unlock()
-	time.Sleep(30 * time.Millisecond)
 	mu.Lock()
 	after := calls
 	mu.Unlock()

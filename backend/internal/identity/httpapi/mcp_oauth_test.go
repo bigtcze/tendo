@@ -157,6 +157,10 @@ func TestRegisterRateLimitsPerIPAndGlobally(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "60" {
 		t.Fatalf("per-ip limit status=%d retry=%q", w.Code, w.Header().Get("Retry-After"))
 	}
+	// A browser must be able to read the 429 and its Retry-After.
+	if w.Header().Get("Access-Control-Allow-Origin") != "*" || w.Header().Get("Access-Control-Expose-Headers") != "Retry-After" {
+		t.Fatalf("429 CORS headers = %v; want Allow-Origin * and Expose-Headers Retry-After", w.Header())
+	}
 	var body map[string]string
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body["error"] != "temporarily_unavailable" {
 		t.Fatalf("429 body=%s", w.Body)

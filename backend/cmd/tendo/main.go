@@ -230,10 +230,13 @@ func serve(ctx context.Context, listener net.Listener, resources runtimeResource
 // serveWithSweeper is serve with a background worker. stopSweeper runs after
 // the HTTP server has drained and before the pool closes, so no retention step
 // can touch a closed pool. A nil stopSweeper does nothing.
-func serveWithSweeper(ctx context.Context, listener net.Listener, resources runtimeResources, draining chan struct{}, shutdownTimeout time.Duration, stopSweeper func(time.Duration)) error {
+func serveWithSweeper(ctx context.Context, listener net.Listener, resources runtimeResources, draining chan struct{}, shutdownTimeout time.Duration, stopSweeper func(time.Duration) bool) error {
 	stop := func(timeout time.Duration) {
 		if stopSweeper != nil {
-			stopSweeper(timeout)
+			// A sweep still running at the deadline is abandoned; the pool close
+			// that follows is bounded by the same deadline, so the result is not
+			// acted on here.
+			_ = stopSweeper(timeout)
 		}
 	}
 	serveErr := make(chan error, 1)
