@@ -192,7 +192,7 @@ func (f *accountEraserFake) RevokeAccountPasswordResets(_ context.Context, userI
 	return f.revokeResetsErr
 }
 
-func (f *accountEraserFake) EraseAccountAccess(_ context.Context, userID string) error {
+func (f *accountEraserFake) EraseAccountAccess(_ context.Context, userID, _ string, _ time.Time) error {
 	f.rec.record("erase-access:" + userID)
 	return f.eraseErr
 }

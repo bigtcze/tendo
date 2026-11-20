@@ -166,7 +166,7 @@ func (s *passwordResetTxStub) CompletePasswordReset(context.Context, string, tim
 func (s *passwordResetTxStub) LockLocalCredential(context.Context, string) (LocalCredential, error) {
 	return LocalCredential{PasswordHash: "old-hash", Version: 1}, nil
 }
-func (s *passwordResetTxStub) ReplaceLocalPassword(context.Context, string, string, time.Time) (Revocation, error) {
+func (s *passwordResetTxStub) ReplaceLocalPassword(context.Context, string, string, time.Time, MCPRevocation) (Revocation, error) {
 	if s.replaceErr != nil {
 		return Revocation{}, s.replaceErr
 	}

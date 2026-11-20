@@ -34,7 +34,7 @@ func TestPasswordResetPostgresCredentialReplacementAdvancesVersion(t *testing.T)
 	var revoked identity.Revocation
 	if err := repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
 		var e error
-		revoked, e = tx.ReplaceLocalPassword(ctx, target, "hash:replacement", now)
+		revoked, e = tx.ReplaceLocalPassword(ctx, target, "hash:replacement", now, identity.MCPRevocation{Reason: identity.MCPRevokeCLIReset})
 		return e
 	}); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestPasswordResetPostgresCredentialReplacementAdvancesVersion(t *testing.T)
 		t.Fatal(err)
 	}
 	if err := repository.WithPasswordResetTransaction(ctx, func(tx identity.PasswordResetTransaction) error {
-		_, e := tx.ReplaceLocalPassword(ctx, withoutCredential, "hash:ignored", now)
+		_, e := tx.ReplaceLocalPassword(ctx, withoutCredential, "hash:ignored", now, identity.MCPRevocation{Reason: identity.MCPRevokeCLIReset})
 		return e
 	}); !errors.Is(err, identity.ErrNotFound) {
 		t.Fatalf("missing credential error=%v", err)

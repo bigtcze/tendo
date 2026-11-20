@@ -31,6 +31,16 @@ type Querier interface {
 	DeleteAccountCredentials(ctx context.Context, userID pgtype.UUID) error
 	// The links themselves, so the identity signs in as unlinked next time.
 	DeleteAccountIdentities(ctx context.Context, userID pgtype.UUID) error
+	DeleteAccountMCPAccessTokens(ctx context.Context, userID pgtype.UUID) error
+	// MCP OAuth grant store (ADR 0023). Every statement follows the lock order
+	// user_accounts -> local_credentials -> mcp_authorization_codes -> mcp_grants
+	// -> token rows, and the caller already holds the account-side locks.
+	// Every authorization code of the account, outstanding or used: a code is a
+	// secret and a revoked account keeps none.
+	DeleteAccountMCPCodes(ctx context.Context, userID pgtype.UUID) error
+	// Consumed digests go too: once every grant is revoked there is nothing left to
+	// detect replay against.
+	DeleteAccountMCPRefreshTokens(ctx context.Context, userID pgtype.UUID) error
 	// Link flows of the account carry its session; they are useless once the
 	// identity rows and sessions are gone.
 	DeleteAccountOIDCFlows(ctx context.Context, userID pgtype.UUID) error
@@ -126,6 +136,9 @@ type Querier interface {
 	// deterministic; no membership leaves NULL.
 	ReassignDefaultHousehold(ctx context.Context, arg ReassignDefaultHouseholdParams) error
 	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
+	// Revokes every live grant of the account and audits each one with its cause in
+	// the same statement. The grant row stays (secret-free) as history.
+	RevokeAccountMCPGrants(ctx context.Context, arg RevokeAccountMCPGrantsParams) (int64, error)
 	// Every outstanding reset link the account is party to, as target or issuer, in
 	// any household, stops working. The per-household revocations already ran; this
 	// catches links in households the account was never a member of.

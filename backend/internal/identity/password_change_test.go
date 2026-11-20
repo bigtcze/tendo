@@ -42,7 +42,7 @@ func (s *passwordChangeTxStub) LockLocalCredential(context.Context, string) (Loc
 	return s.credential, nil
 }
 
-func (s *passwordChangeTxStub) ReplaceLocalPassword(context.Context, string, string, time.Time) (Revocation, error) {
+func (s *passwordChangeTxStub) ReplaceLocalPassword(context.Context, string, string, time.Time, MCPRevocation) (Revocation, error) {
 	s.record("replace")
 	if s.replaceErr != nil {
 		return Revocation{}, s.replaceErr

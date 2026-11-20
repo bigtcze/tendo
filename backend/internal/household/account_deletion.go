@@ -73,9 +73,10 @@ type AccountEraser interface {
 	// RevokeAccountPasswordResets revokes every outstanding reset link the
 	// account is party to, as target or issuer, in any household.
 	RevokeAccountPasswordResets(ctx context.Context, userID string, now time.Time) error
-	// EraseAccountAccess deletes the local credential, every session, every
-	// OIDC identity and link flow, then sessions once more.
-	EraseAccountAccess(ctx context.Context, userID string) error
+	// EraseAccountAccess deletes the local credential, revokes every MCP grant
+	// (audited with the actor) and deletes its codes and tokens, then deletes
+	// every session, OIDC identity and link flow.
+	EraseAccountAccess(ctx context.Context, userID, actorID string, now time.Time) error
 	// AnonymizeAccount replaces the login with the tombstone, clears the email
 	// facts and the default household, and sets deleted_at. It deletes sessions
 	// a final time immediately before the update.
@@ -332,7 +333,7 @@ func eraseAccount(ctx context.Context, tx AccountDeletionTransaction, account Ac
 	if err := account.RevokeAccountPasswordResets(ctx, target, now); err != nil {
 		return err
 	}
-	if err := account.EraseAccountAccess(ctx, target); err != nil {
+	if err := account.EraseAccountAccess(ctx, target, actor, now); err != nil {
 		return err
 	}
 	if err := tx.RecordAccountDeletion(ctx, AccountDeletion{TargetUserID: target, ActorUserID: actor, DeletedAt: now}); err != nil {

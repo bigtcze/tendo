@@ -86,11 +86,12 @@ type CredentialReplacementTransaction interface {
 	// current hash and version. ErrNotFound means the account has no local
 	// password. The lock is held until the transaction ends.
 	LockLocalCredential(context.Context, string) (LocalCredential, error)
-	// ReplaceLocalPassword replaces the hash, increments credential_version and
-	// deletes every session of the account. It reports the sessions that were
-	// still unexpired, and returns ErrNotFound when the row is gone. Future MCP
-	// OAuth token revocation belongs here as well.
-	ReplaceLocalPassword(context.Context, string, string, time.Time) (Revocation, error)
+	// ReplaceLocalPassword replaces the hash, increments credential_version,
+	// deletes every session of the account and revokes every MCP grant with the
+	// given audited cause, deleting its codes and tokens (ADR 0023). It reports
+	// the sessions that were still unexpired, and returns ErrNotFound when the
+	// credential row is gone.
+	ReplaceLocalPassword(context.Context, string, string, time.Time, MCPRevocation) (Revocation, error)
 }
 
 // PasswordChangeTransaction adds the caller's own session to the shared
@@ -265,7 +266,8 @@ func (s *PasswordChangeService) replace(ctx context.Context, in ChangePasswordIn
 		if !credential.equal(verified) {
 			return s.staleCredential(ctx, tx, in.Principal.UserID, tokenHash, now)
 		}
-		revocation, err := tx.ReplaceLocalPassword(ctx, in.Principal.UserID, hash, now)
+		revocation, err := tx.ReplaceLocalPassword(ctx, in.Principal.UserID, hash, now,
+			MCPRevocation{Reason: MCPRevokePasswordChange, ActorUserID: in.Principal.UserID})
 		if err != nil {
 			return err
 		}
@@ -324,14 +326,14 @@ func newSessionToken(now time.Time) (string, time.Time, error) {
 // links, lock the credential row, then replace the hash and sign the account
 // out everywhere. Admin reset redemption calls the same three transaction
 // methods itself because it must keep the link it is redeeming usable.
-func replaceCredentialAndRevoke(ctx context.Context, tx CredentialReplacementTransaction, userID, passwordHash string, now time.Time) (Revocation, error) {
+func replaceCredentialAndRevoke(ctx context.Context, tx CredentialReplacementTransaction, userID, passwordHash string, now time.Time, mcp MCPRevocation) (Revocation, error) {
 	if err := tx.RevokeOutstandingPasswordResets(ctx, userID, now); err != nil {
 		return Revocation{}, err
 	}
 	if _, err := tx.LockLocalCredential(ctx, userID); err != nil {
 		return Revocation{}, err
 	}
-	return tx.ReplaceLocalPassword(ctx, userID, passwordHash, now)
+	return tx.ReplaceLocalPassword(ctx, userID, passwordHash, now, mcp)
 }
 
 // AdminPasswordRepository is the operator CLI's persistence surface. It uses
@@ -402,7 +404,7 @@ func (s *AdminPasswordService) SetPassword(ctx context.Context, login, password 
 	}
 	var reset AdminPasswordReset
 	err = s.repository.WithCredentialReplacement(ctx, func(tx CredentialReplacementTransaction) error {
-		revocation, e := replaceCredentialAndRevoke(ctx, tx, userID, hash, s.now())
+		revocation, e := replaceCredentialAndRevoke(ctx, tx, userID, hash, s.now(), MCPRevocation{Reason: MCPRevokeCLIReset})
 		if errors.Is(e, ErrNotFound) {
 			return ErrNoLocalPassword
 		}

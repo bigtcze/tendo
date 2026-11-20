@@ -356,9 +356,11 @@ func (s *PasswordResetService) applyPasswordReset(ctx context.Context, tx Passwo
 	if rows != 1 {
 		return "", ErrInvalidPasswordReset
 	}
-	// ReplaceLocalPassword writes the hash and deletes every session in one
-	// step, so a reset can never leave a session that outlives the new password.
-	if _, err = tx.ReplaceLocalPassword(ctx, locked.TargetUserID, hash, lockedNow); errors.Is(err, ErrNotFound) {
+	// ReplaceLocalPassword writes the hash, deletes every session and revokes
+	// every MCP grant in one step, so a reset can never leave a session or an
+	// MCP token that outlives the new password. The issuing admin caused it.
+	mcp := MCPRevocation{Reason: MCPRevokeAdminReset, ActorUserID: locked.CreatedByUserID}
+	if _, err = tx.ReplaceLocalPassword(ctx, locked.TargetUserID, hash, lockedNow, mcp); errors.Is(err, ErrNotFound) {
 		return "", ErrInvalidPasswordReset
 	} else if err != nil {
 		return "", err

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/identity"
 	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -101,15 +102,23 @@ func (e *AccountEraser) RevokeAccountPasswordResets(ctx context.Context, userID 
 }
 
 // EraseAccountAccess drops everything that could still authenticate the
-// account: the local credential first, then the sessions, the link flows and
-// the identity links.
-func (e *AccountEraser) EraseAccountAccess(ctx context.Context, userID string) error {
+// account: the local credential first, then every MCP code and token (each
+// grant revoked with an audited account_deletion cause, ADR 0023), then the
+// sessions, the link flows and the identity links.
+func (e *AccountEraser) EraseAccountAccess(ctx context.Context, userID, actorID string, now time.Time) error {
 	var user pgtype.UUID
 	if err := user.Scan(userID); err != nil {
 		return household.ErrNotFound
 	}
+	if err := e.q.DeleteAccountCredentials(ctx, user); err != nil {
+		return err
+	}
+	if err := revokeAccountMCPAccess(ctx, e.q, user, now, identity.MCPRevocation{
+		Reason: identity.MCPRevokeAccountDeletion, ActorUserID: actorID,
+	}); err != nil {
+		return err
+	}
 	for _, erase := range []func(context.Context, pgtype.UUID) error{
-		e.q.DeleteAccountCredentials,
 		e.q.DeleteAccountSessions,
 		e.q.DeleteAccountOIDCFlows,
 		e.q.DeleteAccountIdentities,
