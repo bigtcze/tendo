@@ -191,7 +191,8 @@ func TestTokenGlobalBucketShieldsPerClientMap(t *testing.T) {
 	mcp := NewMCP(flow, NewSession(signedIn(), mcpPublicURL), mcpPublicURL)
 	routes := chi.NewRouter()
 	mcp.Register(routes)
-	// Drain the global bucket from many IPs so no single per-client bucket fills.
+	// Drain the global bucket. Every attempt is charged globally first, even
+	// once this one IP and client's own bucket refuses.
 	for i := 0; i < mcpTokenGlobalPerMinute; i++ {
 		mcpServe(routes, http.MethodPost, "/oauth/token", validCodeForm(), formHeader(formHeaderValue), "10.1.0.1:1")
 	}
