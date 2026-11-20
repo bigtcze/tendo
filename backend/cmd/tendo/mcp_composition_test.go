@@ -29,6 +29,9 @@ var mcpDisabledPaths = []struct{ method, path string }{
 	{http.MethodGet, "/mcp"},
 	{http.MethodPost, "/mcp"},
 	{http.MethodOptions, "/mcp"},
+	{http.MethodDelete, "/mcp"},
+	{http.MethodPut, "/mcp"},
+	{http.MethodPatch, "/mcp"},
 }
 
 // fakeSPA stands in for the bundled web UI. Any SPA fallback is visible as its

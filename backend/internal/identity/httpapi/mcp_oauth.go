@@ -95,6 +95,9 @@ func MCPCrossOriginRoutes() []httpx.CrossOriginRoute {
 		{Method: http.MethodGet, Path: mcpAuthorizationServerPath, Mode: httpx.CrossOriginAny},
 		{Method: http.MethodPost, Path: mcpTokenPath, Mode: httpx.CrossOriginAny},
 		{Method: http.MethodPost, Path: mcpRevokePath, Mode: httpx.CrossOriginAny},
+		// A native or CLI MCP client sends no Origin. A browser Origin must be
+		// the public origin, so a foreign page cannot drive the endpoint.
+		{Method: http.MethodPost, Path: mcpEndpointPath, Mode: httpx.CrossOriginNoneOrPublic},
 	}
 }
 

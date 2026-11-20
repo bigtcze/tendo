@@ -11,6 +11,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	householdhttp "github.com/bigtcze/tendo/backend/internal/household/httpapi"
+	householdmcp "github.com/bigtcze/tendo/backend/internal/household/mcptool"
 	householdpostgres "github.com/bigtcze/tendo/backend/internal/household/postgres"
 	householddb "github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
 	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
@@ -173,26 +174,33 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	}
 	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemMembers(membershipService.GetMembership), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
-	return registerMCP(routes, cfg, pool, sessionHandler)
+	return registerMCP(routes, cfg, pool, sessionHandler, householdService)
 }
 
-// registerMCP mounts the MCP endpoints. MCP stays inert until its flow is
-// complete (ADR 0023): the service is built disabled, so every MCP endpoint
-// answers the unknown-path 404.
-func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler) error {
+// registerMCP mounts the MCP OAuth endpoints and the Streamable HTTP endpoint.
+// While TENDO_MCP_ENABLED is false the service answers Enabled() == false and
+// every MCP route answers the unknown-path 404.
+func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler, households householdmcp.Lister) error {
 	mcpService, err := newMCPService(cfg, pool)
 	if err != nil {
 		return err
 	}
 	identityhttp.NewMCP(mcpService, sessions, cfg.PublicURL).Register(routes)
+	endpoint, err := identityhttp.NewMCPEndpoint(mcpService, cfg.PublicURL, cfg.DBTimeout, []identityhttp.MCPTool{
+		householdmcp.ListHouseholds(households),
+	})
+	if err != nil {
+		return err
+	}
+	endpoint.Register(routes)
 	return nil
 }
 
-// newMCPService builds the installation's MCP service. It is hard-disabled in
-// production: no configuration switches it on in this slice.
+// newMCPService builds the installation's MCP service. The TENDO_MCP_ENABLED
+// kill switch decides whether issuance and verification are on.
 func newMCPService(cfg config.Config, pool *pgxpool.Pool) (*identityapp.MCPService, error) {
 	return identityapp.NewMCPService(identitypostgres.NewMCPRepository(pool), identityapp.MCPOptions{
-		Enabled:  false,
+		Enabled:  cfg.MCPEnabled,
 		Resource: cfg.PublicURL + "/mcp",
 	}, time.Now)
 }

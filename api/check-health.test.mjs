@@ -109,11 +109,12 @@ test('smoke coverage scopes partition every OpenAPI operationId', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')
   const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
-  // MCP operations are answered 404 while MCP is disabled (ADR 0023) and are
-  // covered by backend/cmd/tendo composition tests, not by live smoke runs.
+  // No live smoke enables TENDO_MCP_ENABLED yet, so the MCP operations are
+  // covered by backend composition and real-PostgreSQL tests. Slice A4c of #456
+  // adds the live MCP smoke and removes this exclusion (ADR 0023, A4a).
   const mcpOperationIds = [
     'registerMcpClient', 'getMcpProtectedResourceMetadata', 'getMcpAuthorizationServerMetadata',
-    'authorizeMcpClient', 'getMcpAuthorizationRequest', 'decideMcpAuthorizationRequest', 'exchangeMcpToken', 'revokeMcpToken',
+    'authorizeMcpClient', 'getMcpAuthorizationRequest', 'decideMcpAuthorizationRequest', 'exchangeMcpToken', 'revokeMcpToken', 'callMcp',
   ]
   const operationIds = Object.values(contract.paths)
     .flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))

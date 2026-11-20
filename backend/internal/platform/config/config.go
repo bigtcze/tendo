@@ -28,6 +28,8 @@ type Config struct {
 	OIDCClientID      string
 	OIDCClientSecret  string
 	OIDCDisplayName   string
+	// MCPEnabled is the TENDO_MCP_ENABLED kill switch for the MCP endpoint.
+	MCPEnabled bool
 }
 
 type envLookup func(string) (string, bool)
@@ -45,6 +47,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		loadDatabaseURL,
 		loadDatabaseAdminURL,
 		loadPublicURL,
+		loadMCPEnabled,
 		func(c *Config, lookup envLookup) error { return loadOIDC(c, lookup, c.PublicURL) },
 		loadTrustedProxies,
 		loadTestClock,
@@ -151,6 +154,29 @@ func loadPublicURL(c *Config, lookup envLookup) error {
 		return errors.New("TENDO_PUBLIC_URL must be an absolute HTTP(S) root origin")
 	}
 	c.PublicURL = canonical
+	return nil
+}
+
+// loadMCPEnabled reads the MCP kill switch. Absent or empty means off; only the
+// exact spellings true and false are accepted. When MCP is on, the public origin
+// must be HTTPS or a loopback HTTP origin, because OAuth bearer tokens must not
+// travel over a plain-HTTP reachable origin.
+func loadMCPEnabled(c *Config, lookup envLookup) error {
+	raw, ok := lookup("TENDO_MCP_ENABLED")
+	if !ok || raw == "" {
+		return nil
+	}
+	switch raw {
+	case "true":
+	case "false":
+		return nil
+	default:
+		return errors.New("TENDO_MCP_ENABLED must be true or false")
+	}
+	if !strings.HasPrefix(c.PublicURL, "https://") && !isLoopbackHTTP(c.PublicURL) {
+		return errors.New("TENDO_MCP_ENABLED requires an HTTPS TENDO_PUBLIC_URL or a loopback HTTP origin")
+	}
+	c.MCPEnabled = true
 	return nil
 }
 

@@ -221,3 +221,7 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(code int) { w.status = code; w.ResponseWriter.WriteHeader(code) }
+
+// Unwrap lets http.ResponseController reach the underlying writer, so a
+// handler that flushes (the MCP SDK's event stream) is not silently buffered.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

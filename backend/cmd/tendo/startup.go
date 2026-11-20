@@ -116,8 +116,8 @@ func (s startupSteps) serve(ctx context.Context, cfg config.Config, pool *pgxpoo
 }
 
 // defaultMCPSweep runs the retention pass of the production MCP service. The
-// service is disabled, and the sweep runs regardless, so expired secrets are
-// still cleared.
+// sweep runs whether or not TENDO_MCP_ENABLED is set, so expired secrets are
+// still cleared after the kill switch is turned off.
 func defaultMCPSweep(cfg config.Config, pool *pgxpool.Pool) func(context.Context) (identityapp.MCPSweepReport, error) {
 	service, err := newMCPService(cfg, pool)
 	if err != nil {
