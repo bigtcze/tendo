@@ -1,7 +1,9 @@
+import { useRef } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { useI18n } from '../../i18n';
+import { ConnectedAppsSection } from '../mcp/ConnectedAppsSection';
 import { AccountAdminLink } from './AccountAdminLink';
 import { AccountHouseholdSection } from './AccountHouseholdSection';
 import { AccountPasswordSection } from './AccountPasswordSection';
@@ -22,13 +24,15 @@ export function AccountScreen({ session, onSessionChanged, onSignedOut, onSelfLe
   onSelfLeft: (household: string, alreadyGone: boolean) => void;
 }) {
   const { t } = useI18n();
+  /** Last-resort focus target when a disconnect leaves the connected-apps section with nothing to focus. */
+  const pageHeadingRef = useRef<HTMLHeadingElement>(null);
 
   return (
     <Layout
       actions={<AccountActions login={session.login} onSignedOut={onSignedOut} />}
     >
       <section className="settle">
-        <Heading className="text-h1 font-semibold text-ink">{t('account.title')}</Heading>
+        <Heading className="text-h1 font-semibold text-ink" headingRef={pageHeadingRef}>{t('account.title')}</Heading>
         <div className="mt-6 max-w-3xl space-y-6 sm:mt-8">
           <section aria-labelledby="account-identity-heading" className="border-t border-line pt-6">
             <h2 id="account-identity-heading" className="text-h2 text-ink">{t('account.identity.title')}</h2>
@@ -41,6 +45,7 @@ export function AccountScreen({ session, onSessionChanged, onSignedOut, onSelfLe
           <AccountPreferences />
           <AccountHouseholdSection session={session} onSignedOut={onSignedOut} onSelfLeft={onSelfLeft} />
         </div>
+        <ConnectedAppsSection onSignedOut={onSignedOut} pageHeadingRef={pageHeadingRef} />
       </section>
     </Layout>
   );
