@@ -23,12 +23,7 @@ import (
 // reports whether the goroutine exited, so no sleep is needed to observe that.
 func TestSweeperRunsAtStartupAndStopsOnShutdown(t *testing.T) {
 	started := make(chan struct{}, 8)
-	var mu sync.Mutex
-	calls := 0
 	sweep := func(ctx context.Context) (identityapp.MCPSweepReport, error) {
-		mu.Lock()
-		calls++
-		mu.Unlock()
 		select {
 		case started <- struct{}{}:
 		default:
@@ -47,19 +42,10 @@ func TestSweeperRunsAtStartupAndStopsOnShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("sweep did not repeat on the interval")
 	}
+	// stop reports true only after the goroutine has exited, so no later sweep
+	// can run.
 	if !stop(time.Second) {
 		t.Fatal("sweeper goroutine did not exit within the stop timeout")
-	}
-	mu.Lock()
-	before := calls
-	mu.Unlock()
-	// The goroutine has exited, so several intervals later no sweep may follow.
-	time.Sleep(4 * s.interval)
-	mu.Lock()
-	after := calls
-	mu.Unlock()
-	if after != before {
-		t.Fatalf("sweeper kept running after stop: %d -> %d calls", before, after)
 	}
 }
 

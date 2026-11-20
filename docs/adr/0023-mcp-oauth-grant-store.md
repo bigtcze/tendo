@@ -252,7 +252,7 @@ stopped and awaited after the HTTP server drains and before the pool closes.
 
 - **Whole-run sweep timeout.** The sweep timeout bounds the whole run, not each
   step. Per-step bounds belong in `MCPService.Sweep` and are not in A2.
-- **Smoke-scope exclusion.** `scripts/check-health.test.mjs` excludes the three
+- **Smoke-scope exclusion.** `api/check-health.test.mjs` excludes the three
   MCP operationIds from the smoke-scope partition, because no live smoke can
   enable MCP. **A3/A4 requirement:** remove this exclusion once MCP can be
   enabled, so the smoke covers the MCP operations.

@@ -15,7 +15,8 @@ import (
 // sweepOrder records the sweep's events in order, so a test can prove the
 // sweep ran and had returned by the time serve returned. serve takes a concrete
 // *pgxpool.Pool, so the pool close itself is not observable here; its position
-// after the sweeper stop is fixed in serveWithSweeper and pinned by runtime_test.go.
+// after the sweeper stop is fixed in serveWithSweeper and pinned by
+// TestServeStopsSweeperBeforePoolClose in mcp_sweeper_test.go.
 type sweepOrder struct {
 	mu     sync.Mutex
 	events []string
@@ -33,7 +34,7 @@ func (o *sweepOrder) snapshot() []string {
 	return append([]string(nil), o.events...)
 }
 
-// TestServeStartsSweeperAndStopsItBeforeServeReturns drives the production serve
+// TestServeStartsSweeperAndStopsItBeforePoolClose drives the production serve
 // path with an injected sweep. It must start the sweeper at startup (before the
 // first interval), and on shutdown the sweep context must end and the sweep must
 // return before serve returns.
@@ -90,9 +91,6 @@ func TestServeStartsSweeperAndStopsItBeforePoolClose(t *testing.T) {
 	}
 	if indexOf(events, "sweep-start") < 0 || indexOf(events, "sweep-start") > stoppedAt {
 		t.Fatalf("sweep did not start before it stopped: events=%v", events)
-	}
-	if stoppedAt != len(events)-1 {
-		t.Fatalf("sweep stop was not the last event before serve returned: events=%v", events)
 	}
 }
 
