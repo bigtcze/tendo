@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
+	identityhttp "github.com/bigtcze/tendo/backend/internal/identity/httpapi"
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
@@ -31,6 +34,9 @@ type startupSteps struct {
 	verify            func(context.Context, *pgxpool.Pool) error
 	warnInstanceAdmin func(context.Context, *pgxpool.Pool)
 	listen            func(string) (net.Listener, error)
+	// mcpSweep replaces the production retention pass in tests. Nil uses the
+	// production MCP service.
+	mcpSweep func(context.Context) (identityapp.MCPSweepReport, error)
 }
 
 func defaultStartupSteps() startupSteps {
@@ -74,21 +80,54 @@ func (s startupSteps) run() error {
 	return s.serve(ctx, cfg, pool)
 }
 
-func (s startupSteps) serve(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
-	draining := make(chan struct{})
+// productionApp is the complete production handler: the composed API and MCP
+// routes, the origin policy with the MCP cross-origin exemptions, and the UI
+// fallback. Tests exercise this same value.
+func productionApp(cfg config.Config, pool *pgxpool.Pool, ui http.Handler, draining <-chan struct{}) (http.Handler, error) {
 	routes := chi.NewRouter()
 	if err := registerAPI(routes, cfg, pool); err != nil {
+		return nil, err
+	}
+	policy := httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, CrossOrigin: identityhttp.MCPCrossOriginRoutes()}
+	return httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, policy, func(r chi.Router) { r.Mount("/", routes) }, ui), nil
+}
+
+func (s startupSteps) serve(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+	draining := make(chan struct{})
+	app, err := productionApp(cfg, pool, webui.Handler(), draining)
+	if err != nil {
 		pool.Close()
 		return err
 	}
-	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := s.listen(cfg.ListenAddr)
 	if err != nil {
 		pool.Close()
 		return err
 	}
-	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
+	sweep := s.mcpSweep
+	if sweep == nil {
+		sweep = defaultMCPSweep(cfg, pool)
+	}
+	stopSweeper := startSweeper(ctx, mcpSweeper{
+		sweep: sweep, interval: mcpSweepInterval, timeout: cfg.DBTimeout, logger: slog.Default(),
+	}.run)
+	return serveWithSweeper(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout, stopSweeper)
+}
+
+// defaultMCPSweep runs the retention pass of the production MCP service. The
+// service is disabled, and the sweep runs regardless, so expired secrets are
+// still cleared.
+func defaultMCPSweep(cfg config.Config, pool *pgxpool.Pool) func(context.Context) (identityapp.MCPSweepReport, error) {
+	service, err := newMCPService(cfg, pool)
+	if err != nil {
+		return func(context.Context) (identityapp.MCPSweepReport, error) {
+			return identityapp.MCPSweepReport{}, identityapp.ErrMCPSweepFailed
+		}
+	}
+	return func(ctx context.Context) (identityapp.MCPSweepReport, error) {
+		return service.Sweep(ctx, time.Now())
+	}
 }
 
 // prepareDatabase runs the two privileged steps exactly once at startup:
