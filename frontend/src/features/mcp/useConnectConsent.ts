@@ -137,7 +137,8 @@ export function useConnectConsent(handle: string, { onSessionEnded }: { onSessio
       } else if (result.kind === 'unauthenticated') {
         sessionEnded.current();
       } else {
-        setState({ kind: 'ready', request, allowEnabled, decisionError: result.kind === 'rateLimited' ? 'rateLimited' : 'unavailable' });
+        // Allow re-arms through the delay from scratch; it never comes back enabled from a failed decision.
+        setState({ kind: 'ready', request, allowEnabled: false, decisionError: result.kind === 'rateLimited' ? 'rateLimited' : 'unavailable' });
       }
     });
   }, [handle, state]);

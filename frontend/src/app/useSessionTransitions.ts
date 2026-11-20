@@ -87,8 +87,8 @@ function leaveSignedIn(deps: Deps, options: LeaveOptions): void {
 }
 
 /**
- * A plain sign-out abandons any pending consent, so the next sign-in at / is never sent back to /connect. The
- * stored request itself is not deleted here: only the return flag is what sends the next sign-in to /connect.
+ * A plain sign-out abandons any pending consent: the stored entry, return flag included, is removed, so the next
+ * sign-in at / is never sent back to /connect.
  */
 function leaveAbandoningConsent(leave: (options: LeaveOptions) => void) {
   clearConnectEntry();
