@@ -696,6 +696,39 @@ func (e McpClientRegistrationResponseTokenEndpointAuthMethod) Valid() bool {
 	}
 }
 
+// Defines values for McpGrantClientNameVerified.
+const (
+	McpGrantClientNameVerifiedFalse McpGrantClientNameVerified = false
+)
+
+// Valid indicates whether the value is a known member of the McpGrantClientNameVerified enum.
+func (e McpGrantClientNameVerified) Valid() bool {
+	switch e {
+	case McpGrantClientNameVerifiedFalse:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpGrantScopes.
+const (
+	McpGrantScopesTendoRead  McpGrantScopes = "tendo:read"
+	McpGrantScopesTendoWrite McpGrantScopes = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpGrantScopes enum.
+func (e McpGrantScopes) Valid() bool {
+	switch e {
+	case McpGrantScopesTendoRead:
+		return true
+	case McpGrantScopesTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpJsonRpcMessageJsonrpc.
 const (
 	N20 McpJsonRpcMessageJsonrpc = "2.0"
@@ -2064,6 +2097,35 @@ type McpClientRegistrationResponseTokenEndpointAuthMethod string
 // McpEventStream A finite text/event-stream body whose events carry JSON-RPC messages; it ends after the JSON-RPC response.
 type McpEventStream = string
 
+// McpGrant One connected app. No token or secret is ever included.
+type McpGrant struct {
+	// ClientName The app's own registration name. Not verified.
+	ClientName         string                     `json:"clientName"`
+	ClientNameVerified McpGrantClientNameVerified `json:"clientNameVerified"`
+
+	// CreatedAt When the person approved the app.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// ExpiresAt The latest moment access can last. Access may end sooner, for example when the app stops refreshing its tokens for 30 days.
+	ExpiresAt time.Time        `json:"expiresAt"`
+	Id        string           `json:"id"`
+	Scopes    []McpGrantScopes `json:"scopes"`
+}
+
+// McpGrantClientNameVerified defines model for McpGrant.ClientNameVerified.
+type McpGrantClientNameVerified bool
+
+// McpGrantScopes defines model for McpGrant.Scopes.
+type McpGrantScopes string
+
+// McpGrantList defines model for McpGrantList.
+type McpGrantList struct {
+	Items []McpGrant `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
 // McpJsonRpcMessage One JSON-RPC 2.0 message as defined by the MCP specification. The MCP SDK validates the message; this schema only fixes the envelope.
 type McpJsonRpcMessage struct {
 	Jsonrpc              McpJsonRpcMessageJsonrpc `json:"jsonrpc"`
@@ -3136,6 +3198,27 @@ type GetMcpAuthorizationRequestParams struct {
 
 // DecideMcpAuthorizationRequestParams defines parameters for DecideMcpAuthorizationRequest.
 type DecideMcpAuthorizationRequestParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
+// ListMcpGrantsParams defines parameters for ListMcpGrants.
+type ListMcpGrantsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// RevokeMcpGrantParams defines parameters for RevokeMcpGrant.
+type RevokeMcpGrantParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 

@@ -959,6 +959,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in account's connected apps
+         * @description Returns the signed-in account's live MCP grants: not revoked and not expired. They are ordered newest first by id (UUIDv7, creation order) with keyset cursor pagination. Each item is one app the person approved. The client name is the app's own registration and is not verified. No token or secret is returned. The route works whether or not TENDO_MCP_ENABLED is set. While MCP is off, the listed grants are paused, not removed, so a person can still see and disconnect them (ADR 0023, slice A4b). Requires the session cookie; an MCP bearer token is never accepted.
+         */
+        get: operations["listMcpGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect one of the signed-in account's connected apps
+         * @description Revokes one of the signed-in account's own live MCP grants with the audited reason user and the account as actor. Its codes and its access and refresh tokens are deleted. The next /mcp request and the next refresh with them fail; a request already past token verification finishes. The same 404 mcp_grant_not_found answers a grant id that is not canonical lowercase, unknown, owned by another account, already revoked or expired, so the response never reveals another account's grants. Works whether or not TENDO_MCP_ENABLED is set. Requires the session cookie and the canonical Origin header. An MCP bearer token is never accepted. Rate limited per account (30 per minute).
+         */
+        delete: operations["revokeMcpGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/oauth/token": {
         parameters: {
             query?: never;
@@ -1136,6 +1176,31 @@ export interface components {
         McpAuthorizationDecisionResponse: {
             /** Format: uri */
             redirectTo: string;
+        };
+        /** @description One connected app. No token or secret is ever included. */
+        McpGrant: {
+            /** Format: uuid */
+            id: string;
+            /** @description The app's own registration name. Not verified. */
+            clientName: string;
+            /** @constant */
+            clientNameVerified: false;
+            scopes: ("tendo:read" | "tendo:write")[];
+            /**
+             * Format: date-time
+             * @description When the person approved the app.
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description The latest moment access can last. Access may end sooner, for example when the app stops refreshing its tokens for 30 days.
+             */
+            expiresAt: string;
+        };
+        McpGrantList: {
+            items: components["schemas"]["McpGrant"][];
+            /** @description Opaque cursor for the next page; null on the last page. */
+            nextCursor: string | null;
         };
         /** @description RFC 6749 section 4.1.3 (authorization_code) or section 6 (refresh_token) form body. Parameters are read from the body only. */
         McpTokenRequest: {
@@ -13221,6 +13286,302 @@ export interface operations {
                 };
             };
             /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMcpGrants: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of connected apps. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90",
+                     *           "clientName": "Claude Code",
+                     *           "clientNameVerified": false,
+                     *           "scopes": [
+                     *             "tendo:read",
+                     *             "tendo:write"
+                     *           ],
+                     *           "createdAt": "2026-11-20T10:00:00Z",
+                     *           "expiresAt": "2027-02-18T10:00:00Z"
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpGrantList"];
+                };
+            };
+            /** @description Invalid query (invalid_query naming limit or cursor), or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "cursor"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on this resource. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeMcpGrant: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+            };
+            path: {
+                /** @description The id of a connected app from listMcpGrants. */
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The app was disconnected. */
+            204: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Trusted forwarded request metadata is malformed or inconsistent. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie, or the account was deleted meanwhile; the session cookie is cleared. An MCP token is never accepted on this resource. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing or does not match the configured canonical public origin. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not one of the signed-in account's live grants. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "mcp_grant_not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The per-account disconnect limit (30 per minute) is reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable; the app may not have been disconnected. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
