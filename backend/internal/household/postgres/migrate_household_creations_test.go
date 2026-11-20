@@ -24,9 +24,9 @@ func TestMigrationTwentySixUpDownAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 27)
+	requireSchemaVersion(t, ctx, admin, 28)
 	if !migrationRelationExists(t, ctx, admin, "household_creations") {
-		t.Fatal("household_creations missing after migrate to 27")
+		t.Fatal("household_creations missing after migrate to 28")
 	}
 	for _, check := range []struct {
 		privilege string
@@ -133,7 +133,7 @@ func TestMigrationTwentySixUpDownAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 026: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 27)
+	requireSchemaVersion(t, ctx, admin, 28)
 	if !migrationRelationExists(t, ctx, admin, "household_creations") {
 		t.Fatal("household_creations missing after re-apply")
 	}

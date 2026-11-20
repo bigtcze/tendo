@@ -121,7 +121,7 @@ func (t *credentialTx) LockLocalCredential(ctx context.Context, userValue string
 	return identity.LocalCredential{PasswordHash: row.PasswordHash, Version: row.CredentialVersion}, nil
 }
 
-func (t *credentialTx) ReplaceLocalPassword(ctx context.Context, userValue, passwordHash string, now time.Time) (identity.Revocation, error) {
+func (t *credentialTx) ReplaceLocalPassword(ctx context.Context, userValue, passwordHash string, now time.Time, mcp identity.MCPRevocation) (identity.Revocation, error) {
 	var user pgtype.UUID
 	if err := user.Scan(userValue); err != nil {
 		return identity.Revocation{}, identity.ErrNotFound
@@ -135,6 +135,11 @@ func (t *credentialTx) ReplaceLocalPassword(ctx context.Context, userValue, pass
 	}
 	revoked, err := t.q.DeleteAllUserSessions(ctx, user)
 	if err != nil {
+		return identity.Revocation{}, err
+	}
+	// The credential row is locked FOR UPDATE, so MCP rows follow it in the
+	// ADR 0023 order and no MCP token outlives the old password.
+	if err = revokeAccountMCPAccess(ctx, t.q, user, now, mcp); err != nil {
 		return identity.Revocation{}, err
 	}
 	live := make([][]byte, 0, len(revoked))

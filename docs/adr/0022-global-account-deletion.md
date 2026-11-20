@@ -123,9 +123,12 @@ reuses the service without that precondition.
 
 ## MCP tokens
 
-The MCP credential store does not exist yet. Issue #456 must add deleting the
-account's MCP tokens to the account-wide erase step, before the deletion
-record.
+`EraseAccountAccess` revokes every MCP grant of the account with the cause
+`account_deletion` and the deleting administrator as actor, and deletes every
+MCP authorization code, access token and refresh token, after the credential
+and sessions and before the deletion record. MCP issuance takes the account
+`FOR SHARE`, so it cannot insert a secret row after the deletion
+([ADR 0023](0023-mcp-oauth-grant-store.md)).
 
 ## Consequences
 

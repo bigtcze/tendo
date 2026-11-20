@@ -115,6 +115,67 @@ type LocalCredential struct {
 	CredentialVersion int64
 }
 
+type McpAccessToken struct {
+	TokenHash []byte
+	GrantID   pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+type McpAuthorizationCode struct {
+	CodeHash      []byte
+	UserID        pgtype.UUID
+	ClientID      string
+	RedirectUri   string
+	CodeChallenge string
+	Scopes        []string
+	Resource      string
+	CreatedAt     pgtype.Timestamptz
+	ExpiresAt     pgtype.Timestamptz
+	UsedAt        pgtype.Timestamptz
+	IssuedGrantID pgtype.UUID
+}
+
+type McpClient struct {
+	ClientID     string
+	ClientName   string
+	RedirectUris []string
+	CreatedAt    pgtype.Timestamptz
+	LastUsedAt   pgtype.Timestamptz
+}
+
+type McpGrant struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	ClientID     string
+	Scopes       []string
+	Resource     string
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+	RevokedAt    pgtype.Timestamptz
+	RevokeReason pgtype.Text
+}
+
+type McpGrantEvent struct {
+	ID          pgtype.UUID
+	GrantID     pgtype.UUID
+	UserID      pgtype.UUID
+	ClientID    string
+	ClientName  string
+	Event       string
+	Reason      pgtype.Text
+	ActorUserID pgtype.UUID
+	OccurredAt  pgtype.Timestamptz
+}
+
+type McpRefreshToken struct {
+	TokenHash  []byte
+	GrantID    pgtype.UUID
+	CreatedAt  pgtype.Timestamptz
+	ExpiresAt  pgtype.Timestamptz
+	ConsumedAt pgtype.Timestamptz
+}
+
 type OidcFlow struct {
 	StateHash        []byte
 	BrowserTokenHash []byte
