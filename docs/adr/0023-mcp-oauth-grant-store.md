@@ -177,12 +177,6 @@ are later slices, as is the sweep's scheduling goroutine in `cmd/tendo`.
   has no dot in the scheme, so the scheme regex is `^[a-z][a-z0-9+.-]{1,63}$`.
 - **`http://localhost`.** Loopback http redirects are accepted as RFC 8252 §7.3
   requires for native clients (Claude Code uses `http://localhost:<port>`).
-- **client_name is not NFC-normalized yet.** The decisions require NFC. The
-  only implementation is `golang.org/x/text/unicode/norm`, and it is currently
-  `// indirect` in `backend/go.mod`. Importing it makes `go mod tidy` edit the
-  go.mod require block, which the slice brief does not allow without an
-  owner-approved report. The rest of the name policy (trim, Cc and Cf refusal,
-  1 to 100 code points) is enforced. NFC is a follow-up once go.mod may change.
 - **Scope and auth method substitution.** The server does not honor a requested
   scope or auth method. Every client is public and receives the fixed policy
   above, so a client cannot widen its scope or select a secret method.

@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Dynamic client registration policy (ADR 0023, RFC 7591, RFC 8252). The
@@ -211,13 +213,9 @@ func NormalizeClientName(raw *string) (string, error) {
 	return name, nil
 }
 
-// nfcNormalize should return the NFC form of s (decisions, "Client metadata").
-// It is an identity today because importing golang.org/x/text/unicode/norm
-// makes go mod tidy move x/text from // indirect to the direct require block,
-// a go.mod change the A2 brief does not allow without a report. Until that
-// is approved, client_name is NOT NFC-normalized: a name may be stored in a
-// non-NFC form. ADR 0023 (slice A2, "Deviations") records this gap.
-func nfcNormalize(s string) string { return s }
+// nfcNormalize returns the NFC form of s, so a decomposed name is stored and
+// measured in the same form a reader sees (decisions, "Client metadata").
+func nfcNormalize(s string) string { return norm.NFC.String(s) }
 
 // mcpClientMetadataWire is the subset of the RFC 7591 request this server reads.
 // Every other field is ignored by design.

@@ -136,6 +136,12 @@ func TestNormalizeClientName(t *testing.T) {
 		{"newline control refused", ptr("a\nb"), "", false},
 		{"tab control refused", ptr("a\tb"), "", false},
 		{"invalid utf8 refused", ptr("a\xffb"), "", false},
+		// NFC: a decomposed name is stored in the composed form, and the length
+		// is counted after normalization (decisions, "Client metadata").
+		{"decomposed e acute stored composed", ptr("Cafe\u0301"), "Caf\u00e9", true},
+		{"composed input unchanged", ptr("Caf\u00e9"), "Caf\u00e9", true},
+		{"100 decomposed e acute accepted after NFC", ptr(strings.Repeat("e\u0301", 100)), strings.Repeat("\u00e9", 100), true},
+		{"101 decomposed e acute refused after NFC", ptr(strings.Repeat("e\u0301", 101)), "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
