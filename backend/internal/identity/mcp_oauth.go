@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"net/url"
 	"regexp"
 	"slices"
 	"time"
@@ -51,7 +52,7 @@ var (
 
 // MCPOptions is the installation's MCP configuration. Resource is the
 // canonical protected resource URI (<public URL>/mcp); every code, grant and
-// token is bound to it.
+// token is bound to it. Its host is the public origin host (ADR 0023).
 type MCPOptions struct {
 	Enabled  bool
 	Resource string
@@ -139,8 +140,28 @@ type MCPService struct {
 	clock      func() time.Time
 	enabled    bool
 	resource   string
+	// publicHost is Tendo's own canonical host (the resource's host), refused as
+	// a self-redirect target.
+	publicHost string
+	// clientStore is the registration store. It is the same repository value as
+	// repository when the implementation provides both.
+	clientStore MCPClientStore
+	// sweeper runs the retention steps. Nil fails the sweep closed.
+	sweeper MCPSweepStore
 }
 
+// MCPClientStore is the registration persistence (RFC 7591). It is outside the
+// issuance transaction: registration never holds issuance locks.
+type MCPClientStore interface {
+	// CreateClientWithinCap inserts the client only while fewer than cap clients
+	// without any grant exist, in one statement. It reports whether a row was
+	// inserted. The cap is soft under concurrency (ADR 0023).
+	CreateClientWithinCap(ctx context.Context, client MCPClient, createdAt time.Time, cap int) (bool, error)
+}
+
+// NewMCPService validates the configuration. When MCP is enabled the resource
+// is required: it binds every grant, and its host is the public origin host
+// that an https redirect may not name (ADR 0023 self-redirect rule).
 func NewMCPService(repository MCPRepository, options MCPOptions, clock func() time.Time) (*MCPService, error) {
 	if repository == nil {
 		return nil, errors.New("mcp repository is required")
@@ -148,10 +169,23 @@ func NewMCPService(repository MCPRepository, options MCPOptions, clock func() ti
 	if options.Enabled && options.Resource == "" {
 		return nil, errors.New("mcp resource is required when mcp is enabled")
 	}
+	publicHost := ""
+	if options.Resource != "" {
+		u, err := url.Parse(options.Resource)
+		if err != nil || u.Hostname() == "" {
+			return nil, errors.New("mcp resource must be an absolute URL")
+		}
+		publicHost = u.Hostname()
+	}
 	if clock == nil {
 		clock = time.Now
 	}
-	return &MCPService{repository: repository, clock: clock, enabled: options.Enabled, resource: options.Resource}, nil
+	store, _ := repository.(MCPClientStore)
+	sweeper, _ := repository.(MCPSweepStore)
+	return &MCPService{
+		repository: repository, clock: clock, enabled: options.Enabled, resource: options.Resource,
+		publicHost: publicHost, clientStore: store, sweeper: sweeper,
+	}, nil
 }
 
 func (s *MCPService) now() time.Time { return s.clock().UTC().Truncate(time.Microsecond) }
