@@ -839,6 +839,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register an MCP public client (RFC 7591)
+         * @description Dynamic client registration for MCP public clients (ADR 0023). Unauthenticated; rate limited per client IP and globally. While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials (Access-Control-Allow-Origin: *, Access-Control-Expose-Headers: Retry-After); the browser preflight is an OPTIONS request answered by the server and is not a contract operation. Request and response fields use the RFC-defined snake_case wire names, an RFC-defined exception to the camelCase convention of API.md. Errors use the RFC 7591 shape {error, error_description} as application/json, not problem+json. Responses never set or read cookies.
+         */
+        post: operations["registerMcpClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/oauth-protected-resource/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the MCP protected resource metadata (RFC 9728)
+         * @description Describes the Tendo MCP resource and its authorization server. Only the suffixed document exists; the root protected-resource document is not served. While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
+         */
+        get: operations["getMcpProtectedResourceMetadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/oauth-authorization-server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the authorization server metadata (RFC 8414)
+         * @description Advertises the MCP authorization server whose issuer is the canonical public origin. Advertised endpoints are implemented by later MCP slices. While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
+         */
+        get: operations["getMcpAuthorizationServerMetadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -899,6 +959,74 @@ export interface components {
             login: string;
             /** @description Maximum 512 UTF-8 bytes. */
             password: string;
+        };
+        /** @description RFC 7591 client metadata. Only the listed fields are read; every other field is ignored. Field names are the RFC-defined snake_case wire names. */
+        McpClientRegistrationRequest: {
+            redirect_uris: string[];
+            /** @description Trimmed and NFC-normalized; 1 to 100 characters, no control or format characters. Absent or empty becomes "MCP client". */
+            client_name?: string;
+            /** @description If present, must contain authorization_code. The response always lists authorization_code and refresh_token. */
+            grant_types?: string[];
+            /** @description If present, must contain code. */
+            response_types?: string[];
+            /** @description Accepted and substituted with none in the response (public clients only). */
+            token_endpoint_auth_method?: string;
+            /** @description Accepted and ignored; the response always returns tendo:read tendo:write. */
+            scope?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description RFC 7591 client information response. Field names are RFC snake_case wire names. */
+        McpClientRegistrationResponse: {
+            client_id: string;
+            /** @description Unix time in seconds at which the client was registered. */
+            client_id_issued_at: number;
+            client_name: string;
+            redirect_uris: string[];
+            grant_types: ("authorization_code" | "refresh_token")[];
+            response_types: "code"[];
+            /** @enum {string} */
+            token_endpoint_auth_method: "none";
+            /** @enum {string} */
+            scope: "tendo:read tendo:write";
+        };
+        /** @description RFC 6749 section 5.2 / RFC 7591 section 3.2.2 error response. Not problem+json. */
+        OAuthError: {
+            /** @enum {string} */
+            error: "invalid_redirect_uri" | "invalid_client_metadata" | "temporarily_unavailable";
+            error_description: string;
+        };
+        /** @description RFC 9728 protected resource metadata. Field names are RFC snake_case wire names. */
+        McpProtectedResourceMetadata: {
+            /** Format: uri */
+            resource: string;
+            authorization_servers: string[];
+            scopes_supported: ("tendo:read" | "tendo:write")[];
+            bearer_methods_supported: "header"[];
+            /** @enum {string} */
+            resource_name: "Tendo";
+        };
+        /** @description RFC 8414 authorization server metadata. Field names are RFC snake_case wire names. */
+        McpAuthorizationServerMetadata: {
+            /** Format: uri */
+            issuer: string;
+            /** Format: uri */
+            authorization_endpoint: string;
+            /** Format: uri */
+            token_endpoint: string;
+            /** Format: uri */
+            registration_endpoint: string;
+            /** Format: uri */
+            revocation_endpoint: string;
+            scopes_supported: ("tendo:read" | "tendo:write")[];
+            response_types_supported: "code"[];
+            response_modes_supported: "query"[];
+            grant_types_supported: ("authorization_code" | "refresh_token")[];
+            token_endpoint_auth_methods_supported: "none"[];
+            revocation_endpoint_auth_methods_supported: "none"[];
+            code_challenge_methods_supported: "S256"[];
+            /** @constant */
+            authorization_response_iss_parameter_supported: true;
         };
         Problem: {
             /** Format: uri-reference */
@@ -12197,6 +12325,312 @@ export interface operations {
                      *       "type": "about:blank",
                      *       "title": "Service Unavailable",
                      *       "status": 503
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    registerMcpClient: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "redirect_uris": [
+                 *         "http://localhost:54123/callback"
+                 *       ],
+                 *       "client_name": "Claude Code",
+                 *       "scope": "tendo:read tendo:write"
+                 *     }
+                 */
+                "application/json": components["schemas"]["McpClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description The client is registered as a public client with the fixed grant types, response type and scope. */
+            201: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "client_id": "3vK9qZ0xYw1Lm7rT2pNcQaHs8fUeBj4dGkWoRyXiVtA",
+                     *       "client_id_issued_at": 1790000000,
+                     *       "client_name": "Claude Code",
+                     *       "redirect_uris": [
+                     *         "http://localhost:54123/callback"
+                     *       ],
+                     *       "grant_types": [
+                     *         "authorization_code",
+                     *         "refresh_token"
+                     *       ],
+                     *       "response_types": [
+                     *         "code"
+                     *       ],
+                     *       "token_endpoint_auth_method": "none",
+                     *       "scope": "tendo:read tendo:write"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpClientRegistrationResponse"];
+                };
+            };
+            /** @description The registration names an invalid redirect URI (invalid_redirect_uri) or unacceptable metadata (invalid_client_metadata). */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "invalid_redirect_uri",
+                     *       "error_description": "A redirect URI is not permitted."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request body exceeds 16 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "invalid_client_metadata",
+                     *       "error_description": "Registration body is too large."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description The Content-Type is not application/json. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "invalid_client_metadata",
+                     *       "error_description": "Content-Type must be application/json."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description Per-client-IP (10 per minute) or global (60 per minute) registration limit reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Too many registrations. Retry later."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+            /** @description The grantless-client cap is reached. Retry later. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "temporarily_unavailable",
+                     *       "error_description": "Client registration is temporarily unavailable."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    getMcpProtectedResourceMetadata: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Protected resource metadata. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "resource": "https://tendo.example/mcp",
+                     *       "authorization_servers": [
+                     *         "https://tendo.example"
+                     *       ],
+                     *       "scopes_supported": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "bearer_methods_supported": [
+                     *         "header"
+                     *       ],
+                     *       "resource_name": "Tendo"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpProtectedResourceMetadata"];
+                };
+            };
+            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMcpAuthorizationServerMetadata: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorization server metadata. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "issuer": "https://tendo.example",
+                     *       "authorization_endpoint": "https://tendo.example/oauth/authorize",
+                     *       "token_endpoint": "https://tendo.example/oauth/token",
+                     *       "registration_endpoint": "https://tendo.example/oauth/register",
+                     *       "revocation_endpoint": "https://tendo.example/oauth/revoke",
+                     *       "scopes_supported": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "response_types_supported": [
+                     *         "code"
+                     *       ],
+                     *       "response_modes_supported": [
+                     *         "query"
+                     *       ],
+                     *       "grant_types_supported": [
+                     *         "authorization_code",
+                     *         "refresh_token"
+                     *       ],
+                     *       "token_endpoint_auth_methods_supported": [
+                     *         "none"
+                     *       ],
+                     *       "revocation_endpoint_auth_methods_supported": [
+                     *         "none"
+                     *       ],
+                     *       "code_challenge_methods_supported": [
+                     *         "S256"
+                     *       ],
+                     *       "authorization_response_iss_parameter_supported": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpAuthorizationServerMetadata"];
+                };
+            };
+            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404
                      *     }
                      */
                     "application/problem+json": components["schemas"]["Problem"];
