@@ -194,6 +194,18 @@ assert status==422 and foreign_default['code']=='invalid_reference' and foreign_
 assert psql("SELECT default_household_id FROM user_accounts WHERE login='owner_smoke'")==household,'rejected default selection persisted'
 status,_,foreign_origin,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':'http://foreign.example'},sink=fixtures)
 assert status==403,('patch session foreign Origin',status,foreign_origin)
+# Connected apps (ADR 0023, slice A4b): the signed-in owner has no grants yet, so
+# the list is empty, and a revoke of an unknown grant is the non-oracle 404. Both
+# answer with MCP disabled, as in production.
+status,h,apps=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',headers=cookie_header,sink=fixtures)[:3]
+assert status==200 and apps=={'items':[],'nextCursor':None} and h['Cache-Control']=='no-store','list connected apps',status,apps,dict(h)
+status,_,anon_apps,_=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',sink=fixtures)
+assert status==401 and anon_apps['code']=='unauthenticated',('list connected apps without cookie',status,anon_apps)
+random_grant=psql('SELECT uuidv7()')
+status,h,revoke_missing,_=call('DELETE','/api/v1/mcp/grants/'+random_grant,template='/api/v1/mcp/grants/{grantId}',headers={**cookie_header,'Origin':origin},sink=fixtures)
+assert status==404 and revoke_missing['code']=='mcp_grant_not_found' and h['Cache-Control']=='no-store',('revoke unknown connected app',status,revoke_missing,dict(h))
+status,_,_,_=call('DELETE','/api/v1/mcp/grants/'+random_grant,template='/api/v1/mcp/grants/{grantId}',headers={**cookie_header,'Origin':'http://foreign.example'},sink=fixtures)
+assert status==403,('revoke connected app foreign Origin',status)
 COLL='/api/v1/households/{householdId}/subjects'
 ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
 MEMBER_PERSON='/api/v1/households/{householdId}/members/{userId}/person'
