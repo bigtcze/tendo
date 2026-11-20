@@ -15,7 +15,7 @@ Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../.
 | mise (CI via `jdx/mise-action` v5.2.6; local minimum via `min_version`) | 2026.11.0 | 2026.11.0 | CI binary SHA-256 pinned in `.github/actions/toolchain`, verified against the release's `SHASUMS256.txt`; MIT |
 | oapi-codegen | v2.8.2 | v2.8.2 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
-| Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
+| Proxy smoke images | Caddy 2.11.9, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
 | GitHub Actions | checkout v7.0.1, cache v6.1.0, jdx/mise-action v5.2.6, upload-artifact v7.0.2 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
 
 ## Go modules (`backend/go.mod`)
