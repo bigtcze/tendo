@@ -47,6 +47,6 @@
     "vitest": "5.1.0"
   },
   "overrides": {
-    "minimatch": "11.0.4"
+    "minimatch": "11.0.9"
   }
 }
