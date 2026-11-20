@@ -390,6 +390,7 @@ test.describe('Tendo production journey', () => {
     }
 
     // Mixed keys are never interpreted: the generic invalid-request message.
+    // The second and third visits are same-document fragment navigations (goto returns null), so they exercise the app's hashchange capture.
     await page.goto(`/connect#request=${'A'.repeat(43)}&error=invalid_client`);
     await expect(page.getByText(en['connect.problem.request'], { exact: true })).toBeVisible();
     expect(new URL(page.url()).hash).toBe('');

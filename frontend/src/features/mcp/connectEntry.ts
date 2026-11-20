@@ -16,6 +16,13 @@ export const CONNECT_ERROR_CODES = [
 ] as const;
 export type ConnectErrorCode = (typeof CONNECT_ERROR_CODES)[number];
 
+/** What the consent page was asked to show: a stored request, a carried error, an invalid fragment, or nothing. */
+export type ConnectOutcome =
+  | { kind: 'request'; handle: string }
+  | { kind: 'error'; code: ConnectErrorCode }
+  | { kind: 'invalid' }
+  | { kind: 'none' };
+
 export type ConnectFragment =
   | { kind: 'request'; handle: string }
   | { kind: 'error'; code: ConnectErrorCode }

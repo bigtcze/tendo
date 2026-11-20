@@ -157,9 +157,24 @@ describe('decisions', () => {
     renderConnect();
     await screen.findByRole('heading', { level: 1, name: 'Connect Claude Code?' });
     click(screen.getByRole('button', { name: en['connect.deny'] }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(en['connect.rateLimited']);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(en['connect.rateLimited']);
+    expect(alert).toHaveFocus();
     expect(screen.getByRole('button', { name: en['connect.deny'] })).toBeEnabled();
     expect(screen.getByRole('button', { name: en['connect.allow'] })).toBeInTheDocument();
+  });
+});
+
+describe('sign-out while deciding', () => {
+  it('disables Not you? Sign out while a decision is in flight', async () => {
+    let release!: (value: Response) => void;
+    const held = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer(consentRoutes({ [`POST ${path}/decision`]: () => held }));
+    renderConnect();
+    await screen.findByRole('heading', { level: 1, name: 'Connect Claude Code?' });
+    click(screen.getByRole('button', { name: en['connect.deny'] }));
+    expect(screen.getByRole('button', { name: en['connect.notYou'] })).toBeDisabled();
+    await act(async () => { release(json(200, { redirectTo })); });
   });
 });
 
@@ -232,7 +247,7 @@ describe('problem outcomes', () => {
     [{ kind: 'error', code: 'invalid_scope' }, en['connect.problem.request']],
     [{ kind: 'error', code: 'invalid_target' }, en['connect.problem.request']],
     [{ kind: 'invalid' }, en['connect.problem.request']],
-    [{ kind: 'none' }, en['connect.problem.request']],
+    [{ kind: 'none' }, en['connect.gone']],
   ];
 
   it.each(cases)('%j shows its message, a Home link and no decision buttons', (outcome, message) => {

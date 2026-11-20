@@ -76,6 +76,7 @@ describe('App route characterization', () => {
       oidcContinueExpired: false,
       continueCancelled: vi.fn(),
       continueExpired: vi.fn(),
+      connectOutcome: { kind: 'none' },
     } satisfies SignedOutProps;
     const translate: Translate = (key) => key;
     expect(getLoginNotice(noticeProps, translate)).toBe('invite.error.accountReady');

@@ -2,14 +2,10 @@ import { useEffect, useState } from 'react';
 import { CONNECT_PATH } from './routes';
 import {
   clearConnectEntry, parseConnectFragment, readConnectEntry, saveConnectHandle,
-  type ConnectErrorCode,
+  type ConnectOutcome,
 } from '../features/mcp/connectEntry';
 
-export type ConnectOutcome =
-  | { kind: 'request'; handle: string }
-  | { kind: 'error'; code: ConnectErrorCode }
-  | { kind: 'invalid' }
-  | { kind: 'none' };
+export type { ConnectOutcome };
 
 export type ConnectVisit = { visit: number; outcome: ConnectOutcome };
 

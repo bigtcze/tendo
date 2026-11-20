@@ -135,6 +135,18 @@ describe('decisions', () => {
     act(() => hook.result.current.decide('deny'));
     await waitFor(() => expect(hook.result.current.state).toMatchObject({ kind: 'ready', decisionError: 'rateLimited' }));
   });
+
+  it('a failed approve comes back with Allow disabled until another 1000 ms of focus', async () => {
+    const { hook, fake } = await loadReady({ [`POST ${path}/decision`]: json(503, { title: 'x', status: 503 }) });
+    await act(() => vi.advanceTimersByTime(1100));
+    expect(allowEnabled(hook.result.current.state)).toBe(true);
+    act(() => hook.result.current.decide('approve'));
+    await waitFor(() => expect(hook.result.current.state).toMatchObject({ kind: 'ready', decisionError: 'unavailable' }));
+    expect(allowEnabled(hook.result.current.state)).toBe(false);
+    await act(() => vi.advanceTimersByTime(1100));
+    expect(allowEnabled(hook.result.current.state)).toBe(true);
+    expect(fake.requests.filter((request) => request.path === `${path}/decision`)).toHaveLength(1);
+  });
 });
 
 describe('load failures', () => {
@@ -164,6 +176,74 @@ describe('load failures', () => {
     await waitFor(() => expect(hook.result.current.state.kind).toBe('unavailable'));
     act(() => hook.result.current.retry());
     await waitFor(() => expect(hook.result.current.state.kind).toBe('ready'));
+  });
+});
+
+describe('allow re-disables after the gate was passed', () => {
+  it('a blur after Allow is armed disables it again, and focus re-arms after 1000 ms', async () => {
+    const { hook } = await loadReady({});
+    await act(() => vi.advanceTimersByTime(1100));
+    expect(allowEnabled(hook.result.current.state)).toBe(true);
+    focused = false;
+    await act(async () => { window.dispatchEvent(new Event('blur')); });
+    expect(allowEnabled(hook.result.current.state)).toBe(false);
+    focused = true;
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(() => vi.advanceTimersByTime(500));
+    expect(allowEnabled(hook.result.current.state)).toBe(false);
+    await act(() => vi.advanceTimersByTime(600));
+    expect(allowEnabled(hook.result.current.state)).toBe(true);
+  });
+
+  it('hiding the page after Allow is armed disables it again', async () => {
+    const { hook } = await loadReady({});
+    await act(() => vi.advanceTimersByTime(1100));
+    expect(allowEnabled(hook.result.current.state)).toBe(true);
+    visibility = 'hidden';
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(allowEnabled(hook.result.current.state)).toBe(false);
+    visibility = 'visible';
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    await act(() => vi.advanceTimersByTime(1100));
+    expect(allowEnabled(hook.result.current.state)).toBe(true);
+  });
+});
+
+describe('stale decisions', () => {
+  it('an old decision that fails after unmount leaves a newer visit entry alone', async () => {
+    saveConnectHandle(handle);
+    let release!: (value: Response) => void;
+    const held = new Promise<Response>((resolve) => { release = resolve; });
+    const { hook } = await loadReady({ [`POST ${path}/decision`]: () => held });
+    act(() => hook.result.current.decide('deny'));
+    hook.unmount();
+    const newer = 'B'.repeat(43);
+    saveConnectHandle(newer);
+    await act(async () => { release(json(404, { title: 'x', status: 404 })); });
+    await act(() => vi.advanceTimersByTime(50));
+    expect(readConnectEntry()?.handle).toBe(newer);
+  });
+
+  it('a safe redirect still navigates after unmount, because the request is already consumed', async () => {
+    const held = Promise.resolve(json(200, { redirectTo }));
+    const { hook } = await loadReady({ [`POST ${path}/decision`]: () => held });
+    act(() => hook.result.current.decide('deny'));
+    hook.unmount();
+    await waitFor(() => expect(browserNavigation.assign).toHaveBeenCalledWith(redirectTo));
+  });
+
+  it('a decision 401 calls onSessionEnded and keeps the stored entry', async () => {
+    saveConnectHandle(handle);
+    const onSessionEnded = vi.fn();
+    installFakeServer({
+      [`GET ${path}`]: json(200, request),
+      [`POST ${path}/decision`]: json(401, { title: 'x', status: 401 }),
+    });
+    const hook = renderHook(() => useConnectConsent(handle, { onSessionEnded }));
+    await waitFor(() => expect(hook.result.current.state.kind).toBe('ready'));
+    act(() => hook.result.current.decide('deny'));
+    await waitFor(() => expect(onSessionEnded).toHaveBeenCalledTimes(1));
+    expect(readConnectEntry()?.handle).toBe(handle);
   });
 });
 

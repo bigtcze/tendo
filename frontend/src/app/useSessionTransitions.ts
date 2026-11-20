@@ -8,7 +8,7 @@ import { clearPendingSubjectCreates } from '../features/subjects/pendingSubjectC
 import { CONNECT_PATH, INVITE_PATH, LOGIN_PATH, type Route } from './routes';
 import type { OidcEntryActions } from './useOidcEntry';
 import type { BootState } from './useAppSession';
-import { markConnectReturn, takeConnectReturn } from '../features/mcp/connectEntry';
+import { clearConnectEntry, markConnectReturn, takeConnectReturn } from '../features/mcp/connectEntry';
 
 export function clearPendingStores(): void {
   clearPendingCompletions();
@@ -86,6 +86,15 @@ function leaveSignedIn(deps: Deps, options: LeaveOptions): void {
   deps.setState({ kind: 'signedOut' });
 }
 
+/**
+ * A plain sign-out abandons any pending consent, so the next sign-in at / is never sent back to /connect. The
+ * stored request itself is not deleted here: only the return flag is what sends the next sign-in to /connect.
+ */
+function leaveAbandoningConsent(leave: (options: LeaveOptions) => void) {
+  clearConnectEntry();
+  leave({ path: '/' });
+}
+
 /** All session transitions in one place so every entry/exit clears the same transient state. */
 export function useSessionTransitions(deps: Deps) {
   const {
@@ -99,7 +108,7 @@ export function useSessionTransitions(deps: Deps) {
   useEffect(() => { depsRef.current = deps; });
 
   const leave = useCallback((options: LeaveOptions) => leaveSignedIn(depsRef.current, options), []);
-  const signedOut = useCallback(() => leave({ path: '/' }), [leave]);
+  const signedOut = useCallback(() => leaveAbandoningConsent(leave), [leave]);
 
   const inviteSignedOut = useCallback(() => {
     advanceSessionGeneration();

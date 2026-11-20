@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
 import { fetchSession, login, type Session } from '../auth/sessionApi';
 import { acceptInvitationAsCurrentUser, acceptNewAccount } from './membersApi';
+import { clearConnectEntry } from '../mcp/connectEntry';
 import {
   mapNewAccountResult, mapSignedInResult, type InviteCallbacks,
 } from './inviteAcceptModel';
@@ -75,6 +76,8 @@ export function useInviteAccept({ token, session, focusLogin, ...callbacks }: Pr
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (pending || !valid || !token) return;
+    // An invitation sign-in abandons any pending consent, so the sign-in can never return to /connect.
+    clearConnectEntry();
     setPending(true);
     setError(null);
     if (currentSession) await submitSignedIn(token);

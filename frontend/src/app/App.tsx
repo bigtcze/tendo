@@ -90,6 +90,7 @@ export function App() {
           oidcContinueExpired={session.oidcContinueExpired}
           continueCancelled={session.continueCancelled}
           continueExpired={session.continueExpired}
+          connectOutcome={connect.outcome}
         />
       )}
     </ScreenTransitionContext>

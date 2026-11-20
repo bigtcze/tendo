@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Button } from '../../components/ui/button';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type MessageKey } from '../../i18n';
@@ -12,6 +13,20 @@ const SCOPE_TEXT: Record<McpAuthorizationRequest['scopes'][number], MessageKey> 
   'tendo:read': 'connect.scope.read',
   'tendo:write': 'connect.scope.write',
 };
+
+/**
+ * The decision failed and the buttons are back. Focus moves to this message, so a keyboard user does not lose their
+ * place to the page body.
+ */
+function DecisionError({ kind }: { kind: 'rateLimited' | 'unavailable' }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  // Layout effect, like Heading: the heading also focuses in a layout effect, and this message must win that race.
+  useLayoutEffect(() => { ref.current?.focus(); }, []);
+  return <Notice ref={ref} tabIndex={-1} tone="error" className="mt-6 outline-none">
+    {t(kind === 'rateLimited' ? 'connect.rateLimited' : 'connect.unavailable')}
+  </Notice>;
+}
 
 export type ConsentPanelProps = {
   request: McpAuthorizationRequest;
@@ -40,12 +55,10 @@ export function ConsentPanel({ request, session, busy, allowEnabled, decisionErr
         </ul>
         <p className="text-small text-muted">{t('connect.scopes.coverage')}</p>
       </div>
-      <ConnectSignedIn login={session.login} onSignOut={onSignOut} />
+      <ConnectSignedIn login={session.login} busy={busy} onSignOut={onSignOut} />
       <p className="text-small text-muted"><Fill id="connect.expires" values={{ time: expires }} /></p>
     </div>
-    {decisionError ? <Notice tone="error" className="mt-6">
-      {t(decisionError === 'rateLimited' ? 'connect.rateLimited' : 'connect.unavailable')}
-    </Notice> : null}
+    {decisionError ? <DecisionError kind={decisionError} /> : null}
     <div className="mt-8 grid gap-3 sm:grid-cols-2">
       <Button type="button" variant="secondary" disabled={busy} onClick={() => onDecide('deny')} className="w-full">
         {t('connect.deny')}

@@ -6,6 +6,7 @@ import { browserNavigation } from '../auth/oidcApi';
 import { I18nProvider } from '../../i18n';
 import { en } from '../../i18n/en';
 import { installFakeServer, json } from '../../test/fakeServer';
+import { markConnectReturn, readConnectEntry, saveConnectHandle } from '../mcp/connectEntry';
 
 const token = 'a'.repeat(43);
 const problem = (status: number, code?: string) => json(status, {
@@ -45,6 +46,19 @@ describe('invite with the household provider', () => {
     expect(JSON.parse(start!.body)).toEqual({ purpose: 'login', invitationToken: token });
     const startHeaders = fake.requests.find((request) => request.path === '/api/v1/auth/oidc/start')!.headers;
     expect(startHeaders.get('Origin')).toBe(window.location.origin);
+  });
+
+  it('drops an abandoned consent return before the provider round trip, so the return lands on the invitation', async () => {
+    saveConnectHandle('C'.repeat(43));
+    markConnectReturn();
+    installFakeServer({
+      ...signedOut, ...provider,
+      'POST /api/v1/auth/oidc/start': json(200, { authorizationUrl }),
+    });
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue with Pocket ID' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizationUrl));
+    expect(readConnectEntry()).toBeNull();
   });
 
   it('an invalid invitation is explained and the password path stays available', async () => {

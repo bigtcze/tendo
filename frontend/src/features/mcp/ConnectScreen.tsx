@@ -88,8 +88,10 @@ export function ConnectScreen({ outcome, session, onSignOut, onSessionEnded, onH
       />;
     case 'error':
       return <ConnectProblem messageKey={connectProblemKey(outcome.code)} onHome={onHome} />;
-    case 'invalid':
     case 'none':
+      // Nothing is pending any more: a reload or Back after a decision lands here.
+      return <ConnectProblem messageKey="connect.gone" onHome={onHome} />;
+    case 'invalid':
       return <ConnectProblem messageKey="connect.problem.request" onHome={onHome} />;
   }
 }

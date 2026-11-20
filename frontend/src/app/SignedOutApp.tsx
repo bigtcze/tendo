@@ -10,6 +10,8 @@ import type { OidcErrorCode } from '../features/auth/oidcApi';
 import type { Session } from '../features/auth/sessionApi';
 // A sign-in begun anywhere but the consent page abandons any pending consent, so it can never return there.
 import { clearConnectEntry, markConnectReturn } from '../features/mcp/connectEntry';
+import { ConnectProblem, connectProblemKey } from '../features/mcp/ConnectProblem';
+import type { ConnectOutcome } from './useConnectVisit';
 
 export type Props = {
   state: BootState;
@@ -25,7 +27,21 @@ export type Props = {
   oidcContinueExpired: boolean;
   continueCancelled: () => void;
   continueExpired: () => void;
+  connectOutcome: ConnectOutcome;
 };
+
+/** Signed out at /connect without a stored request: the calm problem state replaces sign-in, never a login prompt. */
+function connectUnusable(props: Props, route: Route): boolean {
+  return route.kind === 'connect' && !props.oidcContinue && props.connectOutcome.kind !== 'request';
+}
+
+function connectProblemMessage(outcome: ConnectOutcome): MessageKey {
+  if (outcome.kind === 'error') return connectProblemKey(outcome.code);
+  return 'connect.problem.request';
+}
+
+/** Signed out, Home is the sign-in screen at `/`, so a full navigation there is the simplest honest way back. */
+const goHome = () => window.location.assign('/');
 
 export function SignedOutApp(props: Props) {
   const { t } = useI18n();
@@ -36,7 +52,10 @@ export function SignedOutApp(props: Props) {
     {props.state.kind === 'error' ? <ErrorScreen onRetry={props.retry} signedOut /> : null}
     {props.state.kind === 'setupRequired' ? <OnboardingScreen onSignedIn={props.signedIn} onSetupComplete={props.signedOut} /> : null}
     {props.state.kind === 'signedOut' && route.kind === 'notFound' ? <NotFoundScreen signedOut /> : null}
-    {props.state.kind === 'signedOut' && route.kind !== 'notFound' ? (
+    {props.state.kind === 'signedOut' && connectUnusable(props, route) ? (
+      <ConnectProblem messageKey={connectProblemMessage(props.connectOutcome)} onHome={goHome} />
+    ) : null}
+    {props.state.kind === 'signedOut' && route.kind !== 'notFound' && !connectUnusable(props, route) ? (
       props.oidcContinue
         ? <OidcContinueScreen
           onSignedIn={props.signedIn}
