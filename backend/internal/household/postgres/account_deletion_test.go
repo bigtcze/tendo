@@ -114,8 +114,8 @@ func (f *accountDeletionFixture) addLinkFlow(userID string) {
 // addMCPGrant stores a live MCP grant of the account with one access token, one
 // live and one consumed refresh token, plus an outstanding and a used
 // authorization code, exactly the secret-bearing rows ADR 0023 says a deletion
-// must erase. Rows are created an hour before the fixture clock, so the
-// deletion's revoked_at is after created_at. It returns the grant id.
+// must erase. Rows are created an hour before the fixture clock; grants
+// created after it are covered by addMCPGrantAt. It returns the grant id.
 func (f *accountDeletionFixture) addMCPGrant(userID, clientID string) string {
 	f.t.Helper()
 	return f.addMCPGrantAt(userID, clientID, "2026-05-04 09:00:00+00")

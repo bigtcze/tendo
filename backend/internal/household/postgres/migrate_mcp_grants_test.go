@@ -252,12 +252,15 @@ func TestMigrationTwentyEightLifetimeIsDSTSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Release()
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `RESET TimeZone`)
+		conn.Release()
+	}()
 	if _, err = conn.Exec(ctx, `SET TimeZone='Europe/Prague'`); err != nil {
 		t.Fatal(err)
 	}
-	// 2026-01-01 12:00Z is far from a transition, but the span crosses the
-	// March and October switches, so calendar-day arithmetic would differ.
+	// 2026-01-01 12:00Z is far from a transition, but the 90-day span crosses
+	// the 2026-03-29 switch, so calendar-day arithmetic would lose an hour.
 	const created = `timestamptz '2026-01-01 12:00:00+00'`
 
 	var grant string

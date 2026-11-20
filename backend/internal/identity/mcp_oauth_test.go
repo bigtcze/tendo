@@ -1077,3 +1077,23 @@ func TestMCPInfrastructureFailureRollsBackEverything(t *testing.T) {
 		})
 	}
 }
+
+// TestMCPRefreshInfrastructureErrorOnRevokedGrantRollsBack proves a storage
+// failure while locking the refresh token is reported as that failure, not as
+// a clean invalid_grant, even when the grant is already revoked.
+func TestMCPRefreshInfrastructureErrorOnRevokedGrantRollsBack(t *testing.T) {
+	fx := newMCPFixture(t)
+	_, tokens := fx.exchangeOK()
+	grantID := fx.f.onlyGrantID(t)
+	g := fx.f.state.grants[grantID]
+	g.Revoked = true
+	fx.f.state.grants[grantID] = g
+	fx.f.failOn = "LockRefreshToken"
+	_, err := fx.svc.Refresh(context.Background(), mcpRefreshOf(tokens))
+	if !errors.Is(err, errMCPInjected) {
+		t.Fatalf("err = %v, want the injected failure", err)
+	}
+	if fx.f.state.refresh[string(mcpDigest(tokens.RefreshToken))].Consumed {
+		t.Fatal("failed refresh consumed the token")
+	}
+}

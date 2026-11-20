@@ -1433,7 +1433,7 @@ func TestMCPOIDCOnlyDeletionRacesExchange(t *testing.T) {
 		tokens, err := env.exchange(code)
 		done <- outcome{tokens, err}
 	}()
-	waitForBlockedBackend(t, env.ctx, env.observer)
+	waitForBlockedStatement(t, env.ctx, env.observer, "%FOR SHARE%")
 	if err = eraseInTx(env.ctx, tx, user, actor, env.clock.now()); err != nil {
 		t.Fatal(err)
 	}

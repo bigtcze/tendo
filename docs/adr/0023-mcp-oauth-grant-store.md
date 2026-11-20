@@ -61,7 +61,9 @@ identity framework".
   Callers truncate their clock (password replacement to the second), read it
   before lock waits, or run on another instance with a skewed clock. A
   `revoked_at >= created_at` CHECK must never roll back a password
-  replacement, an account deletion or a code-reuse revocation.
+  replacement, an account deletion or a code-reuse revocation. Exchange and
+  refresh read the clock before their lock waits, so a code may be redeemed
+  up to one lock wait past its 60-second expiry; this is accepted.
 - **Fixed-length spans.** Lifetime CHECKs use `interval '2160 hours'`, not
   `'90 days'`, because day arithmetic on `timestamptz` follows the session
   TimeZone and a daylight-saving change would shorten the limit by an hour.
