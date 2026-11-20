@@ -70,8 +70,19 @@ func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, ori
 	return newRouterWithUI(pool, timeout, draining, origin, nil, registers...)
 }
 
+// reservedPrefixes are API, health and MCP surfaces. The exact segment and the
+// segment followed by "/" are reserved, so unmatched requests there answer
+// problem+json 404/405 and never fall back to the SPA. The boundary means
+// /mcpx, /oauthy and /.well-knownz stay SPA paths.
+var reservedPrefixes = []string{"/api", "/health", "/mcp", "/oauth", "/.well-known"}
+
 func isReservedPath(p string) bool {
-	return p == "/api" || strings.HasPrefix(p, "/api/") || p == "/health" || strings.HasPrefix(p, "/health/")
+	for _, prefix := range reservedPrefixes {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func newRouterWithUI(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, ui http.Handler, registers ...func(chi.Router)) http.Handler {

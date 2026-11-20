@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -14,6 +15,36 @@ import (
 type OriginPolicy struct {
 	PublicURL         string
 	TrustedProxyCIDRs []string
+	CrossOrigin       []CrossOriginRoute
+}
+
+// CrossOriginMode decides how the browser Origin check treats one listed
+// method+path. The zero value is not a valid mode, so an unset Mode fails the
+// whole policy closed.
+type CrossOriginMode uint8
+
+const (
+	// CrossOriginAny skips the browser Origin check for the listed method+path
+	// and for OPTIONS requests to the same exact path. The check is skipped
+	// entirely: any Origin header (none, foreign, malformed or duplicated) is
+	// ignored. The canonical-authority (421) check still runs first.
+	CrossOriginAny CrossOriginMode = iota + 1
+	// CrossOriginNoneOrPublic allows an absent Origin. A present Origin must be
+	// exactly one value equal to the public origin. It does not extend to OPTIONS.
+	CrossOriginNoneOrPublic
+)
+
+// CrossOriginRoute exempts one exact method+path from the browser Origin check
+// (see CrossOriginMode). Method is GET, POST or DELETE; OPTIONS is implied for
+// CrossOriginAny and must not be listed. Path must be absolute and literal: no
+// wildcard, query, fragment, template, percent-encoding, whitespace or control
+// bytes. A trailing slash matches only when listed literally. Matching uses the
+// uncleaned, case-sensitive r.URL.Path, and a request whose raw path is
+// percent-encoded never matches.
+type CrossOriginRoute struct {
+	Method string
+	Path   string
+	Mode   CrossOriginMode
 }
 
 type RequestMetadata struct{ Scheme, Host, ClientIP string }
@@ -28,7 +59,14 @@ type parsedOrigin struct {
 type originConfig struct {
 	public  parsedOrigin
 	trusted []*net.IPNet
+	// crossOrigin is keyed by exact method+path. A CrossOriginAny entry also
+	// stores an OPTIONS key for the same path (see newCrossOriginPolicy).
+	crossOrigin map[crossOriginKey]CrossOriginMode
 }
+
+type crossOriginKey struct{ method, path string }
+
+var errInvalidCrossOrigin = errors.New("invalid cross-origin policy")
 
 func WithRequestMetadata(r *http.Request, metadata RequestMetadata) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), metadataKey{}, metadata))
@@ -52,7 +90,77 @@ func newOriginConfig(policy OriginPolicy) (originConfig, error) {
 		}
 		config.trusted = append(config.trusted, network)
 	}
+	crossOrigin, err := newCrossOriginPolicy(policy.CrossOrigin)
+	if err != nil {
+		return originConfig{}, err
+	}
+	config.crossOrigin = crossOrigin
 	return config, nil
+}
+
+// newCrossOriginPolicy validates every entry at build time. Any invalid entry
+// fails the whole policy closed (see originMiddlewareConfig).
+func newCrossOriginPolicy(routes []CrossOriginRoute) (map[crossOriginKey]CrossOriginMode, error) {
+	out := make(map[crossOriginKey]CrossOriginMode, len(routes))
+	for _, route := range routes {
+		if !validCrossOriginPath(route.Path) {
+			return nil, errInvalidCrossOrigin
+		}
+		switch route.Method {
+		case http.MethodGet, http.MethodPost, http.MethodDelete:
+		default:
+			return nil, errInvalidCrossOrigin
+		}
+		switch route.Mode {
+		case CrossOriginAny, CrossOriginNoneOrPublic:
+		default:
+			return nil, errInvalidCrossOrigin
+		}
+		key := crossOriginKey{route.Method, route.Path}
+		if _, duplicate := out[key]; duplicate {
+			return nil, errInvalidCrossOrigin
+		}
+		out[key] = route.Mode
+		if route.Mode == CrossOriginAny {
+			// Several CrossOriginAny entries on one path may share this OPTIONS key.
+			out[crossOriginKey{http.MethodOptions, route.Path}] = CrossOriginAny
+		}
+	}
+	return out, nil
+}
+
+// validCrossOriginPath accepts only absolute literal paths: no wildcard,
+// query, fragment, template, percent-encoding, whitespace, control or non-ASCII bytes.
+func validCrossOriginPath(p string) bool {
+	if p == "" || p[0] != '/' {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		if c := p[i]; c <= ' ' || c >= 0x7f || strings.IndexByte("*?#{}%", c) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// browserOriginStatus applies the browser Origin check to one request. A listed
+// method+path is exempt as described on CrossOriginMode. The match is exact on
+// the uncleaned r.URL.Path, and a request with a non-empty RawPath (any
+// percent-encoded spelling) is never exempt, so an encoded spelling of a listed
+// path keeps the Origin check. Every other request uses validateBrowserOrigin unchanged.
+func browserOriginStatus(r *http.Request, config originConfig) int {
+	mode, listed := config.crossOrigin[crossOriginKey{r.Method, r.URL.Path}]
+	if !listed || r.URL.RawPath != "" {
+		return validateBrowserOrigin(r, config.public)
+	}
+	if mode == CrossOriginAny {
+		return 0
+	}
+	// CrossOriginNoneOrPublic: an absent Origin is allowed; a present one must match exactly.
+	if len(r.Header.Values("Origin")) == 0 {
+		return 0
+	}
+	return validateBrowserOrigin(r, config.public)
 }
 
 func originMiddlewareConfig(config originConfig, err error) func(http.Handler) http.Handler {
@@ -93,7 +201,7 @@ func requestOrigin(r *http.Request, config originConfig) (RequestMetadata, int) 
 	if !canonicalAuthority(metadata, config.public) {
 		return RequestMetadata{}, http.StatusMisdirectedRequest
 	}
-	if status := validateBrowserOrigin(r, config.public); status != 0 {
+	if status := browserOriginStatus(r, config); status != 0 {
 		return RequestMetadata{}, status
 	}
 	return metadata, 0
