@@ -1,6 +1,7 @@
 -- MCP OAuth grant store (ADR 0023). Every statement follows the lock order
--- user_accounts -> local_credentials -> mcp_authorization_codes -> mcp_grants
--- -> token rows, and the caller already holds the account-side locks.
+-- user_accounts -> local_credentials -> user_sessions -> mcp_authorization_codes
+-- -> mcp_grants -> token rows, and the caller already holds the account-side
+-- locks.
 
 -- name: DeleteAccountMCPCodes :exec
 -- Every authorization code of the account, outstanding or used: a code is a

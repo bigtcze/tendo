@@ -102,24 +102,24 @@ func (e *AccountEraser) RevokeAccountPasswordResets(ctx context.Context, userID 
 }
 
 // EraseAccountAccess drops everything that could still authenticate the
-// account: the local credential first, then every MCP code and token (each
-// grant revoked with an audited account_deletion cause, ADR 0023), then the
-// sessions, the link flows and the identity links.
+// account, in the ADR 0018/0023 order: the local credential first, then the
+// sessions, then every MCP code and token (each grant revoked with an audited
+// account_deletion cause and the deleting administrator), then the link flows
+// and the identity links.
 func (e *AccountEraser) EraseAccountAccess(ctx context.Context, userID, actorID string, now time.Time) error {
 	var user pgtype.UUID
 	if err := user.Scan(userID); err != nil {
 		return household.ErrNotFound
 	}
-	if err := e.q.DeleteAccountCredentials(ctx, user); err != nil {
-		return err
-	}
-	if err := revokeAccountMCPAccess(ctx, e.q, user, now, identity.MCPRevocation{
-		Reason: identity.MCPRevokeAccountDeletion, ActorUserID: actorID,
-	}); err != nil {
-		return err
+	revokeMCP := func(ctx context.Context, user pgtype.UUID) error {
+		return revokeAccountMCPAccess(ctx, e.q, user, now, identity.MCPRevocation{
+			Reason: identity.MCPRevokeAccountDeletion, ActorUserID: actorID,
+		})
 	}
 	for _, erase := range []func(context.Context, pgtype.UUID) error{
+		e.q.DeleteAccountCredentials,
 		e.q.DeleteAccountSessions,
+		revokeMCP,
 		e.q.DeleteAccountOIDCFlows,
 		e.q.DeleteAccountIdentities,
 	} {

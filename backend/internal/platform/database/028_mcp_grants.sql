@@ -9,7 +9,8 @@
 -- records ... MCP grants"). Grants are never deleted.
 --
 -- Lock order (ADR 0023, ADR 0019 "Global lock order"): user_accounts ->
--- local_credentials -> mcp_authorization_codes -> mcp_grants -> token rows. Every MCP issuance path re-reads the live account FOR SHARE,
+-- local_credentials -> user_sessions -> mcp_authorization_codes -> mcp_grants
+-- -> token rows. Every MCP issuance path re-reads the live account FOR SHARE,
 -- which conflicts with account deletion's FOR NO KEY UPDATE.
 
 -- Registered OAuth public clients. Registration (RFC 7591), the pending consent
