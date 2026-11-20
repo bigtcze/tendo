@@ -115,6 +115,9 @@ type MCPTransaction interface {
 	// FindRefreshOwner is the unlocked pre-read that names the account and
 	// grant to lock.
 	FindRefreshOwner(ctx context.Context, refreshHash []byte) (userID, grantID string, err error)
+	// FindGrantOwner is the unlocked pre-read for a user's own revocation: the
+	// account that owns the grant. An unknown grant is ErrNotFound.
+	FindGrantOwner(ctx context.Context, grantID string) (string, error)
 	// LockGrant locks the grant's used codes, then the grant, FOR UPDATE.
 	LockGrant(ctx context.Context, grantID string) (MCPGrantRecord, error)
 	LockRefreshToken(ctx context.Context, refreshHash []byte) (MCPRefreshRecord, error)
@@ -149,6 +152,9 @@ type MCPService struct {
 	clientStore MCPClientStore
 	// sweeper runs the retention steps. Nil fails the sweep closed.
 	sweeper MCPSweepStore
+	// grantStore reads the signed-in account's connected apps. Nil fails the
+	// list closed.
+	grantStore MCPGrantStore
 }
 
 // MCPClientStore is the registration persistence (RFC 7591). It is outside the
@@ -183,9 +189,10 @@ func NewMCPService(repository MCPRepository, options MCPOptions, clock func() ti
 	}
 	store, _ := repository.(MCPClientStore)
 	sweeper, _ := repository.(MCPSweepStore)
+	grants, _ := repository.(MCPGrantStore)
 	return &MCPService{
 		repository: repository, clock: clock, enabled: options.Enabled, resource: options.Resource,
-		publicHost: publicHost, clientStore: store, sweeper: sweeper,
+		publicHost: publicHost, clientStore: store, sweeper: sweeper, grantStore: grants,
 	}, nil
 }
 
