@@ -12,16 +12,18 @@ import (
 )
 
 const consumeMCPRefreshToken = `-- name: ConsumeMCPRefreshToken :execrows
-UPDATE mcp_refresh_tokens SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL
+UPDATE mcp_refresh_tokens SET consumed_at = GREATEST($1::timestamptz, created_at)
+WHERE token_hash = $2 AND consumed_at IS NULL
 `
 
 type ConsumeMCPRefreshTokenParams struct {
-	TokenHash  []byte
 	ConsumedAt pgtype.Timestamptz
+	TokenHash  []byte
 }
 
+// Clamped to created_at against clock skew between instances.
 func (q *Queries) ConsumeMCPRefreshToken(ctx context.Context, arg ConsumeMCPRefreshTokenParams) (int64, error) {
-	result, err := q.db.Exec(ctx, consumeMCPRefreshToken, arg.TokenHash, arg.ConsumedAt)
+	result, err := q.db.Exec(ctx, consumeMCPRefreshToken, arg.ConsumedAt, arg.TokenHash)
 	if err != nil {
 		return 0, err
 	}
@@ -404,18 +406,19 @@ func (q *Queries) LockMCPRefreshToken(ctx context.Context, tokenHash []byte) (Lo
 }
 
 const markMCPAuthorizationCodeUsed = `-- name: MarkMCPAuthorizationCodeUsed :execrows
-UPDATE mcp_authorization_codes SET used_at = $2, issued_grant_id = $3
-WHERE code_hash = $1 AND used_at IS NULL
+UPDATE mcp_authorization_codes SET used_at = GREATEST($1::timestamptz, created_at), issued_grant_id = $2
+WHERE code_hash = $3 AND used_at IS NULL
 `
 
 type MarkMCPAuthorizationCodeUsedParams struct {
-	CodeHash      []byte
 	UsedAt        pgtype.Timestamptz
 	IssuedGrantID pgtype.UUID
+	CodeHash      []byte
 }
 
+// Clamped to created_at against clock skew between instances.
 func (q *Queries) MarkMCPAuthorizationCodeUsed(ctx context.Context, arg MarkMCPAuthorizationCodeUsedParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markMCPAuthorizationCodeUsed, arg.CodeHash, arg.UsedAt, arg.IssuedGrantID)
+	result, err := q.db.Exec(ctx, markMCPAuthorizationCodeUsed, arg.UsedAt, arg.IssuedGrantID, arg.CodeHash)
 	if err != nil {
 		return 0, err
 	}
@@ -436,12 +439,13 @@ func (q *Queries) RecordMCPGrantCreated(ctx context.Context, id pgtype.UUID) err
 const revokeAccountMCPGrants = `-- name: RevokeAccountMCPGrants :execrows
 WITH revoked AS (
   UPDATE mcp_grants
-  SET revoked_at = $3, revoke_reason = $1
-  WHERE mcp_grants.user_id = $4 AND revoked_at IS NULL
-  RETURNING id, mcp_grants.user_id, client_id
+  SET revoked_at = GREATEST($3::timestamptz, mcp_grants.created_at),
+      revoke_reason = $1
+  WHERE mcp_grants.user_id = $4 AND mcp_grants.revoked_at IS NULL
+  RETURNING mcp_grants.id, mcp_grants.user_id, mcp_grants.client_id, mcp_grants.revoked_at
 )
 INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, reason, actor_user_id, occurred_at)
-SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', $1, $2::uuid, $3
+SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', $1, $2::uuid, r.revoked_at
 FROM revoked r JOIN mcp_clients c ON c.client_id = r.client_id
 `
 
@@ -454,6 +458,10 @@ type RevokeAccountMCPGrantsParams struct {
 
 // Revokes every live grant of the account and audits each one with its cause in
 // the same statement. The grant row stays (secret-free) as history.
+// revoked_at is clamped to the grant's created_at: a caller's clock (truncated
+// to seconds, read before lock waits, or skewed between instances) may be
+// earlier than a grant created moments ago, and an MCP CHECK must never block a
+// password replacement or an account deletion.
 func (q *Queries) RevokeAccountMCPGrants(ctx context.Context, arg RevokeAccountMCPGrantsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeAccountMCPGrants,
 		arg.RevokeReason,
@@ -470,12 +478,13 @@ func (q *Queries) RevokeAccountMCPGrants(ctx context.Context, arg RevokeAccountM
 const revokeMCPGrant = `-- name: RevokeMCPGrant :execrows
 WITH revoked AS (
   UPDATE mcp_grants
-  SET revoked_at = $3, revoke_reason = $1
-  WHERE mcp_grants.id = $4 AND revoked_at IS NULL
-  RETURNING id, mcp_grants.user_id, client_id
+  SET revoked_at = GREATEST($3::timestamptz, mcp_grants.created_at),
+      revoke_reason = $1
+  WHERE mcp_grants.id = $4 AND mcp_grants.revoked_at IS NULL
+  RETURNING mcp_grants.id, mcp_grants.user_id, mcp_grants.client_id, mcp_grants.revoked_at
 )
 INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, reason, actor_user_id, occurred_at)
-SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', $1, $2::uuid, $3
+SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', $1, $2::uuid, r.revoked_at
 FROM revoked r JOIN mcp_clients c ON c.client_id = r.client_id
 `
 
@@ -486,6 +495,9 @@ type RevokeMCPGrantParams struct {
 	GrantID      pgtype.UUID
 }
 
+// revoked_at is clamped to created_at exactly as in RevokeAccountMCPGrants: a
+// concurrent code-reuse loser read its clock before the winner created the
+// grant, and that revocation must still commit.
 func (q *Queries) RevokeMCPGrant(ctx context.Context, arg RevokeMCPGrantParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeMCPGrant,
 		arg.RevokeReason,

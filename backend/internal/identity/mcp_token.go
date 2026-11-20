@@ -155,11 +155,11 @@ func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MC
 		return MCPTokens{}, nil, err
 	}
 	refresh, err := tx.LockRefreshToken(ctx, refreshHash)
-	if errors.Is(err, ErrNotFound) || grant.Revoked {
-		return MCPTokens{}, ErrMCPInvalidGrant, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return MCPTokens{}, nil, err
+	}
+	if err != nil || grant.Revoked {
+		return MCPTokens{}, ErrMCPInvalidGrant, nil
 	}
 	if refresh.Consumed {
 		return MCPTokens{}, ErrMCPInvalidGrant, tx.RevokeGrant(ctx, grantID, now, MCPRevocation{Reason: MCPRevokeReplay})

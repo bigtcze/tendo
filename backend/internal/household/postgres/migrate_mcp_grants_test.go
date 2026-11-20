@@ -232,6 +232,54 @@ func TestMigrationTwentyEightCheckConstraints(t *testing.T) {
 	}
 }
 
+// TestMigrationTwentyEightLifetimeIsDSTSafe: the grant and refresh lifetime
+// CHECKs use a fixed 2160-hour span, not calendar days. On a session in
+// Europe/Prague, where a day can be 23 or 25 hours, a 2160-hour span must still
+// be accepted and 2160 hours plus one second refused.
+func TestMigrationTwentyEightLifetimeIsDSTSafe(t *testing.T) {
+	admin := migrationFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	user := insertMigrationAccount(t, ctx, admin, "mcp_dst_user")
+	insertMCPClient(t, ctx, admin)
+
+	// A dedicated pooled connection pinned to a DST zone, the setting the
+	// production sessions could inherit.
+	conn, err := admin.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err = conn.Exec(ctx, `SET TimeZone='Europe/Prague'`); err != nil {
+		t.Fatal(err)
+	}
+	// 2026-01-01 12:00Z is far from a transition, but the span crosses the
+	// March and October switches, so calendar-day arithmetic would differ.
+	const created = `timestamptz '2026-01-01 12:00:00+00'`
+
+	var grant string
+	if err = conn.QueryRow(ctx, `INSERT INTO mcp_grants(user_id,client_id,scopes,resource,created_at,expires_at)
+		VALUES ($1::uuid,$2,ARRAY['tendo:read'],$3,`+created+`,`+created+`+interval '2160 hours') RETURNING id::text`,
+		user, mcpTestClientID, mcpTestResource).Scan(&grant); err != nil {
+		t.Fatalf("2160h grant refused in Europe/Prague: %v", err)
+	}
+	if _, err = conn.Exec(ctx, `INSERT INTO mcp_refresh_tokens(token_hash,grant_id,created_at,expires_at)
+		VALUES ($1,$2::uuid,`+created+`,`+created+`+interval '2160 hours')`, mcpDigest(0x51), grant); err != nil {
+		t.Fatalf("2160h refresh token refused in Europe/Prague: %v", err)
+	}
+
+	_, err = conn.Exec(ctx, `INSERT INTO mcp_grants(user_id,client_id,scopes,resource,created_at,expires_at)
+		VALUES ($1::uuid,$2,ARRAY['tendo:read'],$3,`+created+`,`+created+`+interval '2160 hours 1 second')`,
+		user, mcpTestClientID, mcpTestResource)
+	requireSQLState(t, "23514", err)
+	_, err = conn.Exec(ctx, `INSERT INTO mcp_refresh_tokens(token_hash,grant_id,created_at,expires_at)
+		VALUES ($1,$2::uuid,`+created+`,`+created+`+interval '2160 hours 1 second')`, mcpDigest(0x52), grant)
+	requireSQLState(t, "23514", err)
+}
+
 // TestMigrationTwentyEightUpgradePreservesRows migrates a populated version 27
 // database: existing rows survive and the MCP tables are created empty.
 func TestMigrationTwentyEightUpgradePreservesRows(t *testing.T) {

@@ -739,6 +739,26 @@ func TestMCPRaceCredentialReplacementAndIssue(t *testing.T) {
 	}
 }
 
+// waitForBlockedStatement waits until a backend is blocked on a lock while
+// running a statement matching pattern. Filtering on the statement text makes
+// the wait specific to the intended competitor, not any lock waiter.
+func waitForBlockedStatement(t *testing.T, ctx context.Context, observer *pgxpool.Pool, pattern string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid() AND query ILIKE $1`, pattern).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no backend blocked on a lock running %q", pattern)
+}
+
 // sessionFor inserts a password session for an existing account.
 func (e *mcpEnv) sessionFor(t *testing.T, user string) string {
 	t.Helper()
@@ -752,13 +772,13 @@ func (e *mcpEnv) sessionFor(t *testing.T, user string) string {
 
 // waitForLockWaiters waits until at least n backends are blocked on a lock, so
 // the test can queue competitors deterministically.
-func waitForLockWaiters(t *testing.T, ctx context.Context, observer *pgxpool.Pool, n int) {
+func waitForLockWaiters(t *testing.T, ctx context.Context, observer *pgxpool.Pool, pattern string, n int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		var waiting int
 		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
-			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting); err != nil {
+			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid() AND query ILIKE $1`, pattern).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting >= n {
@@ -800,13 +820,13 @@ func TestMCPRaceAdminResetRedemptionAndRefresh(t *testing.T) {
 		_, err := resets.RedeemPasswordReset(env.ctx, issued.Token, "a brand new long password")
 		redeemed <- err
 	}()
-	waitForLockWaiters(t, env.ctx, env.observer, 1)
+	waitForLockWaiters(t, env.ctx, env.observer, "%FOR UPDATE%", 1)
 	refreshed := make(chan error, 1)
 	go func() {
 		_, err := env.refresh(first.RefreshToken)
 		refreshed <- err
 	}()
-	waitForLockWaiters(t, env.ctx, env.observer, 2)
+	waitForLockWaiters(t, env.ctx, env.observer, "%FOR SHARE%", 1)
 	if err = pause.Commit(env.ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -1147,7 +1167,7 @@ func (e *mcpEnv) awaitBlocked(t *testing.T, run *deletionRun) {
 		}
 		var waiting int
 		if err := e.observer.QueryRow(e.ctx, `SELECT count(*) FROM pg_stat_activity
-			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting); err != nil {
+			WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid() AND query ILIKE '%FOR NO KEY UPDATE%'`).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting > 0 {
@@ -1170,6 +1190,374 @@ func (e *mcpEnv) awaitBlocked(t *testing.T, run *deletionRun) {
 		t.Logf("activity pid=%d app=%q state=%q wait=%s/%s query=%q", pid, app, state, wt, we, query)
 	}
 	t.Fatal("deletion never blocked on the account row lock")
+}
+
+// requireRevokedNotBeforeCreated asserts the account's grant was revoked at or
+// after the moment it was created (the mcp_grants CHECK, clamped by the SQL).
+func (e *mcpEnv) requireRevokedNotBeforeCreated(t *testing.T, user string) {
+	t.Helper()
+	var ok bool
+	if err := e.admin.QueryRow(e.ctx, `SELECT revoked_at >= created_at FROM mcp_grants WHERE user_id=$1::uuid`, user).Scan(&ok); err != nil || !ok {
+		t.Fatalf("revoked_at before created_at: ok=%v err=%v", ok, err)
+	}
+}
+
+// TestMCPSubSecondGrantSurvivesPasswordChange: the grant is created at T+0.4s,
+// then the password change runs with its clock at T+0.7s. ChangePassword
+// truncates now to the second (T+0), which is earlier than created_at. Under the
+// old SQL the revocation wrote revoked_at = T+0 and violated the CHECK
+// (SQLSTATE 23514). The clamp must let the change commit with revoked_at >= created_at.
+func TestMCPSubSecondGrantSurvivesPasswordChange(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newAccount(t, "mcp_subsec_pw")
+	base := env.clock.now()
+
+	env.clock.at = base.Add(400 * time.Millisecond)
+	if _, err := env.exchange(env.issue(t, user, session)); err != nil {
+		t.Fatalf("exchange at T+0.4s: %v", err)
+	}
+
+	env.clock.at = base.Add(700 * time.Millisecond)
+	passwords, err := identity.NewPasswordChangeService(NewPasswordChangeRepository(env.app), env.clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwords.SetPasswordHasher(func(p string) (string, error) { return "hash:" + p, nil })
+	passwords.SetPasswordVerifier(func(stored, current string) (bool, error) { return stored == "hash:"+current, nil })
+	if _, err = passwords.ChangePassword(env.ctx, identity.ChangePasswordInput{
+		Principal:       identity.Principal{UserID: user},
+		SignInMethod:    identity.SignInPassword,
+		SessionToken:    session,
+		CurrentPassword: "mcp-test",
+		NewPassword:     "a brand new long password",
+	}); err != nil {
+		t.Fatalf("ChangePassword at T+0.7s: %v", err)
+	}
+
+	env.requireNoMCPSecrets(t, user)
+	env.requireGrantRevoked(t, user, "password_change", user)
+	env.requireRevokedNotBeforeCreated(t, user)
+}
+
+// subSecondGrant creates a grant at T+0.4s through the real exchange, so its
+// created_at sits between the truncated and the untruncated clock readings a
+// later credential replacement will see.
+func (e *mcpEnv) subSecondGrant(t *testing.T, user, session string) {
+	t.Helper()
+	base := e.clock.now()
+	e.clock.at = base.Add(400 * time.Millisecond)
+	if _, err := e.exchange(e.issue(t, user, session)); err != nil {
+		t.Fatalf("exchange at T+0.4s: %v", err)
+	}
+	e.clock.at = base.Add(700 * time.Millisecond)
+}
+
+// TestMCPSubSecondGrantSurvivesAdminReset: redemption of an admin reset at
+// T+0.7s revokes a grant created at T+0.4s with admin_reset and the issuing admin
+// as actor. Without the clamp the revocation wrote T+0 and violated the CHECK.
+func TestMCPSubSecondGrantSurvivesAdminReset(t *testing.T) {
+	env := newMCPEnv(t)
+	owner, target, house := passwordResetFixture(t, env.ctx, env.admin)
+	env.subSecondGrant(t, target, env.sessionFor(t, target))
+	// Built after subSecondGrant, so the reset service reads T+0.7s like the spec requires.
+	resets := newPasswordResetService(t, env.app, &passwordResetTestClock{at: env.clock.now()})
+
+	issued, err := resets.IssuePasswordReset(env.ctx, owner, house, target)
+	if err != nil {
+		t.Fatalf("issue reset: %v", err)
+	}
+	if _, err = resets.RedeemPasswordReset(env.ctx, issued.Token, "a brand new long password"); err != nil {
+		t.Fatalf("redeem at T+0.7s: %v", err)
+	}
+
+	env.requireNoMCPSecrets(t, target)
+	env.requireGrantRevoked(t, target, "admin_reset", owner)
+	env.requireRevokedNotBeforeCreated(t, target)
+}
+
+// TestMCPSubSecondGrantSurvivesCLISetPassword: the operator CLI reset at T+0.7s
+// revokes a grant created at T+0.4s with cli_reset and no actor.
+func TestMCPSubSecondGrantSurvivesCLISetPassword(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newAccount(t, "mcp_subsec_cli")
+	env.subSecondGrant(t, user, session)
+
+	admin, err := identity.NewAdminPasswordService(NewPasswordChangeRepository(env.app), env.clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin.SetPasswordHasher(func(p string) (string, error) { return "hash:" + p, nil })
+	if _, err = admin.SetPassword(env.ctx, "mcp_subsec_cli", "a brand new long password"); err != nil {
+		t.Fatalf("SetPassword at T+0.7s: %v", err)
+	}
+
+	env.requireNoMCPSecrets(t, user)
+	env.requireGrantRevoked(t, user, "cli_reset", "")
+	env.requireRevokedNotBeforeCreated(t, user)
+}
+
+// TestMCPConcurrentCodeReuseExactlyOneWinner: two goroutines exchange the same
+// code, twenty times. Exactly one succeeds; the loser gets ErrMCPInvalidGrant;
+// the grant ends revoked code_reuse with zero secret rows. Any 40P01 fails.
+func TestMCPConcurrentCodeReuseExactlyOneWinner(t *testing.T) {
+	env := newMCPEnv(t)
+	// The late service (env.svc, clock T+1s) and the early service (clock T+0.5s)
+	// race on one code. Whichever wins, the loser's revocation time must not
+	// precede the winner's created_at; the old SQL violated the CHECK when the
+	// early clock lost.
+	early := &mcpClock{}
+	earlySvc, err := identity.NewMCPService(NewMCPRepository(env.app), identity.MCPOptions{Enabled: true, Resource: mcpTestResource}, early.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redeem := func(svc *identity.MCPService, code string) error {
+		_, err := svc.ExchangeCode(env.ctx, identity.MCPCodeExchange{
+			Code: code, CodeVerifier: mcpTestVerifier, ClientID: mcpTestClientID,
+			RedirectURI: mcpTestRedirectURI, Resource: mcpTestResource,
+		})
+		return err
+	}
+	for i := 0; i < 20; i++ {
+		user, session := env.newAccount(t, fmt.Sprintf("mcp_code_race_%02d", i))
+		code := env.issue(t, user, session)
+		base := env.clock.now()
+		env.clock.at = base.Add(time.Second)
+		early.at = base.Add(500 * time.Millisecond)
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make([]error, 2)
+		for j := range errs {
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				<-start
+				if j == 0 {
+					errs[j] = redeem(env.svc, code)
+				} else {
+					errs[j] = redeem(earlySvc, code)
+				}
+			}(j)
+		}
+		close(start)
+		wg.Wait()
+		wins, losses := 0, 0
+		for _, err := range errs {
+			switch {
+			case err == nil:
+				wins++
+			case errors.Is(err, identity.ErrMCPInvalidGrant):
+				losses++
+			default:
+				t.Fatalf("iteration %d: unexpected exchange error (deadlock or constraint?): %v", i, err)
+			}
+		}
+		if wins != 1 || losses != 1 {
+			t.Fatalf("iteration %d: wins=%d losses=%d, want 1 and 1", i, wins, losses)
+		}
+		env.requireGrantRevoked(t, user, "code_reuse", "")
+		env.requireNoMCPSecrets(t, user)
+	}
+}
+
+// TestMCPCodeReuseWithEarlierLoserClock: the winner exchanges at T+1s, then the
+// loser presents the same code from a service whose clock reads T+0.5s, earlier
+// than the grant's created_at. The code_reuse revocation must commit (the clamp
+// keeps revoked_at >= created_at); the old SQL violated the CHECK here.
+func TestMCPCodeReuseWithEarlierLoserClock(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newAccount(t, "mcp_code_skew")
+	code := env.issue(t, user, session)
+	base := env.clock.now()
+
+	env.clock.at = base.Add(time.Second)
+	if _, err := env.exchange(code); err != nil {
+		t.Fatalf("winner exchange at T+1s: %v", err)
+	}
+
+	loserClock := &mcpClock{at: base.Add(500 * time.Millisecond)}
+	loser, err := identity.NewMCPService(NewMCPRepository(env.app), identity.MCPOptions{Enabled: true, Resource: mcpTestResource}, loserClock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = loser.ExchangeCode(env.ctx, identity.MCPCodeExchange{
+		Code: code, CodeVerifier: mcpTestVerifier, ClientID: mcpTestClientID,
+		RedirectURI: mcpTestRedirectURI, Resource: mcpTestResource,
+	})
+	if !errors.Is(err, identity.ErrMCPInvalidGrant) {
+		t.Fatalf("loser exchange err=%v, want ErrMCPInvalidGrant", err)
+	}
+
+	env.requireGrantRevoked(t, user, "code_reuse", "")
+	env.requireRevokedNotBeforeCreated(t, user)
+	env.requireNoMCPSecrets(t, user)
+}
+
+// newOIDCAccount creates a live account with no local credential and an OIDC
+// session. It has no local_credentials row, so issuance and exchange take only
+// the account share lock.
+func (e *mcpEnv) newOIDCAccount(t *testing.T, login string) (string, string) {
+	t.Helper()
+	user := newLiveAccount(t, e.ctx, e.admin, login)
+	session := randomMCPSecret(t)
+	if _, err := e.admin.Exec(e.ctx, `INSERT INTO user_sessions(user_id, token_hash, created_at, expires_at, sign_in_method)
+		VALUES($1::uuid, $2, $3, $4, 'oidc')`, user, sha256Sum(session), e.clock.now(), e.clock.now().Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	return user, session
+}
+
+// TestMCPOIDCOnlyDeletionRacesExchange: an OIDC-only account (no credential row).
+// The deletion holds FOR NO KEY UPDATE; the exchange blocks on the account
+// share lock; after the tombstone commits the exchange is refused with zero rows.
+func TestMCPOIDCOnlyDeletionRacesExchange(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newOIDCAccount(t, "mcp_oidc_delete_exchange")
+	actor := env.newActor(t)
+	code := env.issue(t, user, session)
+
+	tx, err := env.app.Begin(env.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err = NewAccountEraser(tx).LockDeletableAccount(env.ctx, user); err != nil {
+		t.Fatal(err)
+	}
+
+	type outcome struct {
+		tokens identity.MCPTokens
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		tokens, err := env.exchange(code)
+		done <- outcome{tokens, err}
+	}()
+	waitForBlockedBackend(t, env.ctx, env.observer)
+	if err = eraseInTx(env.ctx, tx, user, actor, env.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(env.ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := <-done
+	if !errors.Is(got.err, identity.ErrMCPInvalidGrant) {
+		t.Fatalf("OIDC-only exchange racing a deletion: tokens=%+v err=%v, want ErrMCPInvalidGrant", got.tokens, got.err)
+	}
+	env.requireNoMCPSecrets(t, user)
+	if n := env.countGrants(t, user); n != 0 {
+		t.Fatalf("grants created for a deleted OIDC-only account: %d", n)
+	}
+}
+
+// TestMCPOIDCOnlyDeletionWaitsForIssuance: the reverse order for an OIDC-only
+// account. The issuance prefix holds the account share lock (there is no
+// credential row to share); the deletion waits, then erases the grant and the
+// tokens the issuance committed.
+func TestMCPOIDCOnlyDeletionWaitsForIssuance(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newOIDCAccount(t, "mcp_oidc_issue_delete")
+	actor := env.newActor(t)
+	code := env.issue(t, user, session)
+
+	s := issuancePrefix(t, env.ctx, env.app, user)
+	defer func() { _ = s.Rollback(context.Background()) }()
+	q := identitydb.New(s)
+	var userID pgtype.UUID
+	if err := userID.Scan(user); err != nil {
+		t.Fatal(err)
+	}
+	now := env.clock.now()
+	access, refresh := randomMCPSecret(t), randomMCPSecret(t)
+	grantID, err := q.CreateMCPGrant(env.ctx, identitydb.CreateMCPGrantParams{
+		UserID: userID, ClientID: mcpTestClientID, Scopes: []string{identity.MCPScopeRead},
+		Resource: mcpTestResource, CreatedAt: ts(now), ExpiresAt: ts(now.Add(identity.MCPGrantLifetime)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.RecordMCPGrantCreated(env.ctx, grantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = q.MarkMCPAuthorizationCodeUsed(env.ctx, identitydb.MarkMCPAuthorizationCodeUsedParams{
+		CodeHash: sha256Sum(code), UsedAt: ts(now), IssuedGrantID: grantID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.CreateMCPAccessToken(env.ctx, identitydb.CreateMCPAccessTokenParams{
+		TokenHash: sha256Sum(access), GrantID: grantID, CreatedAt: ts(now), ExpiresAt: ts(now.Add(identity.MCPAccessTokenLifetime)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = q.CreateMCPRefreshToken(env.ctx, identitydb.CreateMCPRefreshTokenParams{
+		TokenHash: sha256Sum(refresh), GrantID: grantID, CreatedAt: ts(now), ExpiresAt: ts(now.Add(identity.MCPRefreshIdleLifetime)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deletion := env.startDeletion(user, actor)
+	env.awaitBlocked(t, deletion)
+	if err = s.Commit(env.ctx); err != nil {
+		t.Fatalf("issuance commit: %v", err)
+	}
+	<-deletion.finished
+	if deletion.err != nil {
+		t.Fatalf("deletion after the OIDC issuance committed: %v", deletion.err)
+	}
+	env.requireNoMCPSecrets(t, user)
+	env.requireDeletedGrant(t, user, actor)
+	if _, err = env.svc.VerifyAccessToken(env.ctx, access); !errors.Is(err, identity.ErrMCPInvalidToken) {
+		t.Fatalf("OIDC access token issued before the deletion err=%v, want ErrMCPInvalidToken", err)
+	}
+}
+
+// TestMCPIssuancePrefixVersusPasswordReplacement: an issuance holds its prefix
+// locks (account and credential FOR SHARE) and has inserted a code row through
+// CreateMCPAuthorizationCode. A password replacement queues on the credential
+// row. After the issuance commits, the replacement must revoke the grant set and
+// leave zero code rows.
+func TestMCPIssuancePrefixVersusPasswordReplacement(t *testing.T) {
+	env := newMCPEnv(t)
+	user, _ := env.newAccount(t, "mcp_issue_prefix_pw")
+
+	s := issuancePrefix(t, env.ctx, env.app, user)
+	defer func() { _ = s.Rollback(context.Background()) }()
+	var userID pgtype.UUID
+	if err := userID.Scan(user); err != nil {
+		t.Fatal(err)
+	}
+	now := env.clock.now()
+	code := randomMCPSecret(t)
+	if err := identitydb.New(s).CreateMCPAuthorizationCode(env.ctx, identitydb.CreateMCPAuthorizationCodeParams{
+		CodeHash: sha256Sum(code), UserID: userID, ClientID: mcpTestClientID, RedirectUri: mcpTestRedirectURI,
+		CodeChallenge: mcpTestChallenge(), Scopes: []string{identity.MCPScopeRead}, Resource: mcpTestResource,
+		CreatedAt: ts(now), ExpiresAt: ts(now.Add(identity.MCPCodeLifetime)),
+	}); err != nil {
+		t.Fatalf("prefix code insert: %v", err)
+	}
+
+	replaced := make(chan error, 1)
+	go func() {
+		replaced <- NewPasswordChangeRepository(env.app).WithCredentialReplacement(env.ctx, func(tx identity.CredentialReplacementTransaction) error {
+			if _, e := tx.LockLocalCredential(env.ctx, user); e != nil {
+				return e
+			}
+			_, e := tx.ReplaceLocalPassword(env.ctx, user, "hash:prefix-replaced", now,
+				identity.MCPRevocation{Reason: identity.MCPRevokePasswordChange, ActorUserID: user})
+			return e
+		})
+	}()
+	waitForBlockedStatement(t, env.ctx, env.observer, "%FOR UPDATE%")
+	if err := s.Commit(env.ctx); err != nil {
+		t.Fatalf("issuance commit: %v", err)
+	}
+	if err := <-replaced; err != nil {
+		t.Fatalf("password replacement after the issuance committed: %v", err)
+	}
+
+	// The prefix wrote only a code (no grant yet), so the replacement's
+	// DeleteAccountMCPCodes is what must leave zero rows.
+	env.requireNoMCPSecrets(t, user)
 }
 
 // requireAllowed reports (without FailNow, so it is safe from goroutines) any

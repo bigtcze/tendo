@@ -185,8 +185,9 @@ func (s *AccountDeletionService) DeleteAccount(ctx context.Context, actorID, tar
 //  8. last-admin and last-instance-admin refusals;
 //  9. grant revocation (audit first), then per household: item
 //     responsibility, member person, reset links, removal audit, membership;
-//  10. account-wide reset links, credential, sessions, OIDC links (and, with
-//     #456, MCP tokens), the deletion record and the tombstone.
+//  10. account-wide reset links, credential, sessions, MCP grants (revoked)
+//     with their codes and tokens (deleted), OIDC links, the deletion record
+//     and the tombstone.
 func (s *AccountDeletionService) deleteOnce(ctx context.Context, tx AccountDeletionTransaction, effects AccountDeletionEffects, actorID, targetUserID, confirmLogin string) error {
 	if effects.Account == nil || effects.Removal.Invitations == nil || effects.Removal.Items == nil ||
 		effects.Removal.Subjects == nil || effects.Removal.Resets == nil {

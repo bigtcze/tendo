@@ -53,6 +53,18 @@ identity framework".
   revoked grant holds no secret. `mcp_grant_events` is append-only and records
   creation and every revocation with its cause, a client snapshot and the
   human actor (empty for the CLI and automatic revocations).
+  Presenting a code or refresh token of an already revoked grant changes
+  nothing and writes no further event: its secrets are gone, so later replay
+  attempts are refused but not audited. This is an accepted audit gap.
+- **Revocation never fails on time.** `revoked_at`, `used_at` and
+  `consumed_at` are clamped to the row's `created_at` in SQL (`GREATEST`).
+  Callers truncate their clock (password replacement to the second), read it
+  before lock waits, or run on another instance with a skewed clock. A
+  `revoked_at >= created_at` CHECK must never roll back a password
+  replacement, an account deletion or a code-reuse revocation.
+- **Fixed-length spans.** Lifetime CHECKs use `interval '2160 hours'`, not
+  `'90 days'`, because day arithmetic on `timestamptz` follows the session
+  TimeZone and a daylight-saving change would shorten the limit by an hour.
 - **Revocation causes.** `user`, `password_change`, `admin_reset`,
   `cli_reset`, `account_deletion`, `replay`, `code_reuse`.
   `CredentialReplacementTransaction.ReplaceLocalPassword` revokes every grant
@@ -89,7 +101,11 @@ extends:
 2. `local_credentials`: issuance takes the row `FOR SHARE` when it exists,
    which conflicts with a password replacement's `FOR UPDATE` in the same way.
 3. `user_sessions` (code issuance reads the approving session, which must still
-   exist).
+   exist). The read takes no lock: logout takes neither the account nor the
+   credential lock, so a code may be issued from a session deleted
+   milliseconds earlier. That session approved the consent, so this is
+   accepted. Password replacement and deletion do serialize, through steps 1
+   and 2.
 4. `mcp_authorization_codes`, then `mcp_grants`, then
    `mcp_access_tokens` / `mcp_refresh_tokens`. Refresh locks the grant's used
    codes before the grant row, because revoking the grant deletes them.
@@ -108,3 +124,7 @@ replacement. Locks taken earlier in ADR 0019 (`installation_state`,
 - Grants and their events stay as minimal, secret-free history.
 - The HTTP surface, consent, client registration and listing or revoking
   grants from the UI are added by later slices on this store.
+- This slice has no retention sweep. A grant that reaches its absolute expiry
+  is unusable but keeps its token digests, and expired unused codes stay.
+  Slice A2 adds the sweep that revokes expired grants and deletes expired
+  codes, together with the 24-hour expiry of unused registered clients.

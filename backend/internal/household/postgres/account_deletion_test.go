@@ -118,6 +118,14 @@ func (f *accountDeletionFixture) addLinkFlow(userID string) {
 // deletion's revoked_at is after created_at. It returns the grant id.
 func (f *accountDeletionFixture) addMCPGrant(userID, clientID string) string {
 	f.t.Helper()
+	return f.addMCPGrantAt(userID, clientID, "2026-05-04 09:00:00+00")
+}
+
+// addMCPGrantAt is addMCPGrant with the grant's creation instant as a parameter.
+// A grant created after the fixture clock (10:00) exercises a deletion whose
+// clock reads earlier than created_at; the revocation must clamp, not violate the CHECK.
+func (f *accountDeletionFixture) addMCPGrantAt(userID, clientID, createdAt string) string {
+	f.t.Helper()
 	if _, err := f.admin.Exec(f.ctx, `INSERT INTO mcp_clients(client_id, client_name, redirect_uris, created_at)
 		VALUES ($1, 'Deletion test client', ARRAY['https://client.test/callback'], timestamptz '2026-05-04 09:00:00+00')
 		ON CONFLICT (client_id) DO NOTHING`, clientID); err != nil {
@@ -125,29 +133,29 @@ func (f *accountDeletionFixture) addMCPGrant(userID, clientID string) string {
 	}
 	var grantID string
 	if err := f.admin.QueryRow(f.ctx, `INSERT INTO mcp_grants(user_id, client_id, scopes, resource, created_at, expires_at)
-		VALUES ($1::uuid, $2, ARRAY['tendo:read'], 'https://tendo.test/mcp', timestamptz '2026-05-04 09:00:00+00', timestamptz '2026-05-04 09:00:00+00'+interval '90 days')
-		RETURNING id::text`, userID, clientID).Scan(&grantID); err != nil {
+		VALUES ($1::uuid, $2, ARRAY['tendo:read'], 'https://tendo.test/mcp', $3::timestamptz, $3::timestamptz+interval '90 days')
+		RETURNING id::text`, userID, clientID, createdAt).Scan(&grantID); err != nil {
 		f.t.Fatalf("add MCP grant: %v", err)
 	}
-	grant, owner := []any{grantID}, []any{grantID, userID, clientID}
+	owner := []any{grantID, userID, clientID}
 	for _, step := range []struct {
 		sql  string
 		args []any
 	}{
 		{`INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, occurred_at)
-		  VALUES ($1::uuid, $2::uuid, $3, 'Deletion test client', 'created', timestamptz '2026-05-04 09:00:00+00')`, owner},
+		  VALUES ($1::uuid, $2::uuid, $3, 'Deletion test client', 'created', $4::timestamptz)`, append(owner, createdAt)},
 		{`INSERT INTO mcp_access_tokens(token_hash, grant_id, created_at, expires_at)
-		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, timestamptz '2026-05-04 09:00:00+00', timestamptz '2026-05-04 09:00:00+00'+interval '10 minutes')`, grant},
+		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, $2::timestamptz, $2::timestamptz+interval '10 minutes')`, []any{grantID, createdAt}},
 		{`INSERT INTO mcp_refresh_tokens(token_hash, grant_id, created_at, expires_at)
-		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, timestamptz '2026-05-04 09:00:00+00', timestamptz '2026-05-04 09:00:00+00'+interval '30 days')`, grant},
+		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, $2::timestamptz, $2::timestamptz+interval '30 days')`, []any{grantID, createdAt}},
 		{`INSERT INTO mcp_refresh_tokens(token_hash, grant_id, created_at, expires_at, consumed_at)
-		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, timestamptz '2026-05-04 09:00:00+00', timestamptz '2026-05-04 09:00:00+00'+interval '30 days', timestamptz '2026-05-04 09:00:00+00')`, grant},
+		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, $2::timestamptz, $2::timestamptz+interval '30 days', $2::timestamptz)`, []any{grantID, createdAt}},
 		{`INSERT INTO mcp_authorization_codes(code_hash, user_id, client_id, redirect_uri, code_challenge, scopes, resource, created_at, expires_at, used_at, issued_grant_id)
 		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $2::uuid, $3, 'https://client.test/callback',
-		          repeat('c', 43), ARRAY['tendo:read'], 'https://tendo.test/mcp', timestamptz '2026-05-04 09:00:00+00', timestamptz '2026-05-04 09:00:00+00'+interval '1 minute', timestamptz '2026-05-04 09:00:00+00', $1::uuid)`, owner},
+		          repeat('c', 43), ARRAY['tendo:read'], 'https://tendo.test/mcp', $4::timestamptz, $4::timestamptz+interval '1 minute', $4::timestamptz, $1::uuid)`, append(owner, createdAt)},
 		{`INSERT INTO mcp_authorization_codes(code_hash, user_id, client_id, redirect_uri, code_challenge, scopes, resource, created_at, expires_at)
 		  VALUES (decode(md5(random()::text)||md5(random()::text), 'hex'), $1::uuid, $2, 'https://client.test/callback',
-		          repeat('d', 43), ARRAY['tendo:read'], 'https://tendo.test/mcp', timestamptz '2026-05-04 09:00:00+00', timestamptz '2026-05-04 09:00:00+00'+interval '1 minute')`, []any{userID, clientID}},
+		          repeat('d', 43), ARRAY['tendo:read'], 'https://tendo.test/mcp', $3::timestamptz, $3::timestamptz+interval '1 minute')`, []any{userID, clientID, createdAt}},
 	} {
 		if _, err := f.admin.Exec(f.ctx, step.sql, step.args...); err != nil {
 			f.t.Fatalf("add MCP credential: %v\n%s", err, step.sql)
@@ -395,6 +403,43 @@ func TestAccountDeletionAgainstPostgres(t *testing.T) {
 		}
 		if got := f.scalarInt(`SELECT count(*) FROM instance_admins WHERE user_id=$1::uuid`, keeper); got != 1 {
 			t.Fatalf("the second instance administrator lost its grant: %d", got)
+		}
+	})
+
+	t.Run("a grant created after the deletion clock is revoked without violating the CHECK", func(t *testing.T) {
+		f.prepare()
+		actor := f.newUserWithLogin("late_grant_actor")
+		f.grantInstanceAdmin(actor)
+		keeper := f.newUserWithLogin("late_grant_keeper")
+		f.grantInstanceAdmin(keeper)
+		house := f.newHousehold("late grant house")
+		f.join(actor, house, household.RoleAdmin)
+
+		const targetLogin = "late_grant_target"
+		target := f.newUserWithLogin(targetLogin)
+		f.join(target, house, household.RoleMember)
+		f.password(target)
+		f.addSession(target)
+		// The fixture clock is 10:00; this grant was created at 10:00:00.4, after it.
+		grant := f.addMCPGrantAt(target, "late-grant-client-aaaa", "2026-05-04 10:00:00.4+00")
+		if got := f.mcpSecretRows(target); got != 5 {
+			t.Fatalf("fixture MCP secret rows=%d want 5", got)
+		}
+
+		if err := f.deletions.DeleteAccount(ctx, actor, target, targetLogin); err != nil {
+			t.Fatalf("DeleteAccount with a clock earlier than created_at: %v", err)
+		}
+		if got := f.mcpSecretRows(target); got != 0 {
+			t.Fatalf("surviving MCP secret rows after deletion: %d", got)
+		}
+		var revoked, ordered bool
+		var reason string
+		if err := f.admin.QueryRow(ctx, `SELECT revoked_at IS NOT NULL, revoke_reason, revoked_at >= created_at
+			FROM mcp_grants WHERE id=$1::uuid`, grant).Scan(&revoked, &reason, &ordered); err != nil {
+			t.Fatal(err)
+		}
+		if !revoked || reason != "account_deletion" || !ordered {
+			t.Fatalf("grant revoked=%t reason=%q revoked_at>=created_at=%t, want revoked account_deletion ordered", revoked, reason, ordered)
 		}
 	})
 

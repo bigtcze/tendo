@@ -39,7 +39,7 @@ CREATE TABLE mcp_grants (
  ),
  resource text NOT NULL CHECK (octet_length(resource) BETWEEN 1 AND 2048),
  created_at timestamptz NOT NULL,
- expires_at timestamptz NOT NULL CHECK (expires_at > created_at AND expires_at <= created_at + interval '90 days'),
+ expires_at timestamptz NOT NULL CHECK (expires_at > created_at AND expires_at <= created_at + interval '2160 hours'),
  revoked_at timestamptz NULL CHECK (revoked_at IS NULL OR revoked_at >= created_at),
  revoke_reason text NULL CHECK (revoke_reason IN (
    'user','password_change','admin_reset','cli_reset','account_deletion','replay','code_reuse'
@@ -92,7 +92,7 @@ CREATE TABLE mcp_refresh_tokens (
  token_hash bytea PRIMARY KEY CHECK (octet_length(token_hash) = 32),
  grant_id uuid NOT NULL REFERENCES mcp_grants(id),
  created_at timestamptz NOT NULL,
- expires_at timestamptz NOT NULL CHECK (expires_at > created_at AND expires_at <= created_at + interval '90 days'),
+ expires_at timestamptz NOT NULL CHECK (expires_at > created_at AND expires_at <= created_at + interval '2160 hours'),
  consumed_at timestamptz NULL CHECK (consumed_at IS NULL OR consumed_at >= created_at)
 );
 CREATE INDEX mcp_refresh_tokens_grant_id_idx ON mcp_refresh_tokens(grant_id);

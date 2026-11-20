@@ -20,6 +20,7 @@ type Querier interface {
 	AnonymizeAccount(ctx context.Context, arg AnonymizeAccountParams) (int64, error)
 	CompletePasswordReset(ctx context.Context, arg CompletePasswordResetParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
+	// Clamped to created_at against clock skew between instances.
 	ConsumeMCPRefreshToken(ctx context.Context, arg ConsumeMCPRefreshTokenParams) (int64, error)
 	ConsumeOIDCFlow(ctx context.Context, arg ConsumeOIDCFlowParams) (ConsumeOIDCFlowRow, error)
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (CreateInvitationRow, error)
@@ -147,6 +148,7 @@ type Querier interface {
 	// that conflict (ADR 0018). A deleted account is not found, so an invitation
 	// never revives a tombstone.
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
+	// Clamped to created_at against clock skew between instances.
 	MarkMCPAuthorizationCodeUsed(ctx context.Context, arg MarkMCPAuthorizationCodeUsedParams) (int64, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	// A link replaces the account-wide password, so it is reported whichever
@@ -171,12 +173,19 @@ type Querier interface {
 	ReplaceLocalPasswordHash(ctx context.Context, arg ReplaceLocalPasswordHashParams) (int64, error)
 	// Revokes every live grant of the account and audits each one with its cause in
 	// the same statement. The grant row stays (secret-free) as history.
+	// revoked_at is clamped to the grant's created_at: a caller's clock (truncated
+	// to seconds, read before lock waits, or skewed between instances) may be
+	// earlier than a grant created moments ago, and an MCP CHECK must never block a
+	// password replacement or an account deletion.
 	RevokeAccountMCPGrants(ctx context.Context, arg RevokeAccountMCPGrantsParams) (int64, error)
 	// Every outstanding reset link the account is party to, as target or issuer, in
 	// any household, stops working. The per-household revocations already ran; this
 	// catches links in households the account was never a member of.
 	RevokeAccountPasswordResets(ctx context.Context, arg RevokeAccountPasswordResetsParams) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
+	// revoked_at is clamped to created_at exactly as in RevokeAccountMCPGrants: a
+	// concurrent code-reuse loser read its clock before the winner created the
+	// grant, and that revocation must still commit.
 	RevokeMCPGrant(ctx context.Context, arg RevokeMCPGrantParams) (int64, error)
 	// Reset links the removed member is party to inside this household stop
 	// working: as a target they cannot be redeemed by an admin of a household they

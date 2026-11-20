@@ -11,14 +11,19 @@ DELETE FROM mcp_authorization_codes WHERE user_id = $1;
 -- name: RevokeAccountMCPGrants :execrows
 -- Revokes every live grant of the account and audits each one with its cause in
 -- the same statement. The grant row stays (secret-free) as history.
+-- revoked_at is clamped to the grant's created_at: a caller's clock (truncated
+-- to seconds, read before lock waits, or skewed between instances) may be
+-- earlier than a grant created moments ago, and an MCP CHECK must never block a
+-- password replacement or an account deletion.
 WITH revoked AS (
   UPDATE mcp_grants
-  SET revoked_at = sqlc.arg(revoked_at), revoke_reason = sqlc.arg(revoke_reason)
-  WHERE mcp_grants.user_id = sqlc.arg(user_id) AND revoked_at IS NULL
-  RETURNING id, mcp_grants.user_id, client_id
+  SET revoked_at = GREATEST(sqlc.arg(revoked_at)::timestamptz, mcp_grants.created_at),
+      revoke_reason = sqlc.arg(revoke_reason)
+  WHERE mcp_grants.user_id = sqlc.arg(user_id) AND mcp_grants.revoked_at IS NULL
+  RETURNING mcp_grants.id, mcp_grants.user_id, mcp_grants.client_id, mcp_grants.revoked_at
 )
 INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, reason, actor_user_id, occurred_at)
-SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', sqlc.arg(revoke_reason), sqlc.narg(actor_user_id)::uuid, sqlc.arg(revoked_at)
+SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', sqlc.arg(revoke_reason), sqlc.narg(actor_user_id)::uuid, r.revoked_at
 FROM revoked r JOIN mcp_clients c ON c.client_id = r.client_id;
 
 -- name: DeleteAccountMCPAccessTokens :exec
@@ -58,8 +63,9 @@ SELECT code_hash, user_id, client_id, redirect_uri, code_challenge, scopes, reso
 FROM mcp_authorization_codes WHERE code_hash = $1 FOR UPDATE;
 
 -- name: MarkMCPAuthorizationCodeUsed :execrows
-UPDATE mcp_authorization_codes SET used_at = $2, issued_grant_id = $3
-WHERE code_hash = $1 AND used_at IS NULL;
+-- Clamped to created_at against clock skew between instances.
+UPDATE mcp_authorization_codes SET used_at = GREATEST(sqlc.arg(used_at)::timestamptz, created_at), issued_grant_id = sqlc.arg(issued_grant_id)
+WHERE code_hash = sqlc.arg(code_hash) AND used_at IS NULL;
 
 -- name: DeleteMCPAuthorizationCode :exec
 DELETE FROM mcp_authorization_codes WHERE code_hash = $1;
@@ -97,7 +103,9 @@ FROM mcp_grants WHERE id = $1 FOR UPDATE;
 SELECT token_hash, grant_id, expires_at, consumed_at FROM mcp_refresh_tokens WHERE token_hash = $1 FOR UPDATE;
 
 -- name: ConsumeMCPRefreshToken :execrows
-UPDATE mcp_refresh_tokens SET consumed_at = $2 WHERE token_hash = $1 AND consumed_at IS NULL;
+-- Clamped to created_at against clock skew between instances.
+UPDATE mcp_refresh_tokens SET consumed_at = GREATEST(sqlc.arg(consumed_at)::timestamptz, created_at)
+WHERE token_hash = sqlc.arg(token_hash) AND consumed_at IS NULL;
 
 -- name: DeleteMCPGrantCodes :exec
 -- Used codes that issued the grant: once it is revoked a replayed code finds
@@ -105,14 +113,18 @@ UPDATE mcp_refresh_tokens SET consumed_at = $2 WHERE token_hash = $1 AND consume
 DELETE FROM mcp_authorization_codes WHERE issued_grant_id = $1;
 
 -- name: RevokeMCPGrant :execrows
+-- revoked_at is clamped to created_at exactly as in RevokeAccountMCPGrants: a
+-- concurrent code-reuse loser read its clock before the winner created the
+-- grant, and that revocation must still commit.
 WITH revoked AS (
   UPDATE mcp_grants
-  SET revoked_at = sqlc.arg(revoked_at), revoke_reason = sqlc.arg(revoke_reason)
-  WHERE mcp_grants.id = sqlc.arg(grant_id) AND revoked_at IS NULL
-  RETURNING id, mcp_grants.user_id, client_id
+  SET revoked_at = GREATEST(sqlc.arg(revoked_at)::timestamptz, mcp_grants.created_at),
+      revoke_reason = sqlc.arg(revoke_reason)
+  WHERE mcp_grants.id = sqlc.arg(grant_id) AND mcp_grants.revoked_at IS NULL
+  RETURNING mcp_grants.id, mcp_grants.user_id, mcp_grants.client_id, mcp_grants.revoked_at
 )
 INSERT INTO mcp_grant_events(grant_id, user_id, client_id, client_name, event, reason, actor_user_id, occurred_at)
-SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', sqlc.arg(revoke_reason), sqlc.narg(actor_user_id)::uuid, sqlc.arg(revoked_at)
+SELECT r.id, r.user_id, r.client_id, c.client_name, 'revoked', sqlc.arg(revoke_reason), sqlc.narg(actor_user_id)::uuid, r.revoked_at
 FROM revoked r JOIN mcp_clients c ON c.client_id = r.client_id;
 
 -- name: DeleteMCPGrantAccessTokens :exec
