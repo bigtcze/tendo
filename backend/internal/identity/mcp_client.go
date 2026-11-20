@@ -87,14 +87,13 @@ func ValidateRedirectURI(raw, publicHost string) error {
 	if err != nil || u.String() != raw || u.User != nil || u.Fragment != "" || u.Opaque != "" {
 		return ErrMCPInvalidRedirectURI
 	}
-	scheme := u.Scheme
-	switch {
-	case scheme == "https":
+	switch u.Scheme {
+	case "https":
 		return validHTTPSRedirect(u, publicHost)
-	case scheme == "http":
+	case "http":
 		return validHTTPRedirect(u)
 	default:
-		return validPrivateUseRedirect(u, scheme)
+		return validPrivateUseRedirect(u, u.Scheme)
 	}
 }
 
@@ -212,8 +211,12 @@ func NormalizeClientName(raw *string) (string, error) {
 	return name, nil
 }
 
-// nfcNormalize returns the NFC form of s. Normalization is deferred until
-// golang.org/x/text can become a direct dependency; see ADR 0023 (A2 notes).
+// nfcNormalize should return the NFC form of s (decisions, "Client metadata").
+// It is an identity today because importing golang.org/x/text/unicode/norm
+// makes go mod tidy move x/text from // indirect to the direct require block,
+// a go.mod change the A2 brief does not allow without a report. Until that
+// is approved, client_name is NOT NFC-normalized: a name may be stored in a
+// non-NFC form. ADR 0023 (slice A2, "Deviations") records this gap.
 func nfcNormalize(s string) string { return s }
 
 // mcpClientMetadataWire is the subset of the RFC 7591 request this server reads.

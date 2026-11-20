@@ -181,9 +181,9 @@ DELETE FROM mcp_authorization_codes WHERE user_id = $1
 `
 
 // MCP OAuth grant store (ADR 0023). Every statement follows the lock order
-// user_accounts -> local_credentials -> user_sessions -> mcp_authorization_codes
-// -> mcp_grants -> token rows, and the caller already holds the account-side
-// locks.
+// user_accounts -> local_credentials -> user_sessions -> mcp_clients (KEY SHARE)
+// -> mcp_authorization_codes -> mcp_grants -> token rows, and the caller already
+// holds the account-side locks.
 // Every authorization code of the account, outstanding or used: a code is a
 // secret and a revoked account keeps none.
 func (q *Queries) DeleteAccountMCPCodes(ctx context.Context, userID pgtype.UUID) error {
