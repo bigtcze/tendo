@@ -72,6 +72,55 @@ func TestRealClientRegistrationsRegisterThroughService(t *testing.T) {
 	}
 }
 
+// bareMCPRepository implements only MCPRepository. It has neither the
+// registration store nor the sweep store, so the service must fail closed.
+type bareMCPRepository struct{ called bool }
+
+func (b *bareMCPRepository) WithMCPTransaction(context.Context, func(MCPTransaction) error) error {
+	b.called = true
+	return errors.New("no transaction expected")
+}
+
+func (b *bareMCPRepository) FindActiveAccessToken(context.Context, []byte, time.Time) (MCPGrantRecord, error) {
+	b.called = true
+	return MCPGrantRecord{}, ErrNotFound
+}
+
+// TestServiceWithoutStoresFailsClosed proves a repository lacking the client
+// store and the sweep store refuses to register and refuses to sweep, rather
+// than doing nothing and reporting success.
+func TestServiceWithoutStoresFailsClosed(t *testing.T) {
+	repo := &bareMCPRepository{}
+	svc, err := NewMCPService(repo, MCPOptions{Enabled: true, Resource: mcpTestResource}, func() time.Time {
+		return time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.clientStore != nil || svc.sweeper != nil {
+		t.Fatal("bare repository must not satisfy the client or sweep store")
+	}
+
+	reg, err := DecodeClientRegistration([]byte(`{"redirect_uris":["http://localhost:54123/callback"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RegisterClient(context.Background(), reg); err == nil {
+		t.Fatal("RegisterClient succeeded without a client store")
+	}
+
+	report, err := svc.Sweep(context.Background(), time.Now())
+	if !errors.Is(err, ErrMCPSweepFailed) {
+		t.Fatalf("Sweep without a sweep store = %v, want ErrMCPSweepFailed", err)
+	}
+	if len(report.Deleted) != 0 || len(report.Locked) != 0 {
+		t.Fatalf("sweep reported work without a store: %+v", report)
+	}
+	if repo.called {
+		t.Fatal("bare repository was used for registration or sweep")
+	}
+}
+
 // TestRegisterClientRefusals covers the refusal paths of the service: a disabled
 // service, a full grantless-client cap, and an invalid registration never reach
 // the store.

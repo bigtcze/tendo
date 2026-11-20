@@ -176,6 +176,15 @@ func endedGrantSweep(q *identitydb.Queries, ctx context.Context, now time.Time) 
 	return codes + access + refresh, codes == bound || access == bound || refresh == bound, nil
 }
 
+// The service finds its registration and sweep stores by type assertion on the
+// repository. These assertions fail the build if a method drifts, so the wiring
+// cannot silently degrade to the fail-closed path.
+var (
+	_ identity.MCPClientStore = (*MCPRepository)(nil)
+	_ identity.MCPSweepStore  = (*MCPRepository)(nil)
+	_ identity.MCPRepository  = (*MCPRepository)(nil)
+)
+
 // MCPRepository is the PostgreSQL MCP grant store (ADR 0023).
 type MCPRepository struct {
 	pool interface {
