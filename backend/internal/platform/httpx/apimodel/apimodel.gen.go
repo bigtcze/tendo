@@ -456,6 +456,243 @@ func (e ItemValidationProblemField) Valid() bool {
 	}
 }
 
+// Defines values for McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported.
+const (
+	McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupportedTrue McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported = true
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported enum.
+func (e McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported) Valid() bool {
+	switch e {
+	case McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupportedTrue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataCodeChallengeMethodsSupported.
+const (
+	S256 McpAuthorizationServerMetadataCodeChallengeMethodsSupported = "S256"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataCodeChallengeMethodsSupported enum.
+func (e McpAuthorizationServerMetadataCodeChallengeMethodsSupported) Valid() bool {
+	switch e {
+	case S256:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataGrantTypesSupported.
+const (
+	McpAuthorizationServerMetadataGrantTypesSupportedAuthorizationCode McpAuthorizationServerMetadataGrantTypesSupported = "authorization_code"
+	McpAuthorizationServerMetadataGrantTypesSupportedRefreshToken      McpAuthorizationServerMetadataGrantTypesSupported = "refresh_token"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataGrantTypesSupported enum.
+func (e McpAuthorizationServerMetadataGrantTypesSupported) Valid() bool {
+	switch e {
+	case McpAuthorizationServerMetadataGrantTypesSupportedAuthorizationCode:
+		return true
+	case McpAuthorizationServerMetadataGrantTypesSupportedRefreshToken:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataResponseModesSupported.
+const (
+	Query McpAuthorizationServerMetadataResponseModesSupported = "query"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataResponseModesSupported enum.
+func (e McpAuthorizationServerMetadataResponseModesSupported) Valid() bool {
+	switch e {
+	case Query:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataResponseTypesSupported.
+const (
+	McpAuthorizationServerMetadataResponseTypesSupportedCode McpAuthorizationServerMetadataResponseTypesSupported = "code"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataResponseTypesSupported enum.
+func (e McpAuthorizationServerMetadataResponseTypesSupported) Valid() bool {
+	switch e {
+	case McpAuthorizationServerMetadataResponseTypesSupportedCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported.
+const (
+	McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupportedNone McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported = "none"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported enum.
+func (e McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported) Valid() bool {
+	switch e {
+	case McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupportedNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataScopesSupported.
+const (
+	McpAuthorizationServerMetadataScopesSupportedTendoRead  McpAuthorizationServerMetadataScopesSupported = "tendo:read"
+	McpAuthorizationServerMetadataScopesSupportedTendoWrite McpAuthorizationServerMetadataScopesSupported = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataScopesSupported enum.
+func (e McpAuthorizationServerMetadataScopesSupported) Valid() bool {
+	switch e {
+	case McpAuthorizationServerMetadataScopesSupportedTendoRead:
+		return true
+	case McpAuthorizationServerMetadataScopesSupportedTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported.
+const (
+	McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupportedNone McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported = "none"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported enum.
+func (e McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported) Valid() bool {
+	switch e {
+	case McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupportedNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpClientRegistrationResponseGrantTypes.
+const (
+	McpClientRegistrationResponseGrantTypesAuthorizationCode McpClientRegistrationResponseGrantTypes = "authorization_code"
+	McpClientRegistrationResponseGrantTypesRefreshToken      McpClientRegistrationResponseGrantTypes = "refresh_token"
+)
+
+// Valid indicates whether the value is a known member of the McpClientRegistrationResponseGrantTypes enum.
+func (e McpClientRegistrationResponseGrantTypes) Valid() bool {
+	switch e {
+	case McpClientRegistrationResponseGrantTypesAuthorizationCode:
+		return true
+	case McpClientRegistrationResponseGrantTypesRefreshToken:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpClientRegistrationResponseResponseTypes.
+const (
+	McpClientRegistrationResponseResponseTypesCode McpClientRegistrationResponseResponseTypes = "code"
+)
+
+// Valid indicates whether the value is a known member of the McpClientRegistrationResponseResponseTypes enum.
+func (e McpClientRegistrationResponseResponseTypes) Valid() bool {
+	switch e {
+	case McpClientRegistrationResponseResponseTypesCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpClientRegistrationResponseScope.
+const (
+	TendoReadTendoWrite McpClientRegistrationResponseScope = "tendo:read tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpClientRegistrationResponseScope enum.
+func (e McpClientRegistrationResponseScope) Valid() bool {
+	switch e {
+	case TendoReadTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpClientRegistrationResponseTokenEndpointAuthMethod.
+const (
+	McpClientRegistrationResponseTokenEndpointAuthMethodNone McpClientRegistrationResponseTokenEndpointAuthMethod = "none"
+)
+
+// Valid indicates whether the value is a known member of the McpClientRegistrationResponseTokenEndpointAuthMethod enum.
+func (e McpClientRegistrationResponseTokenEndpointAuthMethod) Valid() bool {
+	switch e {
+	case McpClientRegistrationResponseTokenEndpointAuthMethodNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpProtectedResourceMetadataBearerMethodsSupported.
+const (
+	Header McpProtectedResourceMetadataBearerMethodsSupported = "header"
+)
+
+// Valid indicates whether the value is a known member of the McpProtectedResourceMetadataBearerMethodsSupported enum.
+func (e McpProtectedResourceMetadataBearerMethodsSupported) Valid() bool {
+	switch e {
+	case Header:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpProtectedResourceMetadataResourceName.
+const (
+	Tendo McpProtectedResourceMetadataResourceName = "Tendo"
+)
+
+// Valid indicates whether the value is a known member of the McpProtectedResourceMetadataResourceName enum.
+func (e McpProtectedResourceMetadataResourceName) Valid() bool {
+	switch e {
+	case Tendo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpProtectedResourceMetadataScopesSupported.
+const (
+	McpProtectedResourceMetadataScopesSupportedTendoRead  McpProtectedResourceMetadataScopesSupported = "tendo:read"
+	McpProtectedResourceMetadataScopesSupportedTendoWrite McpProtectedResourceMetadataScopesSupported = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpProtectedResourceMetadataScopesSupported enum.
+func (e McpProtectedResourceMetadataScopesSupported) Valid() bool {
+	switch e {
+	case McpProtectedResourceMetadataScopesSupportedTendoRead:
+		return true
+	case McpProtectedResourceMetadataScopesSupportedTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemberPersonTransferValidationProblemCode.
 const (
 	NotEligible MemberPersonTransferValidationProblemCode = "not_eligible"
@@ -513,6 +750,27 @@ const (
 func (e MembershipRole) Valid() bool {
 	switch e {
 	case MembershipRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OAuthErrorError.
+const (
+	InvalidClientMetadata  OAuthErrorError = "invalid_client_metadata"
+	InvalidRedirectUri     OAuthErrorError = "invalid_redirect_uri"
+	TemporarilyUnavailable OAuthErrorError = "temporarily_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the OAuthErrorError enum.
+func (e OAuthErrorError) Valid() bool {
+	switch e {
+	case InvalidClientMetadata:
+		return true
+	case InvalidRedirectUri:
+		return true
+	case TemporarilyUnavailable:
 		return true
 	default:
 		return false
@@ -1498,6 +1756,111 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// McpAuthorizationServerMetadata RFC 8414 authorization server metadata. Field names are RFC snake_case wire names.
+type McpAuthorizationServerMetadata struct {
+	AuthorizationEndpoint                      string                                                                   `json:"authorization_endpoint"`
+	AuthorizationResponseIssParameterSupported McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported `json:"authorization_response_iss_parameter_supported"`
+	CodeChallengeMethodsSupported              []McpAuthorizationServerMetadataCodeChallengeMethodsSupported            `json:"code_challenge_methods_supported"`
+	GrantTypesSupported                        []McpAuthorizationServerMetadataGrantTypesSupported                      `json:"grant_types_supported"`
+	Issuer                                     string                                                                   `json:"issuer"`
+	RegistrationEndpoint                       string                                                                   `json:"registration_endpoint"`
+	ResponseModesSupported                     []McpAuthorizationServerMetadataResponseModesSupported                   `json:"response_modes_supported"`
+	ResponseTypesSupported                     []McpAuthorizationServerMetadataResponseTypesSupported                   `json:"response_types_supported"`
+	RevocationEndpoint                         string                                                                   `json:"revocation_endpoint"`
+	RevocationEndpointAuthMethodsSupported     []McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported   `json:"revocation_endpoint_auth_methods_supported"`
+	ScopesSupported                            []McpAuthorizationServerMetadataScopesSupported                          `json:"scopes_supported"`
+	TokenEndpoint                              string                                                                   `json:"token_endpoint"`
+	TokenEndpointAuthMethodsSupported          []McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported        `json:"token_endpoint_auth_methods_supported"`
+}
+
+// McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported defines model for McpAuthorizationServerMetadata.AuthorizationResponseIssParameterSupported.
+type McpAuthorizationServerMetadataAuthorizationResponseIssParameterSupported bool
+
+// McpAuthorizationServerMetadataCodeChallengeMethodsSupported defines model for McpAuthorizationServerMetadata.CodeChallengeMethodsSupported.
+type McpAuthorizationServerMetadataCodeChallengeMethodsSupported string
+
+// McpAuthorizationServerMetadataGrantTypesSupported defines model for McpAuthorizationServerMetadata.GrantTypesSupported.
+type McpAuthorizationServerMetadataGrantTypesSupported string
+
+// McpAuthorizationServerMetadataResponseModesSupported defines model for McpAuthorizationServerMetadata.ResponseModesSupported.
+type McpAuthorizationServerMetadataResponseModesSupported string
+
+// McpAuthorizationServerMetadataResponseTypesSupported defines model for McpAuthorizationServerMetadata.ResponseTypesSupported.
+type McpAuthorizationServerMetadataResponseTypesSupported string
+
+// McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported defines model for McpAuthorizationServerMetadata.RevocationEndpointAuthMethodsSupported.
+type McpAuthorizationServerMetadataRevocationEndpointAuthMethodsSupported string
+
+// McpAuthorizationServerMetadataScopesSupported defines model for McpAuthorizationServerMetadata.ScopesSupported.
+type McpAuthorizationServerMetadataScopesSupported string
+
+// McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported defines model for McpAuthorizationServerMetadata.TokenEndpointAuthMethodsSupported.
+type McpAuthorizationServerMetadataTokenEndpointAuthMethodsSupported string
+
+// McpClientRegistrationRequest RFC 7591 client metadata. Only the listed fields are read; every other field is ignored. Field names are the RFC-defined snake_case wire names.
+type McpClientRegistrationRequest struct {
+	// ClientName Trimmed and NFC-normalized; 1 to 100 code points after normalization, no control, format or line/paragraph separator characters. Absent or empty becomes "MCP client".
+	ClientName *string `json:"client_name,omitempty"`
+
+	// GrantTypes If present, must contain authorization_code. The response always lists authorization_code and refresh_token.
+	GrantTypes   *[]string `json:"grant_types,omitempty"`
+	RedirectUris []string  `json:"redirect_uris"`
+
+	// ResponseTypes If present, must contain code.
+	ResponseTypes *[]string `json:"response_types,omitempty"`
+
+	// Scope Accepted and ignored; the response always returns tendo:read tendo:write.
+	Scope *string `json:"scope,omitempty"`
+
+	// TokenEndpointAuthMethod Accepted and substituted with none in the response (public clients only).
+	TokenEndpointAuthMethod *string                `json:"token_endpoint_auth_method,omitempty"`
+	AdditionalProperties    map[string]interface{} `json:"-"`
+}
+
+// McpClientRegistrationResponse RFC 7591 client information response. Field names are RFC snake_case wire names.
+type McpClientRegistrationResponse struct {
+	ClientId string `json:"client_id"`
+
+	// ClientIdIssuedAt Unix time in seconds at which the client was registered.
+	ClientIdIssuedAt        int                                                  `json:"client_id_issued_at"`
+	ClientName              string                                               `json:"client_name"`
+	GrantTypes              []McpClientRegistrationResponseGrantTypes            `json:"grant_types"`
+	RedirectUris            []string                                             `json:"redirect_uris"`
+	ResponseTypes           []McpClientRegistrationResponseResponseTypes         `json:"response_types"`
+	Scope                   McpClientRegistrationResponseScope                   `json:"scope"`
+	TokenEndpointAuthMethod McpClientRegistrationResponseTokenEndpointAuthMethod `json:"token_endpoint_auth_method"`
+}
+
+// McpClientRegistrationResponseGrantTypes defines model for McpClientRegistrationResponse.GrantTypes.
+type McpClientRegistrationResponseGrantTypes string
+
+// McpClientRegistrationResponseResponseTypes defines model for McpClientRegistrationResponse.ResponseTypes.
+type McpClientRegistrationResponseResponseTypes string
+
+// McpClientRegistrationResponseScope defines model for McpClientRegistrationResponse.Scope.
+type McpClientRegistrationResponseScope string
+
+// McpClientRegistrationResponseTokenEndpointAuthMethod defines model for McpClientRegistrationResponse.TokenEndpointAuthMethod.
+type McpClientRegistrationResponseTokenEndpointAuthMethod string
+
+// McpProtectedResourceMetadata RFC 9728 protected resource metadata. Field names are RFC snake_case wire names.
+type McpProtectedResourceMetadata struct {
+	AuthorizationServers   []string                                             `json:"authorization_servers"`
+	BearerMethodsSupported []McpProtectedResourceMetadataBearerMethodsSupported `json:"bearer_methods_supported"`
+	Resource               string                                               `json:"resource"`
+	ResourceName           McpProtectedResourceMetadataResourceName             `json:"resource_name"`
+	ScopesSupported        []McpProtectedResourceMetadataScopesSupported        `json:"scopes_supported"`
+}
+
+// McpProtectedResourceMetadataBearerMethodsSupported defines model for McpProtectedResourceMetadata.BearerMethodsSupported.
+type McpProtectedResourceMetadataBearerMethodsSupported string
+
+// McpProtectedResourceMetadataResourceName defines model for McpProtectedResourceMetadata.ResourceName.
+type McpProtectedResourceMetadataResourceName string
+
+// McpProtectedResourceMetadataScopesSupported defines model for McpProtectedResourceMetadata.ScopesSupported.
+type McpProtectedResourceMetadataScopesSupported string
+
 // Member defines model for Member.
 type Member struct {
 	Login  string     `json:"login"`
@@ -1553,6 +1916,15 @@ type Membership struct {
 
 // MembershipRole defines model for Membership.Role.
 type MembershipRole string
+
+// OAuthError RFC 6749 section 5.2 / RFC 7591 section 3.2.2 error response. Not problem+json.
+type OAuthError struct {
+	Error            OAuthErrorError `json:"error"`
+	ErrorDescription string          `json:"error_description"`
+}
+
+// OAuthErrorError defines model for OAuthError.Error.
+type OAuthErrorError string
 
 // OIDCIdentityStatus defines model for OIDCIdentityStatus.
 type OIDCIdentityStatus struct {
@@ -1952,6 +2324,18 @@ type RequestId = string
 
 // SubjectId defines model for SubjectId.
 type SubjectId = string
+
+// GetMcpAuthorizationServerMetadataParams defines parameters for GetMcpAuthorizationServerMetadata.
+type GetMcpAuthorizationServerMetadataParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetMcpProtectedResourceMetadataParams defines parameters for GetMcpProtectedResourceMetadata.
+type GetMcpProtectedResourceMetadataParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
 
 // CreateAdminAccountDeletionParams defines parameters for CreateAdminAccountDeletion.
 type CreateAdminAccountDeletionParams struct {
@@ -2496,6 +2880,12 @@ type GetReadinessParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// RegisterMcpClientParams defines parameters for RegisterMcpClient.
+type RegisterMcpClientParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // CreateAdminAccountDeletionJSONRequestBody defines body for CreateAdminAccountDeletion for application/json ContentType.
 type CreateAdminAccountDeletionJSONRequestBody = AdminAccountDeletionRequest
 
@@ -2564,6 +2954,9 @@ type UpdateSessionJSONRequestBody = UpdateSessionRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// RegisterMcpClientJSONRequestBody defines body for RegisterMcpClient for application/json ContentType.
+type RegisterMcpClientJSONRequestBody = McpClientRegistrationRequest
 
 // Getter for additional properties for AdminAccountDeletionProblem. Returns the specified
 // element and whether it was found
@@ -3598,6 +3991,149 @@ func (a ItemValidationProblem) MarshalJSON() ([]byte, error) {
 	object["type"], err = json.Marshal(a.Type)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpClientRegistrationRequest. Returns the specified
+// element and whether it was found
+func (a McpClientRegistrationRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpClientRegistrationRequest
+func (a *McpClientRegistrationRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpClientRegistrationRequest to handle AdditionalProperties
+func (a *McpClientRegistrationRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["client_name"]; found {
+		err = json.Unmarshal(raw, &a.ClientName)
+		if err != nil {
+			return fmt.Errorf("error reading 'client_name': %w", err)
+		}
+		delete(object, "client_name")
+	}
+
+	if raw, found := object["grant_types"]; found {
+		err = json.Unmarshal(raw, &a.GrantTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'grant_types': %w", err)
+		}
+		delete(object, "grant_types")
+	}
+
+	if raw, found := object["redirect_uris"]; found {
+		err = json.Unmarshal(raw, &a.RedirectUris)
+		if err != nil {
+			return fmt.Errorf("error reading 'redirect_uris': %w", err)
+		}
+		delete(object, "redirect_uris")
+	}
+
+	if raw, found := object["response_types"]; found {
+		err = json.Unmarshal(raw, &a.ResponseTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'response_types': %w", err)
+		}
+		delete(object, "response_types")
+	}
+
+	if raw, found := object["scope"]; found {
+		err = json.Unmarshal(raw, &a.Scope)
+		if err != nil {
+			return fmt.Errorf("error reading 'scope': %w", err)
+		}
+		delete(object, "scope")
+	}
+
+	if raw, found := object["token_endpoint_auth_method"]; found {
+		err = json.Unmarshal(raw, &a.TokenEndpointAuthMethod)
+		if err != nil {
+			return fmt.Errorf("error reading 'token_endpoint_auth_method': %w", err)
+		}
+		delete(object, "token_endpoint_auth_method")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpClientRegistrationRequest to handle AdditionalProperties
+func (a McpClientRegistrationRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.ClientName != nil {
+		object["client_name"], err = json.Marshal(a.ClientName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'client_name': %w", err)
+		}
+	}
+
+	if a.GrantTypes != nil {
+		object["grant_types"], err = json.Marshal(a.GrantTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'grant_types': %w", err)
+		}
+	}
+
+	if a.RedirectUris != nil {
+		object["redirect_uris"], err = json.Marshal(a.RedirectUris)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'redirect_uris': %w", err)
+		}
+	}
+
+	if a.ResponseTypes != nil {
+		object["response_types"], err = json.Marshal(a.ResponseTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'response_types': %w", err)
+		}
+	}
+
+	if a.Scope != nil {
+		object["scope"], err = json.Marshal(a.Scope)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scope': %w", err)
+		}
+	}
+
+	if a.TokenEndpointAuthMethod != nil {
+		object["token_endpoint_auth_method"], err = json.Marshal(a.TokenEndpointAuthMethod)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'token_endpoint_auth_method': %w", err)
+		}
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

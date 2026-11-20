@@ -180,11 +180,24 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 	client := 0
 
 	contract := map[string]bool{}
+	production := productionTestApp(t, cfg)
 	for _, op := range readContractSecurity(t) {
+		key := op.method + " " + op.path
 		if !strings.HasPrefix(op.path, "/api/v1/") {
+			contract[key] = true
+			// Non-/api, non-/health operations are the MCP surface. Each must be
+			// routed (declared but unrouted fails), and while MCP is disabled each
+			// answers the unknown-path 404 problem+json, never the SPA. Health
+			// operations are not MCP and answer 200, so they are excluded.
+			if !strings.HasPrefix(op.path, "/health/") {
+				if !registered[key] {
+					t.Errorf("%s: declared in the contract but not routed", key)
+					continue
+				}
+				checkMCPDisabledOperation(t, production, op.method, op.path, cfg.PublicURL)
+			}
 			continue
 		}
-		key := op.method + " " + op.path
 		contract[key] = true
 		if !registered[key] {
 			t.Errorf("%s: declared in the contract but not routed", key)
@@ -262,10 +275,22 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		})
 	}
 	for key := range registered {
-		if !contract[key] {
+		if !contract[key] && !mcpPreflightRoutes[key] {
 			t.Errorf("%s: routed but not declared in the contract", key)
 		}
 	}
+}
+
+// mcpPreflightRoutes are the CORS preflight routes of the MCP endpoints. The
+// OpenAPI contract forbids options: operations, so preflights are routed but
+// not declared. Each one is listed here by name. Their disabled-404 behavior is
+// pinned by TestProductionCompositionAnswersMCPDisabled404, which requests every
+// OPTIONS path, not by this test, so the allowlist does not weaken the strict
+// routed-but-undeclared check.
+var mcpPreflightRoutes = map[string]bool{
+	"OPTIONS /oauth/register":                           true,
+	"OPTIONS /.well-known/oauth-protected-resource/mcp": true,
+	"OPTIONS /.well-known/oauth-authorization-server":   true,
 }
 
 // TestContractUnsafeOperationsRequireOriginBeforeAuthentication pins the global

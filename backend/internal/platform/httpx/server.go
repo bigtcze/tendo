@@ -70,8 +70,19 @@ func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, ori
 	return newRouterWithUI(pool, timeout, draining, origin, nil, registers...)
 }
 
+// reservedPrefixes are API, health and MCP surfaces. The exact segment and the
+// segment followed by "/" are reserved, so unmatched requests there answer
+// problem+json 404/405 and never fall back to the SPA. The boundary means
+// /mcpx, /oauthy and /.well-knownz stay SPA paths.
+var reservedPrefixes = []string{"/api", "/health", "/mcp", "/oauth", "/.well-known"}
+
 func isReservedPath(p string) bool {
-	return p == "/api" || strings.HasPrefix(p, "/api/") || p == "/health" || strings.HasPrefix(p, "/health/")
+	for _, prefix := range reservedPrefixes {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func newRouterWithUI(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, ui http.Handler, registers ...func(chi.Router)) http.Handler {
@@ -152,6 +163,11 @@ func writeStatus(w http.ResponseWriter, code int, value string) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(apimodel.StatusResponse{Status: value})
 }
+
+// WriteNotFound writes the problem+json 404 the router gives an unknown
+// reserved path. Feature handlers use it for a disabled surface so that the
+// response is byte-identical to an unknown path.
+func WriteNotFound(w http.ResponseWriter) { writeProblem(w, http.StatusNotFound, "Not Found") }
 
 func writeProblem(w http.ResponseWriter, code int, title string) {
 	w.Header().Set("Content-Type", "application/problem+json")

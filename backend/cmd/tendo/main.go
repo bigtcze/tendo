@@ -173,7 +173,28 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	}
 	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemMembers(membershipService.GetMembership), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
+	return registerMCP(routes, cfg, pool)
+}
+
+// registerMCP mounts the MCP endpoints. MCP stays inert until its flow is
+// complete (ADR 0023): the service is built disabled, so every MCP endpoint
+// answers the unknown-path 404.
+func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error {
+	mcpService, err := newMCPService(cfg, pool)
+	if err != nil {
+		return err
+	}
+	identityhttp.NewMCP(mcpService, cfg.PublicURL).Register(routes)
 	return nil
+}
+
+// newMCPService builds the installation's MCP service. It is hard-disabled in
+// production: no configuration switches it on in this slice.
+func newMCPService(cfg config.Config, pool *pgxpool.Pool) (*identityapp.MCPService, error) {
+	return identityapp.NewMCPService(identitypostgres.NewMCPRepository(pool), identityapp.MCPOptions{
+		Enabled:  false,
+		Resource: cfg.PublicURL + "/mcp",
+	}, time.Now)
 }
 
 // newOIDCHandler keeps disabled OIDC as an untyped nil service; passing a nil
@@ -203,6 +224,21 @@ func newRuntimeServer(addr string, handler http.Handler, serviceTimeout time.Dur
 }
 
 func serve(ctx context.Context, listener net.Listener, resources runtimeResources, draining chan struct{}, shutdownTimeout time.Duration) error {
+	return serveWithSweeper(ctx, listener, resources, draining, shutdownTimeout, nil)
+}
+
+// serveWithSweeper is serve with a background worker. stopSweeper runs after
+// the HTTP server has drained and before the pool closes, so no retention step
+// can touch a closed pool. A nil stopSweeper does nothing.
+func serveWithSweeper(ctx context.Context, listener net.Listener, resources runtimeResources, draining chan struct{}, shutdownTimeout time.Duration, stopSweeper func(time.Duration) bool) error {
+	stop := func(timeout time.Duration) {
+		if stopSweeper != nil {
+			// A sweep still running at the deadline is abandoned; the pool close
+			// that follows is bounded by the same deadline, so the result is not
+			// acted on here.
+			_ = stopSweeper(timeout)
+		}
+	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- resources.server.Serve(listener) }()
 	select {
@@ -215,6 +251,7 @@ func serve(ctx context.Context, listener net.Listener, resources runtimeResource
 		if shutdownErr != nil {
 			_ = resources.server.Close()
 		}
+		stop(time.Until(deadline))
 		shutdownErr = boundedPoolClose(resources.pool, time.Until(deadline), shutdownErr)
 		if shutdownErr != nil {
 			return errors.New("runtime shutdown failed")
@@ -229,9 +266,11 @@ func serve(ctx context.Context, listener net.Listener, resources runtimeResource
 		return nil
 	case err := <-serveErr:
 		if errors.Is(err, http.ErrServerClosed) {
+			stop(shutdownTimeout)
 			return boundedPoolClose(resources.pool, shutdownTimeout, nil)
 		}
 		_ = resources.server.Close()
+		stop(shutdownTimeout)
 		return boundedPoolClose(resources.pool, shutdownTimeout, errors.New("HTTP server stopped unexpectedly"))
 	}
 }

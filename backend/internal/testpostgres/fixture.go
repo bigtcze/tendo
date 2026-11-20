@@ -161,50 +161,63 @@ var RevertVersion18SQL = revertVersion18SQL()
 // forward again.
 var RevertVersion19SQL = revertVersion19SQL()
 
-// RevertVersion28SQL reverses migration 028 and removes its ledger row so an
-// upgrade fixture can present the exact version 27 schema before migrating
+// RevertVersion29SQL reverses migration 029 and removes its ledger row so an
+// upgrade fixture can present the exact version 28 schema before migrating
 // forward again.
-var RevertVersion28SQL = revertVersion28SQL()
+var RevertVersion29SQL = revertVersion29SQL()
 
-// RevertVersion27SQL reverses migrations 028 and 027, removing both ledger rows
-// so an upgrade fixture can present the exact version 26 schema before
+// RevertVersion28SQL reverses migrations 029 and 028 and removes both ledger
+// rows so an upgrade fixture can present the exact version 27 schema before
+// migrating forward again.
+var RevertVersion28SQL = RevertVersion29SQL + " ; " + revertVersion28SQL()
+
+// RevertVersion27SQL reverses migrations 029, 028 and 027, removing their ledger
+// rows so an upgrade fixture can present the exact version 26 schema before
 // migrating forward again.
 var RevertVersion27SQL = RevertVersion28SQL + " ; " + revertVersion27SQL()
 
-// RevertVersion26SQL reverses migrations 028, 027 and 026, removing their
+// RevertVersion26SQL reverses migrations 029, 028, 027 and 026, removing their
 // ledger rows so an upgrade fixture can present the exact version 25 schema
 // before migrating forward again.
 var RevertVersion26SQL = RevertVersion27SQL + " ; " + revertVersion26SQL()
 
-// RevertVersion25SQL reverses migrations 028, 027, 026 and 025, removing all
-// ledger rows so an upgrade fixture can present the exact version 24 schema
+// RevertVersion25SQL reverses migrations 029, 028, 027, 026 and 025, removing
+// all ledger rows so an upgrade fixture can present the exact version 24 schema
 // before migrating forward again.
 var RevertVersion25SQL = RevertVersion26SQL + " ; " + revertVersion25SQL()
 
-// RevertVersion24SQL reverses migrations 028, 027, 026, 025 and 024, removing
-// all ledger rows so an upgrade fixture can present the exact version 23 schema
-// before migrating forward again.
+// RevertVersion24SQL reverses migrations 029, 028, 027, 026, 025 and 024,
+// removing all ledger rows so an upgrade fixture can present the exact version
+// 23 schema before migrating forward again.
 var RevertVersion24SQL = RevertVersion25SQL + " ; " + revertVersion24SQL()
 
-// RevertVersion23SQL reverses migrations 028, 027, 026, 025, 024 and 023,
+// RevertVersion23SQL reverses migrations 029, 028, 027, 026, 025, 024 and 023,
 // removing their ledger rows so an upgrade fixture can present the exact
 // version 22 schema before migrating forward again.
 var RevertVersion23SQL = RevertVersion24SQL + " ; " + revertVersion23SQL()
 
-// RevertVersion22SQL reverses migrations 028, 027, 026, 025, 024, 023 and 022,
-// removing their ledger rows so an upgrade fixture can present the exact
+// RevertVersion22SQL reverses migrations 029, 028, 027, 026, 025, 024, 023 and
+// 022, removing their ledger rows so an upgrade fixture can present the exact
 // version 21 schema before migrating forward again.
 var RevertVersion22SQL = RevertVersion23SQL + " ; " + revertVersion22SQL()
 
-// RevertVersion21SQL reverses migrations 028, 027, 026, 025, 024, 023, 022 and
-// 021, removing their ledger rows so an upgrade fixture can present the exact
-// version 20 schema before migrating forward again.
+// RevertVersion21SQL reverses migrations 029, 028, 027, 026, 025, 024, 023, 022
+// and 021, removing their ledger rows so an upgrade fixture can present the
+// exact version 20 schema before migrating forward again.
 var RevertVersion21SQL = RevertVersion22SQL + " ; " + revertVersion21SQL()
 
-// RevertVersion20SQL reverses migrations 028, 027, 026, 025, 024, 023, 022, 021
-// and then 020, removing their ledger rows so fixtures written before 021 keep
-// presenting the exact version 19 schema.
+// RevertVersion20SQL reverses migrations 029, 028, 027, 026, 025, 024, 023, 022,
+// 021 and then 020, removing their ledger rows so fixtures written before 021
+// keep presenting the exact version 19 schema.
 var RevertVersion20SQL = RevertVersion21SQL + " ; " + revertVersion20SQL()
+
+func revertVersion29SQL() string {
+	down, err := database.MigrationDownSQL(29)
+	if err != nil {
+		panic("revert version 29 SQL unavailable: " + err.Error())
+	}
+	return down + " DELETE FROM tendo_schema_migrations WHERE version=29"
+}
 
 func revertVersion28SQL() string {
 	down, err := database.MigrationDownSQL(28)

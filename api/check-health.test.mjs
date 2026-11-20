@@ -109,8 +109,12 @@ test('smoke coverage scopes partition every OpenAPI operationId', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')
   const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  // MCP operations are answered 404 while MCP is disabled (ADR 0023) and are
+  // covered by backend/cmd/tendo composition tests, not by live smoke runs.
+  const mcpOperationIds = ['registerMcpClient', 'getMcpProtectedResourceMetadata', 'getMcpAuthorizationServerMetadata']
   const operationIds = Object.values(contract.paths)
     .flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))
+    .filter(id => !mcpOperationIds.includes(id))
   const scripts = new URL('../scripts/', import.meta.url)
   const read = name => readFile(new URL(name, scripts), 'utf8')
   const ids = text => text.match(/[A-Za-z]+/g) ?? []

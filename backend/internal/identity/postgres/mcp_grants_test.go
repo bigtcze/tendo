@@ -246,7 +246,7 @@ func TestMCPHappyPathEndToEnd(t *testing.T) {
 	}
 	if c := env.counts(t, user); c.codes != 1 || c.access != 2 || c.refresh != 2 {
 		// The used code row is kept (it names the grant); consumed refresh digests
-		// are kept until the grant is revoked.
+		// are kept until the grant ends.
 		t.Fatalf("secret rows = %+v, want codes=1 access=2 refresh=2", c)
 	}
 

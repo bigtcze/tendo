@@ -95,10 +95,10 @@ func TestMigrationTwentyEightUpAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 28)
+	requireSchemaVersion(t, ctx, admin, 29)
 	for _, table := range mcpTables {
 		if !migrationRelationExists(t, ctx, admin, table) {
-			t.Fatalf("%s missing after migrate to 28", table)
+			t.Fatalf("%s missing after migrate to 29", table)
 		}
 	}
 
@@ -107,7 +107,7 @@ func TestMigrationTwentyEightUpAndPrivileges(t *testing.T) {
 		allowed   []string // table-level privileges held by tendo
 		updatable []string // columns tendo may UPDATE, in any order
 	}{
-		{"mcp_clients", []string{"SELECT"}, nil},
+		{"mcp_clients", []string{"SELECT", "INSERT", "DELETE"}, []string{"last_used_at"}},
 		{"mcp_grants", []string{"SELECT", "INSERT"}, []string{"revoked_at", "revoke_reason"}},
 		{"mcp_authorization_codes", []string{"SELECT", "INSERT", "DELETE"}, []string{"issued_grant_id", "used_at"}},
 		{"mcp_access_tokens", []string{"SELECT", "INSERT", "DELETE"}, nil},
@@ -310,7 +310,7 @@ func TestMigrationTwentyEightUpgradePreservesRows(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("upgrade to 028: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 28)
+	requireSchemaVersion(t, ctx, admin, 29)
 	if got := migrationInt(t, ctx, admin, `SELECT count(*) FROM households`); got != households {
 		t.Fatalf("households after upgrade=%d want %d", got, households)
 	}
@@ -373,7 +373,7 @@ func TestMigrationTwentyEightDownDropsGrantsAndReapplies(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 028: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 28)
+	requireSchemaVersion(t, ctx, admin, 29)
 	for _, table := range mcpTables {
 		if !migrationRelationExists(t, ctx, admin, table) {
 			t.Fatalf("%s missing after re-apply", table)
