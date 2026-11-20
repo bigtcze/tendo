@@ -137,7 +137,13 @@ the same protocol.
 5. `household_memberships FOR UPDATE` — the row whose version authorizes the
    change.
 6. items, subjects, and `password_reset_tokens`.
-7. `local_credentials` and sessions last, in the ADR 0018 replacement order.
+7. `local_credentials` and sessions, in the ADR 0018 replacement order.
+8. MCP rows last: `mcp_authorization_codes`, then `mcp_grants`, then
+   `mcp_access_tokens` / `mcp_refresh_tokens`
+   ([ADR 0023](0023-mcp-oauth-grant-store.md)). MCP issuance takes
+   `user_accounts FOR SHARE` (step 4) and `local_credentials FOR SHARE`
+   (step 7) before any MCP row, so it serializes with deletion and password
+   replacement.
 
 Slice C (account deletion) must keep exactly these modes and must never run at
 `REPEATABLE READ`: every invariant it checks (last admin, last instance
