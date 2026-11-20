@@ -440,3 +440,43 @@ accepted, because a downgraded release has no `client` cause.
   handle pattern.
 - The consent screen shows "signed in as" and the unverified client name.
 - A test keeps `frame-ancestors 'none'` on `/connect`.
+
+## Slice A3b: consent screen
+
+Slice A3b adds the web page that `/oauth/authorize` sends the browser to. It
+changes no backend behaviour; production MCP stays hard-disabled until A4, so
+the page can show only its error and "no longer valid" states there. The
+decisions below follow the independent design review recorded on #456.
+
+- `/connect` is an ordinary SPA document with the same CSP
+  (`frame-ancestors 'none'`), `X-Frame-Options: DENY`,
+  `Referrer-Policy: same-origin` and `Cache-Control: no-cache` as every page.
+  Tests pin this in the web UI handler and the production composition.
+- The fragment is read once and removed from the address bar. It holds exactly
+  one key: `request` (43 base64url characters) or `error` (a fixed set of codes).
+  Anything else is an invalid request. Fragment text is never shown.
+- The handle is kept in memory and in `sessionStorage` (`tendo.mcpConnect`) for
+  at most 5 minutes, so a reload or an identity-provider round trip keeps it.
+  The handle is useless without the HttpOnly binding cookie, so this adds no
+  exposure. The stored entry is revalidated on every read.
+- Return after sign-in: only the sign-in action started from the `/connect`
+  sign-in screen sets the return flag. A successful sign-in consumes it once
+  and opens `/connect`. On boot it is consumed only at `/`, `/login` and
+  `/connect`. The literal `/connect` with a stored, pattern-valid handle is the
+  only possible target.
+- The page shows the client name marked as unverified and the redirect target:
+  the punycode host name for https, "an app on this computer" for loopback, and
+  "an app on this device" plus the scheme for a private-use scheme (RFC 8252
+  §8.6). It also shows "signed in as" with a sign-out that returns to the
+  `/connect` sign-in screen.
+- Allow is never focused automatically and is enabled only after the page has
+  been visible and focused for one second. Losing visibility or focus restarts
+  the delay, against click-jacking through pop-ups and double clicks.
+- A decision is sent at most once. The browser follows `redirectTo` only when
+  it extends the registered redirect URI from the request (loopback port
+  ignored) and is not a script-capable scheme. Then the page shows a final
+  "returning to the app" state that never offers the buttons again.
+
+Deferred to A4, where a real pending request exists without mocking the
+backend: the visual baselines of a live consent, the consent screen in E2E
+journey 17, and the user documentation.

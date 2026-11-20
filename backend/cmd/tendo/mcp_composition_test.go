@@ -144,3 +144,15 @@ func TestProductionOriginExemptionIsExactlyTheMCPList(t *testing.T) {
 		}
 	}
 }
+
+// TestProductionCompositionServesConsentPage pins that the consent page the
+// authorization endpoint redirects to is the web UI, not a reserved MCP path:
+// /connect sits outside /oauth/, /mcp and /.well-known/ (ADR 0023), so it
+// reaches the SPA even while MCP is disabled.
+func TestProductionCompositionServesConsentPage(t *testing.T) {
+	app, cfg := newProductionTestApp(t)
+	w := serveAt(app, http.MethodGet, cfg.PublicURL+"/connect", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "spa-fallback") {
+		t.Fatalf("GET /connect status=%d body=%s; want the web UI", w.Code, w.Body)
+	}
+}

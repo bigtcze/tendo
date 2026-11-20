@@ -5,8 +5,13 @@ import type { NoticeMessage } from './notices';
 import type { Route } from './routes';
 import type { OidcEntryActions } from './useOidcEntry';
 import { clearPendingStores, useSessionTransitions } from './useSessionTransitions';
+import { takeConnectReturn } from '../features/mcp/connectEntry';
+import { CONNECT_PATH } from './routes';
 
 export { clearPendingStores } from './useSessionTransitions';
+
+/** Entry addresses a sign-in can land on; only these may be replaced by the consent page after a boot. */
+const CONNECT_RETURN_FROM = new Set(['/', '/login', CONNECT_PATH]);
 
 export type BootState =
   | { kind: 'loading' | 'error' | 'setupRequired' | 'signedOut' }
@@ -60,13 +65,19 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
       if (next.kind === 'signedIn') {
         advanceSessionGeneration();
         clearContinue();
+        // A reload of the consent sign-in lands on the consent page once; the flag is consumed, so a later boot
+        // does not repeat it. Any other address keeps its own destination.
+        if (CONNECT_RETURN_FROM.has(window.location.pathname) && takeConnectReturn()) {
+          window.history.replaceState(null, '', CONNECT_PATH);
+          setRoute({ kind: 'connect' });
+        }
       }
       // Nothing is pending for a signed-out visitor: drop drafts owned by the previous signed-in session.
       if (next.kind === 'signedOut') clearPendingStores();
       setState(next);
     });
     return () => { cancelled = true; };
-  }, [attempt, advanceSessionGeneration, clearContinue]);
+  }, [attempt, advanceSessionGeneration, clearContinue, setRoute]);
 
   const retry = useCallback(() => {
     transitionedRef.current = true;

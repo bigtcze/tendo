@@ -206,6 +206,7 @@ test.describe('Tendo production journey', () => {
   const instanceAdminRefusals: string[] = [];
   let passwordResetFailures: string[] = [];
   let passwordChangeFailures: string[] = [];
+  let connectGoneRefusal = '';
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
@@ -364,6 +365,51 @@ test.describe('Tendo production journey', () => {
       );
       expect(overflow, `${viewport.width}px horizontal overflow`).toBeLessThanOrEqual(0);
     }
+  });
+
+  test('g1. the MCP consent page cannot be framed, strips its fragment and states a dead request calmly', async () => {
+    // V5-12 A3b: /connect is where the authorization endpoint lands. Production MCP is still disabled (A4), so the
+    // page can only show its error states here: a carried error code, and a request the server no longer knows.
+    const response = await page.goto('/connect#error=invalid_client');
+    expect(response?.status()).toBe(200);
+    expect(response?.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(response?.headers()['x-frame-options']).toBe('DENY');
+    expect(response?.headers()['referrer-policy']).toBe('same-origin');
+    await expect(page.getByRole('heading', { level: 1, name: en['connect.problem.title'] })).toBeVisible();
+    await expect(page.getByText(en['connect.problem.invalid_client'], { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: en['connect.allow'], exact: true })).toHaveCount(0);
+    expect(new URL(page.url()).hash).toBe('');
+    expect(new URL(page.url()).pathname).toBe('/connect');
+    await expectNoAxeViolations(page, 'connect-error');
+    await page.setViewportSize({ width: 320, height: 640 });
+    try {
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, '320px horizontal overflow on /connect').toBeLessThanOrEqual(0);
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+
+    // Mixed keys are never interpreted: the generic invalid-request message.
+    await page.goto(`/connect#request=${'A'.repeat(43)}&error=invalid_client`);
+    await expect(page.getByText(en['connect.problem.request'], { exact: true })).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('');
+
+    // A pattern-valid handle the server does not know (MCP disabled: the unknown-path 404) is "no longer valid".
+    const handle = 'B'.repeat(43);
+    const consentPath = `/api/v1/mcp/authorization-requests/${handle}`;
+    expectedFailedStatuses.add(`${consentPath} 404`);
+    const read = page.waitForResponse((candidate) => new URL(candidate.url()).pathname === consentPath);
+    await page.goto(`/connect#request=${handle}`);
+    expect((await read).status()).toBe(404);
+    await expect(page.getByText(en['connect.gone'], { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: en['connect.allow'], exact: true })).toHaveCount(0);
+    expect(new URL(page.url()).hash).toBe('');
+    connectGoneRefusal = `GET ${consentPath} 404`;
+    // The dead request is dropped, so it never comes back on a later visit or sign-in.
+    expect(await page.evaluate(() => sessionStorage.getItem('tendo.mcpConnect'))).toBeNull();
+    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: homeHeadings })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
   });
 
   const subjectKeys = ['archived', 'createdAt', 'id', 'linkedUserId', 'name', 'type', 'updatedAt'];
@@ -7464,7 +7510,7 @@ test.describe('Tendo production journey', () => {
     // The two refusals are only ledgered by the tests that proved them, so a skipped proof cannot pass here.
     // The ledger is a set, so two independent proofs of the same refusal (a reset and a password change each end a
     // session, and both prove it with the same refused household read) collapse into one expected entry.
-    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, ...instanceAdminRefusals, ...passwordResetFailures, ...passwordChangeFailures])].sort());
+    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, connectGoneRefusal, ...instanceAdminRefusals, ...passwordResetFailures, ...passwordChangeFailures])].sort());
     expect(problems).toEqual([]);
   });
 });

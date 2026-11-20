@@ -5,12 +5,14 @@ import { login, type Session } from './sessionApi';
 type LoginFailure = 'invalid' | 'rateLimited' | 'unavailable';
 type OidcFailure = Exclude<StartResult['kind'], 'redirect'>;
 
-export function useLoginActions({ onSignedIn, initialLogin, focusPassword, focusProvider, onProviderDisabled }: {
+export function useLoginActions({ onSignedIn, initialLogin, focusPassword, focusProvider, onProviderDisabled, onSignInStart }: {
   onSignedIn: (session: Session) => void;
   initialLogin?: string;
   focusPassword: () => void;
   focusProvider: () => void;
   onProviderDisabled: () => void;
+  /** Called as a sign-in attempt begins, before the request, so the attempt can be marked to return somewhere. */
+  onSignInStart?: () => void;
 }) {
   const [loginName, setLoginName] = useState(initialLogin ?? '');
   const [password, setPassword] = useState('');
@@ -20,9 +22,9 @@ export function useLoginActions({ onSignedIn, initialLogin, focusPassword, focus
   const [oidcError, setOidcError] = useState<OidcFailure | null>(null);
   const pendingOidcRef = useRef(false);
   const mountedRef = useRef(false);
-  const callbacks = useRef({ onSignedIn, focusPassword, focusProvider, onProviderDisabled });
+  const callbacks = useRef({ onSignedIn, focusPassword, focusProvider, onProviderDisabled, onSignInStart });
 
-  useEffect(() => { callbacks.current = { onSignedIn, focusPassword, focusProvider, onProviderDisabled }; });
+  useEffect(() => { callbacks.current = { onSignedIn, focusPassword, focusProvider, onProviderDisabled, onSignInStart }; });
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -34,6 +36,7 @@ export function useLoginActions({ onSignedIn, initialLogin, focusPassword, focus
     setPending(true);
     setError(null);
     setOidcError(null);
+    callbacks.current.onSignInStart?.();
     const result = await login(loginName, password);
     if (!mountedRef.current) return;
     if (result.kind === 'ok') {
@@ -52,6 +55,7 @@ export function useLoginActions({ onSignedIn, initialLogin, focusPassword, focus
     setOidcPending(true);
     setOidcError(null);
     setError(null);
+    callbacks.current.onSignInStart?.();
     const result = await startOidc({ purpose: 'login' });
     if (!mountedRef.current) return;
     if (result.kind === 'redirect') {
