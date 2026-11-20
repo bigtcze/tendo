@@ -5,9 +5,12 @@
 --
 -- Registration (RFC 7591) inserts client rows and the retention sweep deletes
 -- them after 24 hours without a grant or code. The sweep and expiry deletes
--- need the expiry indexes below to stay short under lock_timeout. UPDATE on
--- last_used_at is granted only so the runtime role can take FOR KEY SHARE and
--- FOR UPDATE row locks on clients; no other client column is writable.
+-- need the expiry indexes below to stay short under lock_timeout.
+--
+-- Lock grants on mcp_clients: FOR KEY SHARE (taken by code issuance) needs only
+-- SELECT. The sweep's FOR UPDATE SKIP LOCKED needs UPDATE privilege on a column,
+-- so UPDATE (last_used_at) is granted for that. No other client column is
+-- writable by the runtime role.
 
 GRANT INSERT, DELETE ON mcp_clients TO tendo;
 GRANT UPDATE (last_used_at) ON mcp_clients TO tendo;
