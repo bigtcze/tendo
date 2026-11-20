@@ -188,6 +188,10 @@ func NewMCPService(repository MCPRepository, options MCPOptions, clock func() ti
 	}, nil
 }
 
+// Enabled reports whether MCP issuance and registration are switched on. The
+// HTTP adapter answers the same 404 as an unknown reserved path while it is off.
+func (s *MCPService) Enabled() bool { return s.enabled }
+
 func (s *MCPService) now() time.Time { return s.clock().UTC().Truncate(time.Microsecond) }
 
 // MCPAuthorization is an approved consent: the signed-in human, the browser

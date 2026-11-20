@@ -164,6 +164,11 @@ func writeStatus(w http.ResponseWriter, code int, value string) {
 	_ = json.NewEncoder(w).Encode(apimodel.StatusResponse{Status: value})
 }
 
+// WriteNotFound writes the problem+json 404 the router gives an unknown
+// reserved path. Feature handlers use it for a disabled surface so that the
+// response is byte-identical to an unknown path.
+func WriteNotFound(w http.ResponseWriter) { writeProblem(w, http.StatusNotFound, "Not Found") }
+
 func writeProblem(w http.ResponseWriter, code int, title string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.Header().Set("Cache-Control", "no-store")
