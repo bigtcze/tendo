@@ -53,6 +53,8 @@ func TestSweeperRunsAtStartupAndStopsOnShutdown(t *testing.T) {
 	mu.Lock()
 	before := calls
 	mu.Unlock()
+	// The goroutine has exited, so several intervals later no sweep may follow.
+	time.Sleep(4 * s.interval)
 	mu.Lock()
 	after := calls
 	mu.Unlock()
@@ -88,6 +90,37 @@ func TestSweeperLogsCountsAndFixedFaultClassOnly(t *testing.T) {
 	ok.once(context.Background())
 	if !strings.Contains(buf.String(), "access_tokens_expired=3") {
 		t.Fatalf("sweep log lacks counts: %s", buf.String())
+	}
+}
+
+// TestSweeperLogsContextFaultClasses pins that a sweep ended by its run timeout
+// or by shutdown is logged as timeout or canceled, never as a step failure.
+func TestSweeperLogsContextFaultClasses(t *testing.T) {
+	for _, tc := range []struct {
+		name, class string
+		run         func(context.Context, mcpSweeper)
+	}{
+		{"timeout", "class=timeout", func(ctx context.Context, s mcpSweeper) { s.timeout = time.Nanosecond; s.once(ctx) }},
+		{"canceled", "class=canceled", func(ctx context.Context, s mcpSweeper) {
+			ctx, cancel := context.WithCancel(ctx)
+			cancel()
+			s.once(ctx)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			s := mcpSweeper{
+				sweep: func(ctx context.Context) (identityapp.MCPSweepReport, error) {
+					<-ctx.Done()
+					return identityapp.MCPSweepReport{}, ctx.Err()
+				},
+				timeout: time.Second, logger: slog.New(slog.NewTextHandler(&buf, nil)),
+			}
+			tc.run(context.Background(), s)
+			if !strings.Contains(buf.String(), tc.class) {
+				t.Fatalf("want %s in sweep log: %s", tc.class, buf.String())
+			}
+		})
 	}
 }
 
