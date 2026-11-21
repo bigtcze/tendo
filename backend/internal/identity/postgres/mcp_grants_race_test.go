@@ -118,7 +118,10 @@ func TestConnectedAppsRaceUserRevokeAndPasswordReplacement(t *testing.T) {
 		defer func() {
 			if !released {
 				close(release)
-				<-done
+				// The test has already failed; the change's result is only logged.
+				if err := <-done; err != nil {
+					t.Logf("paused password change after failure: %v", err)
+				}
 			}
 		}()
 		revokeDone := env.userRevokeRace(user, grantID)
