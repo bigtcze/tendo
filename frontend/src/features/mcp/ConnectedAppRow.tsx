@@ -1,7 +1,12 @@
-import type { MouseEvent } from 'react';
+import { useMemo, type MouseEvent } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import type { McpGrant } from './mcpGrantsApi';
+
+/** One formatter per locale, shared by every row: rows re-render on each list change, the locale rarely does. */
+export function useDayFormatter(locale: string) {
+  return useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }), [locale]);
+}
 
 /** Access in human words: a read-only app never reads as one that can also change items. */
 export function accessKey(scopes: McpGrant['scopes']): MessageKey {
@@ -18,7 +23,7 @@ export function ConnectedAppRow({ grant, busy, onDisconnect }: {
   onDisconnect: (grant: McpGrant, trigger: HTMLButtonElement) => void;
 }) {
   const { t, locale } = useI18n();
-  const day = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  const day = useDayFormatter(locale);
   return <li data-grant-id={grant.id} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 py-4">
     <div className="min-w-0 flex-1 basis-56 space-y-1">
       <p dir="auto" className="text-row-title font-semibold text-ink [overflow-wrap:anywhere]">{grant.clientName}</p>

@@ -157,6 +157,59 @@ describe('ConnectedAppsSection disconnect', () => {
     await waitFor(() => expect(pageHeading).toHaveFocus());
   });
 
+  it('announces the last removal politely, then hides the empty section once the notice has had time to be read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const listed = [A];
+      installFakeServer({
+        [LIST]: () => page(listed),
+        [revokePath(A.id)]: () => { listed.length = 0; return json(204); },
+      });
+      const { container } = renders();
+      await userEvent.click(await screen.findByRole('button', { name: 'Disconnect Claude Code' }));
+      await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Disconnect' }));
+      const announcement = await screen.findByText('Claude Code was disconnected.');
+      // The live region is the element a screen reader hears: polite, atomic, and still mounted with the message.
+      const region = announcement.closest('[role="status"]');
+      expect(region, 'announcement sits in a polite live region').not.toBeNull();
+      expect(region?.getAttribute('aria-atomic')).toBe('true');
+      const section = container.querySelector('section');
+      expect(section?.classList.contains('hidden')).toBe(false);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+      await waitFor(() => expect(screen.queryByText('Claude Code was disconnected.')).toBeNull());
+      // The live region is still in the DOM (empty), so the next announcement has somewhere to go.
+      expect(container.querySelector('[role="status"]')).not.toBeNull();
+      expect(section?.classList.contains('hidden')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears an earlier outcome notice when the next disconnect is requested', async () => {
+    let listed = [A, B];
+    installFakeServer({
+      [LIST]: () => page(listed),
+      [revokePath(B.id)]: () => { listed = [A]; return json(204); },
+    });
+    renders();
+    await userEvent.click(await screen.findByRole('button', { name: 'Disconnect Notes helper' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Disconnect' }));
+    expect(await screen.findByText('Notes helper was disconnected.')).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // A second, unrelated request: the old sentence must not sit beside its dialog.
+    await userEvent.click(screen.getByRole('button', { name: 'Disconnect Claude Code' }));
+    expect(screen.queryByText('Notes helper was disconnected.')).toBeNull();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Disconnect Claude Code?');
+    // Cancel keeps the list as it was and leaves no notice behind either.
+    await userEvent.click(within(dialog).getByRole('button', { name: en['admin.action.cancel'] }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByText('Notes helper was disconnected.')).toBeNull();
+    expect(rows()).toHaveLength(1);
+  });
+
   it('reloads quietly on 404 and shows the neutral already-disconnected notice', async () => {
     let listed = [A, B];
     const fake = installFakeServer({

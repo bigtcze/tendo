@@ -40,6 +40,8 @@ export function ConnectedAppsSection({ onSignedOut, pageHeadingRef }: {
   const visible = apps.state === 'error' || (apps.state === 'ready' && apps.grants.length > 0);
   useFocusAfterRemoval(apps.grants, disconnect, listRef, [headingRef, pageHeadingRef]);
 
+  // With nothing to show, the section stays display:none except while the outcome sentence is on screen. The notice
+  // timer clears it after NOTICE_VISIBLE_MS, so the empty section returns to hidden without unmounting the live region.
   return <section
     aria-labelledby={visible ? HEADING_ID : undefined}
     className={cn('mt-6 max-w-3xl sm:mt-8', visible && 'border-t border-line pt-6', !visible && !disconnect.notice && 'hidden')}
