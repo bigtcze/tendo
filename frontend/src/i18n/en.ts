@@ -771,7 +771,7 @@ export const en = {
   'connectedApps.disconnect': 'Disconnect',
   'connectedApps.disconnectLabel': 'Disconnect {client}',
   'connectedApps.dialog.title': 'Disconnect {client}?',
-  'connectedApps.dialog.body': '{client} loses access right away. To use Tendo again, connect the app again from the app.',
+  'connectedApps.dialog.body': '{client} loses access right away. To use it with Tendo again, you will have to connect it again.',
   'connectedApps.dialog.confirm': 'Disconnect',
   'connectedApps.dialog.working': 'Disconnecting…',
   'connectedApps.notice.disconnected': '{client} was disconnected.',
