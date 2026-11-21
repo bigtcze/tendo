@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
+	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 )
 
 // Connected-apps revocation raced against the other ways a grant ends (ADR 0023,
@@ -39,10 +41,126 @@ func (e *mcpEnv) requireOneRevocation(t *testing.T, grantID string) string {
 	return reason
 }
 
-// TestConnectedAppsRaceUserRevokeAndRefresh: a refresh holds the account lock
-// while the user revoke queues behind it. The refresh commits first, so the
-// revoke then revokes the rotated grant. Whatever the refresh returned, the
-// rotated pair is dead afterwards and exactly one revocation exists.
+// TestConnectedAppsRaceUserRevokeAndRefreshOrdered forces each order of a user
+// revoke and a refresh of the same grant. No production hook exists for either
+// path, so the first party is a raw transaction that takes the same locks, in
+// the same ADR 0023 order, as the production path it stands in for. The second
+// party is the production call, and the test waits on the lock it must reach.
+func TestConnectedAppsRaceUserRevokeAndRefreshOrdered(t *testing.T) {
+	// The revoke holds the grant first. The refresh must queue on the grant lock
+	// (not return early), and once the revoke commits it must refuse with
+	// ErrMCPInvalidGrant. No token survives, and the grant is revoked by the user.
+	t.Run("revoke holds the grant first, refresh must wait then refuse", func(t *testing.T) {
+		env := newMCPEnv(t)
+		user, session := env.newAccount(t, "apps_ord_revoke_first")
+		first, err := env.exchange(env.issue(t, user, session))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		grantID := env.grantOf(t, user).id
+
+		tx, err := env.admin.Begin(env.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		// Same locks, same order, as RevokeGrant: the account FOR SHARE, the
+		// grant FOR UPDATE, then the revoke write itself.
+		if _, err = tx.Exec(env.ctx, `SELECT id FROM user_accounts WHERE id=$1::uuid AND deleted_at IS NULL FOR SHARE`, user); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(env.ctx, `SELECT id FROM mcp_grants WHERE id=$1::uuid FOR UPDATE`, grantID); err != nil {
+			t.Fatal(err)
+		}
+		// The revoke is the production RevokeGrant, run on the held transaction.
+		// It deletes the codes, revokes the grant, then deletes the access and
+		// refresh rows, so the whole secret cleanup happens under the held locks.
+		held := &mcpTx{q: identitydb.New(tx)}
+		if err = held.RevokeGrant(env.ctx, grantID, env.clock.now(), identity.MCPRevocation{Reason: identity.MCPRevokeUser, ActorUserID: user}); err != nil {
+			t.Fatal(err)
+		}
+
+		refreshed := make(chan error, 1)
+		go func() {
+			_, err := env.refresh(first.RefreshToken)
+			refreshed <- err
+		}()
+		waitForLockWaiters(t, env.ctx, env.observer, "%FOR UPDATE%", 1)
+		select {
+		case err := <-refreshed:
+			t.Fatalf("refresh returned while the revoke held the grant: %v", err)
+		default:
+		}
+		if err = tx.Commit(env.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err = <-refreshed; !errors.Is(err, identity.ErrMCPInvalidGrant) {
+			t.Fatalf("refresh after the revoke err=%v, want ErrMCPInvalidGrant", err)
+		}
+		env.requireNoMCPSecrets(t, user)
+		env.requireGrantRevoked(t, user, string(identity.MCPRevokeUser), user)
+	})
+
+	// The refresh holds the grant first. The revoke must queue on the grant lock
+	// and, once the refresh is released, succeed with exactly one revocation
+	// event naming the user as reason and actor. The rotated pair must be gone.
+	t.Run("refresh holds the grant first, revoke must wait then succeed", func(t *testing.T) {
+		env := newMCPEnv(t)
+		user, session := env.newAccount(t, "apps_ord_refresh_first")
+		first, err := env.exchange(env.issue(t, user, session))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		grantID := env.grantOf(t, user).id
+
+		tx, err := env.admin.Begin(env.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		// Same locks, same order, as the refresh path: the account FOR SHARE, the
+		// grant FOR UPDATE, then the presented refresh token FOR UPDATE.
+		if _, err = tx.Exec(env.ctx, `SELECT id FROM user_accounts WHERE id=$1::uuid AND deleted_at IS NULL FOR SHARE`, user); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(env.ctx, `SELECT id FROM mcp_grants WHERE id=$1::uuid FOR UPDATE`, grantID); err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256([]byte(first.RefreshToken))
+		if _, err = tx.Exec(env.ctx, `SELECT token_hash FROM mcp_refresh_tokens WHERE token_hash=$1 FOR UPDATE`, digest[:]); err != nil {
+			t.Fatal(err)
+		}
+
+		revoked := env.userRevokeRace(user, grantID)
+		waitForLockWaiters(t, env.ctx, env.observer, "%FOR UPDATE%", 1)
+		select {
+		case err := <-revoked:
+			t.Fatalf("revoke returned while the refresh held the grant: %v", err)
+		default:
+		}
+		// The refresh-shaped transaction commits without rotating: the revoke is
+		// the outcome under test, so the held rows are only released.
+		if err = tx.Commit(env.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err = <-revoked; err != nil {
+			t.Fatalf("revoke after the refresh released: %v", err)
+		}
+		if reason := env.requireOneRevocation(t, grantID); reason != string(identity.MCPRevokeUser) {
+			t.Fatalf("revocation reason = %q, want user", reason)
+		}
+		env.requireGrantRevoked(t, user, string(identity.MCPRevokeUser), user)
+		env.requireNoMCPSecrets(t, user)
+		if _, err = env.refresh(first.RefreshToken); !errors.Is(err, identity.ErrMCPInvalidGrant) {
+			t.Fatalf("refresh of the revoked pair err=%v, want ErrMCPInvalidGrant", err)
+		}
+	})
+}
+
+// TestConnectedAppsRaceUserRevokeAndRefresh is the open-order stress test: a
+// refresh and a user revoke start together, and either may win. Whatever the
+// refresh returned, the rotated pair is dead afterwards and exactly one
+// revocation exists. The forced orders are in the Ordered test above.
 func TestConnectedAppsRaceUserRevokeAndRefresh(t *testing.T) {
 	env := newMCPEnv(t)
 	for i := 0; i < 20; i++ {
