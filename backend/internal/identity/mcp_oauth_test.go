@@ -242,6 +242,19 @@ func (t *mcpTx) FindRefreshOwner(ctx context.Context, refreshHash []byte) (strin
 	return t.s.grants[refresh.GrantID].UserID, refresh.GrantID, nil
 }
 
+// FindGrantOwner is the unlocked owner read: no lock is recorded, so a test can
+// tell a foreign or unknown grant refusal from one that took the account lock.
+func (t *mcpTx) FindGrantOwner(ctx context.Context, grantID string) (string, error) {
+	if err := t.op("FindGrantOwner"); err != nil {
+		return "", err
+	}
+	grant, ok := t.s.grants[grantID]
+	if !ok {
+		return "", ErrNotFound
+	}
+	return grant.UserID, nil
+}
+
 func (t *mcpTx) LockGrant(ctx context.Context, grantID string) (MCPGrantRecord, error) {
 	if err := t.op("LockGrant"); err != nil {
 		return MCPGrantRecord{}, err

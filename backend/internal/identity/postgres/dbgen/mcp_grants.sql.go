@@ -309,6 +309,20 @@ func (q *Queries) FindMCPClient(ctx context.Context, clientID string) (FindMCPCl
 	return i, err
 }
 
+const findMCPGrantOwner = `-- name: FindMCPGrantOwner :one
+SELECT user_id FROM mcp_grants WHERE id = $1
+`
+
+// The unlocked pre-read for a user's own grant revocation: the account is
+// locked before the grant row. An unknown grant and a foreign grant both answer
+// no rows, so the caller learns nothing about another account's grants.
+func (q *Queries) FindMCPGrantOwner(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, findMCPGrantOwner, id)
+	var user_id pgtype.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const findMCPRefreshTokenOwner = `-- name: FindMCPRefreshTokenOwner :one
 SELECT g.user_id, g.id AS grant_id FROM mcp_refresh_tokens r JOIN mcp_grants g ON g.id = r.grant_id WHERE r.token_hash = $1
 `
@@ -325,6 +339,66 @@ func (q *Queries) FindMCPRefreshTokenOwner(ctx context.Context, tokenHash []byte
 	var i FindMCPRefreshTokenOwnerRow
 	err := row.Scan(&i.UserID, &i.GrantID)
 	return i, err
+}
+
+const listLiveMCPGrants = `-- name: ListLiveMCPGrants :many
+SELECT g.id, c.client_name, g.scopes, g.created_at, g.expires_at
+FROM mcp_grants g JOIN mcp_clients c ON c.client_id = g.client_id
+WHERE g.user_id = $1
+  AND g.revoked_at IS NULL
+  AND g.expires_at > $2::timestamptz
+  AND ($3::uuid IS NULL OR g.id < $3::uuid)
+ORDER BY g.id DESC
+LIMIT $4::int
+`
+
+type ListLiveMCPGrantsParams struct {
+	UserID    pgtype.UUID
+	Now       pgtype.Timestamptz
+	AfterID   pgtype.UUID
+	PageLimit int32
+}
+
+type ListLiveMCPGrantsRow struct {
+	ID         pgtype.UUID
+	ClientName string
+	Scopes     []string
+	CreatedAt  pgtype.Timestamptz
+	ExpiresAt  pgtype.Timestamptz
+}
+
+// A plain read for the connected-apps list: live means not revoked and not
+// expired. Keyset pagination on id (UUIDv7, creation order), newest first. A
+// null after_id is the first page.
+func (q *Queries) ListLiveMCPGrants(ctx context.Context, arg ListLiveMCPGrantsParams) ([]ListLiveMCPGrantsRow, error) {
+	rows, err := q.db.Query(ctx, listLiveMCPGrants,
+		arg.UserID,
+		arg.Now,
+		arg.AfterID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLiveMCPGrantsRow{}
+	for rows.Next() {
+		var i ListLiveMCPGrantsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClientName,
+			&i.Scopes,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockLiveMCPAccount = `-- name: LockLiveMCPAccount :one

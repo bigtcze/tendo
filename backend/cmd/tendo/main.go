@@ -186,6 +186,9 @@ func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessi
 		return err
 	}
 	identityhttp.NewMCP(mcpService, sessions, cfg.PublicURL).Register(routes)
+	// Connected apps work whether or not TENDO_MCP_ENABLED is set: a paused
+	// grant can still be listed and disconnected.
+	identityhttp.NewMCPGrants(mcpService, sessions).Register(routes)
 	endpoint, err := identityhttp.NewMCPEndpoint(mcpService, cfg.PublicURL, cfg.DBTimeout, []identityhttp.MCPTool{
 		householdmcp.ListHouseholds(households),
 	})

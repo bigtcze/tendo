@@ -114,6 +114,33 @@ describe('account page is a stack of flat sections', () => {
     }
   });
 
+  it('mounts connected apps after the household stack, as the last section of the page', async () => {
+    installFakeServer(signedInRoutes({
+      'GET /api/v1/mcp/grants': json(200, {
+        items: [{
+          id: '0198a2f0-0000-7000-8000-00000000000a',
+          clientName: 'Claude Code',
+          clientNameVerified: false,
+          scopes: ['tendo:read'],
+          createdAt: '2026-11-20T10:00:00Z',
+          expiresAt: '2027-02-18T10:00:00Z',
+        }],
+        nextCursor: null,
+      }),
+    }));
+    open('/account');
+    await screen.findByRole('heading', { level: 1, name: 'Your account' });
+    const connected = await screen.findByRole('heading', { level: 2, name: 'Connected apps' });
+    const section = connected.closest('section');
+    if (!section) throw new Error('connected apps section missing');
+    const householdSection = (await screen.findByRole('heading', { level: 2, name: 'Household' })).closest('section');
+    if (!householdSection) throw new Error('household section missing');
+    // Household is the last section of the spaced stack; connected apps follows that stack as the page's final section.
+    expect(householdSection.parentElement?.lastElementChild).toBe(householdSection);
+    expect(householdSection.parentElement?.nextElementSibling).toBe(section);
+    expect(section.classList.contains('border-t'), 'separated by the shared top rule').toBe(true);
+  });
+
   it('states the signed-in login as text without an avatar tile in main', async () => {
     installFakeServer(signedInRoutes());
     open('/account');

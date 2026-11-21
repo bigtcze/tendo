@@ -503,13 +503,17 @@ review recorded on #456.
   `${TENDO_MCP_ENABLED:-false}`.
 - The setting feeds `MCPService.Enabled`, so the service keeps refusing
   issuance, exchange, refresh and verification when disabled, independent of
-  routing. Every MCP route, `/mcp` included, answers the unknown-path 404.
+  routing. Every MCP protocol, OAuth and consent route, `/mcp` included,
+  answers the unknown-path 404. The connected apps routes of slice A4b are the
+  one exception: they keep working so owners can see and revoke grants while
+  MCP is off.
 - Turning MCP off deletes nothing. Unexpired grants and refresh tokens work
   again when it is turned back on; access tokens last 10 minutes, so a long
   off period leaves only refresh tokens usable. Owners who want grants gone
   must revoke them (A4b) rather than toggle the switch.
-- The admin documentation marks the setting incomplete until A4b ships,
-  because users cannot yet see or revoke their connected apps.
+- The admin documentation marks the setting incomplete until A4c ships,
+  because no live smoke or end-to-end journey has exercised a real MCP client
+  yet.
 
 ### Endpoint
 
@@ -605,3 +609,85 @@ No live smoke run enables MCP yet, so `api/check-health.test.mjs` keeps
 excluding the MCP operations, now including `callMcp`. The endpoint is covered
 by composition tests in `backend/cmd/tendo` and real-PostgreSQL tests. A4c adds
 the live MCP smoke and removes the exclusion.
+
+## Slice A4b: connected apps
+
+Slice A4b lets a signed-in person list their own MCP grants and revoke one,
+through `GET /api/v1/mcp/grants` (`listMcpGrants`) and
+`DELETE /api/v1/mcp/grants/{grantId}` (`revokeMcpGrant`), and the **Connected
+apps** section of Account. The decisions below follow the independent design
+review recorded on #456.
+
+### Availability and transport
+
+- Both routes work whether or not `TENDO_MCP_ENABLED` is set. They are served by
+  a separate `MCPGrantsHandler` with a narrow interface (list and revoke only);
+  it never sees `Enabled()` and the routes are not in the disabled-404 set. A
+  composition test shows identical answers in both switch states. While MCP is
+  off, listed grants are paused, not removed.
+- Session cookie only. An `Authorization: Bearer` request without a session is
+  401; an MCP token never reaches these routes. They are not MCP cross-origin
+  routes and send no `Access-Control-Allow-Origin`. `DELETE` needs the canonical
+  `Origin` (missing or foreign is 403) through the shared origin policy.
+- Every status carries `Cache-Control: no-store`.
+
+### List
+
+- Filter: `user_id = $me AND revoked_at IS NULL AND expires_at > $now`. No
+  resource filter and no join on `user_accounts`. Ordered newest first by the
+  UUIDv7 id with keyset pagination, default 50, at most 100.
+- The cursor is opaque and strict: a version prefix and the 16 id bytes in
+  unpadded base64url. It must decode to exactly 16 bytes and re-encode to the
+  same text, otherwise 400 `invalid_query` names `cursor`.
+- Items carry id, client name (unverified, as on the consent screen), scopes,
+  creation and expiry time. No token, secret, redirect URI or last use; the
+  redirect host and last use are deferred to #457.
+- `expiresAt` is the latest moment access can last, so the UI says "Access ends
+  by". The existing `mcp_grants_user_id_idx` serves the query; no migration.
+
+### Revoke
+
+- The path id must be canonical lowercase UUID text; anything else is the same
+  404 `mcp_grant_not_found` with no database call.
+- Order, consistent with the lock order above: an unlocked pre-read of the
+  grant's owner (`user_id` is immutable for the runtime role); unknown or
+  another user's grant is 404 before any lock is taken, so another user's held
+  grant lock can neither delay the request nor reveal the grant. Then
+  `LockLiveAccount(caller)`, `LockGrant`, a re-check that the grant is neither
+  revoked nor expired, and `RevokeGrant` with reason `user` and the caller as
+  actor. Its codes, access and refresh tokens are deleted in the same
+  transaction.
+- Account gone under the lock is 401 with the session cookie cleared. Not
+  found, foreign, revoked or expired is the same 404. Other failures record the
+  fault class `mcp_grant_revoke` and answer 503 `unavailable`.
+- A per-user limiter (its own instance, 30 per minute) runs after the session
+  check and before any database call; 429 carries `Retry-After: 60`.
+- Reason `user` means the actor is the grant's own user. Administrator
+  revocation (#457) needs its own reason through a migration.
+- A `/mcp` request already past token verification finishes; the revocation
+  applies from the next request and the next refresh.
+
+### Interface
+
+- **Connected apps** is the last Account section. It is hidden while the first
+  page loads and when there are no grants, so instances that never used MCP see
+  no change. A failed first load shows the section with an error and retry,
+  because hiding it would stop a person cutting access.
+- The live notice and focus target stay outside the grant list, so removing the
+  last app still announces. Focus after removal goes to the next row's
+  **Disconnect**, else the previous one, else the section heading, else the
+  Account heading. Each **Disconnect** has an accessible name with the client
+  name. The confirmation says access ends at once and the app must be
+  connected again.
+- The visual baseline of the section is deferred to A4c, together with the
+  consent baselines, journey 17 and the live MCP smoke.
+
+### Smoke scope (A4b)
+
+The signed-in setup smoke now calls both operations: the list answers
+`{"items":[],"nextCursor":null}`, revoking a random id with the canonical
+Origin answers 404 `mcp_grant_not_found`, and a grant seeded directly in the
+database (MCP stays disabled there) is listed, disconnected with 204 and
+audited once with reason `user` and the owner as actor. Both operations are in
+the setup smoke coverage scope, which requires a success status for each. The MCP protocol and OAuth exclusion in `api/check-health.test.mjs`
+stays until A4c.

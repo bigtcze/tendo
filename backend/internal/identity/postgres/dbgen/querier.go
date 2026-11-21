@@ -106,6 +106,10 @@ type Querier interface {
 	// sweep's FOR UPDATE delete skips it rather than orphaning a code being inserted.
 	// KEY SHARE does not block other registrations or the referencing-row inserts.
 	FindMCPClient(ctx context.Context, clientID string) (FindMCPClientRow, error)
+	// The unlocked pre-read for a user's own grant revocation: the account is
+	// locked before the grant row. An unknown grant and a foreign grant both answer
+	// no rows, so the caller learns nothing about another account's grants.
+	FindMCPGrantOwner(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	// The unlocked pre-read: the account is locked before the grant and token rows.
 	// A refresh token never moves to another grant, so grant_id is stable.
 	FindMCPRefreshTokenOwner(ctx context.Context, tokenHash []byte) (FindMCPRefreshTokenOwnerRow, error)
@@ -138,6 +142,10 @@ type Querier interface {
 	// Deleted accounts are excluded: the tombstone login is not a directory entry.
 	ListDirectoryAccounts(ctx context.Context, arg ListDirectoryAccountsParams) ([]ListDirectoryAccountsRow, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
+	// A plain read for the connected-apps list: live means not revoked and not
+	// expired. Keyset pagination on id (UUIDv7, creation order), newest first. A
+	// null after_id is the first page.
+	ListLiveMCPGrants(ctx context.Context, arg ListLiveMCPGrantsParams) ([]ListLiveMCPGrantsRow, error)
 	// Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
 	// assignment and an acceptance or removal of the same account serialize on the
 	// account row without conflicting with session foreign-key key shares. A

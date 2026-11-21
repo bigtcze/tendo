@@ -88,6 +88,25 @@ INSERT INTO mcp_access_tokens(token_hash, grant_id, created_at, expires_at) VALU
 -- name: CreateMCPRefreshToken :exec
 INSERT INTO mcp_refresh_tokens(token_hash, grant_id, created_at, expires_at) VALUES ($1, $2, $3, $4);
 
+-- name: FindMCPGrantOwner :one
+-- The unlocked pre-read for a user's own grant revocation: the account is
+-- locked before the grant row. An unknown grant and a foreign grant both answer
+-- no rows, so the caller learns nothing about another account's grants.
+SELECT user_id FROM mcp_grants WHERE id = $1;
+
+-- name: ListLiveMCPGrants :many
+-- A plain read for the connected-apps list: live means not revoked and not
+-- expired. Keyset pagination on id (UUIDv7, creation order), newest first. A
+-- null after_id is the first page.
+SELECT g.id, c.client_name, g.scopes, g.created_at, g.expires_at
+FROM mcp_grants g JOIN mcp_clients c ON c.client_id = g.client_id
+WHERE g.user_id = sqlc.arg(user_id)
+  AND g.revoked_at IS NULL
+  AND g.expires_at > sqlc.arg(now)::timestamptz
+  AND (sqlc.narg(after_id)::uuid IS NULL OR g.id < sqlc.narg(after_id)::uuid)
+ORDER BY g.id DESC
+LIMIT sqlc.arg(page_limit)::int;
+
 -- name: FindMCPRefreshTokenOwner :one
 -- The unlocked pre-read: the account is locked before the grant and token rows.
 -- A refresh token never moves to another grant, so grant_id is stable.

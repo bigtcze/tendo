@@ -186,6 +186,7 @@ func endedGrantSweep(q *identitydb.Queries, ctx context.Context, now time.Time) 
 var (
 	_ identity.MCPClientStore = (*MCPRepository)(nil)
 	_ identity.MCPSweepStore  = (*MCPRepository)(nil)
+	_ identity.MCPGrantStore  = (*MCPRepository)(nil)
 	_ identity.MCPRepository  = (*MCPRepository)(nil)
 )
 
@@ -235,6 +236,36 @@ func (r *MCPRepository) FindActiveAccessToken(ctx context.Context, tokenHash []b
 	return identity.MCPGrantRecord{
 		ID: row.ID.String(), UserID: row.UserID.String(), ClientID: row.ClientID, Scopes: row.Scopes, Resource: row.Resource,
 	}, nil
+}
+
+// ListLiveGrants reads one keyset page of the account's live connected apps as
+// a plain pool read, outside any transaction. afterID is empty for the first
+// page.
+func (r *MCPRepository) ListLiveGrants(ctx context.Context, userID string, now time.Time, afterID string, limit int) ([]identity.MCPGrantItem, error) {
+	user, err := scanUUID(userID)
+	if err != nil {
+		return nil, err
+	}
+	var after pgtype.UUID
+	if afterID != "" {
+		if after, err = scanUUID(afterID); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := identitydb.New(r.pool).ListLiveMCPGrants(ctx, identitydb.ListLiveMCPGrantsParams{
+		UserID: user, Now: ts(now.UTC()), AfterID: after, PageLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]identity.MCPGrantItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, identity.MCPGrantItem{
+			ID: row.ID.String(), ClientName: row.ClientName, Scopes: row.Scopes,
+			CreatedAt: row.CreatedAt.Time, ExpiresAt: row.ExpiresAt.Time,
+		})
+	}
+	return items, nil
 }
 
 type mcpTx struct {
@@ -373,6 +404,20 @@ func (t *mcpTx) FindRefreshOwner(ctx context.Context, refreshHash []byte) (strin
 		return "", "", notFound(err)
 	}
 	return row.UserID.String(), row.GrantID.String(), nil
+}
+
+// FindGrantOwner is the unlocked owner read for a user's own revocation. A
+// malformed id is ErrNotFound, the same answer as an unknown one.
+func (t *mcpTx) FindGrantOwner(ctx context.Context, grantID string) (string, error) {
+	grant, err := scanUUID(grantID)
+	if err != nil {
+		return "", err
+	}
+	user, err := t.q.FindMCPGrantOwner(ctx, grant)
+	if err != nil {
+		return "", notFound(err)
+	}
+	return user.String(), nil
 }
 
 func (t *mcpTx) LockGrant(ctx context.Context, grantID string) (identity.MCPGrantRecord, error) {
