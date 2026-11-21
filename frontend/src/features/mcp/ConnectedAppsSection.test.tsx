@@ -228,6 +228,30 @@ describe('ConnectedAppsSection disconnect', () => {
   });
 });
 
+describe('ConnectedAppsSection long names', () => {
+  // A 120-character name with no break opportunities widened the dialog and the success notice past a 320px viewport
+  // (page scrollWidth 1219 vs 320) until the client name could wrap anywhere. jsdom has no layout, so this pins the rule.
+  const LONG = `Connector${'X'.repeat(111)}`;
+
+  it('lets a long unbroken client name wrap in the dialog body and the success notice', async () => {
+    const longApp = grant('0198a2f0-0000-7000-8000-00000000000d', LONG);
+    let listed = [longApp];
+    installFakeServer({
+      [LIST]: () => page(listed),
+      [revokePath(longApp.id)]: () => { listed = []; return json(204); },
+    });
+    renders();
+    await userEvent.click(await screen.findByRole('button', { name: `Disconnect ${LONG}` }));
+    const dialog = await screen.findByRole('dialog');
+    const body = within(dialog).getByText(en['connectedApps.dialog.body'].replace('{client}', LONG));
+    expect(body.classList.contains('[overflow-wrap:anywhere]'), 'dialog body wraps the client name').toBe(true);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+    const notice = await screen.findByText(`${LONG} was disconnected.`);
+    expect(notice.parentElement?.classList.contains('[overflow-wrap:anywhere]'), 'success notice wraps the client name').toBe(true);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+});
+
 describe('ConnectedAppsSection pagination', () => {
   it('appends the next page on Show more and hides it on the last page', async () => {
     installFakeServer({

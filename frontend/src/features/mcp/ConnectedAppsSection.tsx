@@ -48,7 +48,7 @@ export function ConnectedAppsSection({ onSignedOut, pageHeadingRef }: {
       <h2 id={HEADING_ID} ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">{t('connectedApps.title')}</h2>
       <p className="mt-1 max-w-prose text-small text-muted">{t('connectedApps.body')}</p>
     </> : null}
-    <NoticeRegion className="mt-4 empty:mt-0" message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client }) : ''} />
+    <NoticeRegion className="mt-4 empty:mt-0 [overflow-wrap:anywhere]" message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client }) : ''} />
     {visible ? <ConnectedAppsList apps={apps} listRef={listRef} disconnect={disconnect} /> : null}
     <DisconnectDialog disconnect={disconnect} />
   </section>;
@@ -107,7 +107,7 @@ function DisconnectDialog({ disconnect }: { disconnect: AppDisconnect }) {
     triggerRef={triggerRef}
   >
     <div className="space-y-4">
-      <p className="max-w-prose text-body text-ink">{t('connectedApps.dialog.body', { client })}</p>
+      <p className="max-w-prose text-body text-ink [overflow-wrap:anywhere]">{t('connectedApps.dialog.body', { client })}</p>
       {dialogError ? <Notice tone="error">
         {t(dialogError === 'rateLimited' ? 'connectedApps.error.rateLimited' : 'connectedApps.error.action')}
       </Notice> : null}
