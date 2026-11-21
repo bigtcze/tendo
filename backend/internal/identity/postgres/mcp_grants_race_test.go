@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"sync"
 	"testing"
@@ -101,10 +103,14 @@ func TestConnectedAppsRaceUserRevokeAndRefreshOrdered(t *testing.T) {
 		env.requireGrantRevoked(t, user, string(identity.MCPRevokeUser), user)
 	})
 
-	// The refresh holds the grant first. The revoke must queue on the grant lock
-	// and, once the refresh is released, succeed with exactly one revocation
-	// event naming the user as reason and actor. The rotated pair must be gone.
-	t.Run("refresh holds the grant first, revoke must wait then succeed", func(t *testing.T) {
+	// The refresh holds the grant first. It is a refresh rotation on the
+	// production transaction type, run in the order of refreshLocked: account
+	// (LockLiveAccount), grant and its codes (LockGrant), presented refresh row
+	// (LockRefreshToken), consume it, then issue a new pair. The transaction stays
+	// open until the user revoke is queued on the grant lock, and then commits.
+	// The revoke must then succeed with one user event, and the pair that was
+	// presented and the pair the refresh rotated to must both be gone.
+	t.Run("refresh holds the grant first, revoke must wait then delete both pairs", func(t *testing.T) {
 		env := newMCPEnv(t)
 		user, session := env.newAccount(t, "apps_ord_refresh_first")
 		first, err := env.exchange(env.issue(t, user, session))
@@ -118,17 +124,29 @@ func TestConnectedAppsRaceUserRevokeAndRefreshOrdered(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		// Same locks, same order, as the refresh path: the account FOR SHARE, the
-		// grant FOR UPDATE, then the presented refresh token FOR UPDATE.
-		if _, err = tx.Exec(env.ctx, `SELECT id FROM user_accounts WHERE id=$1::uuid AND deleted_at IS NULL FOR SHARE`, user); err != nil {
-			t.Fatal(err)
-		}
-		if _, err = tx.Exec(env.ctx, `SELECT id FROM mcp_grants WHERE id=$1::uuid FOR UPDATE`, grantID); err != nil {
-			t.Fatal(err)
-		}
+		held := &mcpTx{q: identitydb.New(tx)}
 		digest := sha256.Sum256([]byte(first.RefreshToken))
-		if _, err = tx.Exec(env.ctx, `SELECT token_hash FROM mcp_refresh_tokens WHERE token_hash=$1 FOR UPDATE`, digest[:]); err != nil {
-			t.Fatal(err)
+		if err = held.LockLiveAccount(env.ctx, user); err != nil {
+			t.Fatalf("refresh LockLiveAccount: %v", err)
+		}
+		grant, err := held.LockGrant(env.ctx, grantID)
+		if err != nil || grant.Revoked {
+			t.Fatalf("refresh LockGrant: grant=%+v err=%v", grant, err)
+		}
+		refresh, err := held.LockRefreshToken(env.ctx, digest[:])
+		if err != nil || refresh.Consumed {
+			t.Fatalf("refresh LockRefreshToken: %+v err=%v", refresh, err)
+		}
+		if err = held.ConsumeRefreshToken(env.ctx, digest[:], env.clock.now()); err != nil {
+			t.Fatalf("refresh ConsumeRefreshToken: %v", err)
+		}
+		rotated := mintMCPPair(t)
+		if err = held.CreateTokens(env.ctx, identity.MCPTokenIssue{
+			GrantID: grantID, AccessHash: rotated.accessHash, RefreshHash: rotated.refreshHash, CreatedAt: env.clock.now(),
+			AccessExpiresAt:  env.clock.now().Add(identity.MCPAccessTokenLifetime),
+			RefreshExpiresAt: env.clock.now().Add(identity.MCPRefreshIdleLifetime),
+		}); err != nil {
+			t.Fatalf("refresh CreateTokens: %v", err)
 		}
 
 		revoked := env.userRevokeRace(user, grantID)
@@ -138,23 +156,50 @@ func TestConnectedAppsRaceUserRevokeAndRefreshOrdered(t *testing.T) {
 			t.Fatalf("revoke returned while the refresh held the grant: %v", err)
 		default:
 		}
-		// The refresh-shaped transaction commits without rotating: the revoke is
-		// the outcome under test, so the held rows are only released.
 		if err = tx.Commit(env.ctx); err != nil {
 			t.Fatal(err)
 		}
 		if err = <-revoked; err != nil {
-			t.Fatalf("revoke after the refresh released: %v", err)
+			t.Fatalf("revoke after the refresh committed: %v", err)
 		}
 		if reason := env.requireOneRevocation(t, grantID); reason != string(identity.MCPRevokeUser) {
 			t.Fatalf("revocation reason = %q, want user", reason)
 		}
 		env.requireGrantRevoked(t, user, string(identity.MCPRevokeUser), user)
+		// Both pairs are gone: the presented one (consumed, then deleted by the
+		// revoke) and the rotated one (created inside the held transaction).
 		env.requireNoMCPSecrets(t, user)
 		if _, err = env.refresh(first.RefreshToken); !errors.Is(err, identity.ErrMCPInvalidGrant) {
-			t.Fatalf("refresh of the revoked pair err=%v, want ErrMCPInvalidGrant", err)
+			t.Fatalf("refresh of the original pair err=%v, want ErrMCPInvalidGrant", err)
+		}
+		if _, err = env.refresh(rotated.refresh); !errors.Is(err, identity.ErrMCPInvalidGrant) {
+			t.Fatalf("refresh of the rotated pair err=%v, want ErrMCPInvalidGrant", err)
 		}
 	})
+}
+
+// mintedPair is a token pair minted in the same format as newMCPSecret: 32
+// random bytes, base64url without padding, stored as its SHA-256 digest.
+type mintedPair struct {
+	access, refresh         string
+	accessHash, refreshHash []byte
+}
+
+func mintMCPPair(t *testing.T) mintedPair {
+	t.Helper()
+	secret := func() (string, []byte) {
+		var raw [32]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			t.Fatal(err)
+		}
+		value := base64.RawURLEncoding.EncodeToString(raw[:])
+		digest := sha256.Sum256([]byte(value))
+		return value, digest[:]
+	}
+	var pair mintedPair
+	pair.access, pair.accessHash = secret()
+	pair.refresh, pair.refreshHash = secret()
+	return pair
 }
 
 // TestConnectedAppsRaceUserRevokeAndRefresh is the open-order stress test: a
