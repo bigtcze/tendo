@@ -198,7 +198,7 @@ assert status==403,('patch session foreign Origin',status,foreign_origin)
 # the list is empty, and a revoke of an unknown grant is the non-oracle 404. Both
 # answer with MCP disabled, as in production.
 status,h,apps=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',headers=cookie_header,sink=fixtures)[:3]
-assert status==200 and apps=={'items':[],'nextCursor':None} and h['Cache-Control']=='no-store','list connected apps',status,apps,dict(h)
+assert status==200 and apps=={'items':[],'nextCursor':None} and h['Cache-Control']=='no-store',('list connected apps',status,apps,dict(h))
 status,_,anon_apps,_=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',sink=fixtures)
 assert status==401 and anon_apps['code']=='unauthenticated',('list connected apps without cookie',status,anon_apps)
 random_grant=psql('SELECT uuidv7()')
