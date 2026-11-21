@@ -18,6 +18,14 @@ If you no longer remember your current password, changing it here is not possibl
 
 Leaving gives up access to everything in that household: your items stay there with no one responsible for them, completed items stay in the history, and invitations you sent and password reset links involving you in that household stop working. You keep your other households and your account keeps working; if you belong to no other household, Tendo explains that you can join one with an invitation. The last administrator of a household cannot leave; make someone else an administrator first. See [Remove someone or leave the household](household-members.md#remove-someone-or-leave-the-household).
 
+## Connected apps
+
+If you have connected an AI app to Tendo, **Your account** shows a **Connected apps** section. It is not shown when you have no connected apps. Each entry shows the name the app gave itself (Tendo has not checked it), when you connected it, whether it can only read or can also change items, and the date its access ends by at the latest. Access can end sooner, for example when the app has not been used for a long time.
+
+Select **Disconnect** next to an app and confirm. The app loses access at once and cannot use Tendo again until you connect it again from the app. A request it had already started may still finish. You can only see and disconnect your own apps.
+
+If whoever runs your Tendo installation has switched AI apps off, your connected apps stop working but are not removed: they still appear here and you can still disconnect them. They work again if AI apps are switched back on.
+
 ## Appearance and language
 
 In **Your account**, choose **Appearance** to match this device, or select **Light** or **Dark**. The explicit choice is saved in this browser only. Under **Language**, choose English or Čeština; you can also change the language in the footer.
