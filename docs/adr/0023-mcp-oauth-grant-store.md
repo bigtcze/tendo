@@ -685,7 +685,9 @@ review recorded on #456.
 ### Smoke scope (A4b)
 
 The signed-in setup smoke now calls both operations: the list answers
-`{"items":[],"nextCursor":null}` and revoking a random id with the canonical
-Origin answers 404 `mcp_grant_not_found`. Both are in the setup smoke coverage
-scope. The MCP protocol and OAuth exclusion in `api/check-health.test.mjs`
+`{"items":[],"nextCursor":null}`, revoking a random id with the canonical
+Origin answers 404 `mcp_grant_not_found`, and a grant seeded directly in the
+database (MCP stays disabled there) is listed, disconnected with 204 and
+audited once with reason `user` and the owner as actor. Both operations are in
+the setup smoke coverage scope, which requires a success status for each. The MCP protocol and OAuth exclusion in `api/check-health.test.mjs`
 stays until A4c.

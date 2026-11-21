@@ -206,6 +206,18 @@ status,h,revoke_missing,_=call('DELETE','/api/v1/mcp/grants/'+random_grant,templ
 assert status==404 and revoke_missing['code']=='mcp_grant_not_found' and h['Cache-Control']=='no-store',('revoke unknown connected app',status,revoke_missing,dict(h))
 status,_,_,_=call('DELETE','/api/v1/mcp/grants/'+random_grant,template='/api/v1/mcp/grants/{grantId}',headers={**cookie_header,'Origin':'http://foreign.example'},sink=fixtures)
 assert status==403,('revoke connected app foreign Origin',status)
+# One real grant, seeded as the superuser because MCP stays disabled here: it is
+# listed, disconnected with 204, audited as the owner's own revocation, and gone.
+owner_id=psql("SELECT id FROM user_accounts WHERE login='owner_smoke'")
+seeded_grant=psql(f"WITH c AS (INSERT INTO mcp_clients(client_id,client_name,redirect_uris,created_at) VALUES ('setupsmokeclient0001','Smoke App',ARRAY['http://127.0.0.1:9/cb'],now()) RETURNING client_id), g AS (INSERT INTO mcp_grants(user_id,client_id,scopes,resource,created_at,expires_at) SELECT '{owner_id}',client_id,ARRAY['tendo:read'],'{origin}/mcp',now(),now()+interval '1 day' FROM c RETURNING id) SELECT id FROM g")
+status,h,apps=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',headers=cookie_header,sink=fixtures)[:3]
+assert status==200 and [a['id'] for a in apps['items']]==[seeded_grant] and apps['items'][0]['clientName']=='Smoke App' and apps['items'][0]['clientNameVerified'] is False and apps['nextCursor'] is None,('list seeded connected app',status,apps)
+status,h,_,_=call('DELETE','/api/v1/mcp/grants/'+seeded_grant,template='/api/v1/mcp/grants/{grantId}',headers={**cookie_header,'Origin':origin},sink=fixtures)
+assert status==204 and h['Cache-Control']=='no-store',('disconnect seeded connected app',status,dict(h))
+assert psql(f"SELECT revoke_reason FROM mcp_grants WHERE id='{seeded_grant}' AND revoked_at IS NOT NULL")=='user','seeded grant not revoked as user'
+assert psql(f"SELECT count(*) FROM mcp_grant_events WHERE grant_id='{seeded_grant}' AND event='revoked' AND reason='user' AND actor_user_id='{owner_id}'")=='1','user revocation not audited once'
+status,_,apps=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',headers=cookie_header,sink=fixtures)[:3]
+assert status==200 and apps=={'items':[],'nextCursor':None},('connected apps after disconnect',status,apps)
 COLL='/api/v1/households/{householdId}/subjects'
 ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
 MEMBER_PERSON='/api/v1/households/{householdId}/members/{userId}/person'
