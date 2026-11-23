@@ -171,6 +171,95 @@ test('health checker validates OIDC 303 headers and multiple Set-Cookie fields',
   } finally { await (await import('node:fs/promises')).rm(directory, { recursive: true, force: true }) }
 })
 
+// Runs the checker on one captured fixture and reports its exit code and stderr.
+async function checkFixture(fixture) {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-fixture-'))
+  try {
+    const fixturePath = join(directory, 'responses.json')
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname, fixturePath], { env: { ...process.env, RUNTIME_HEALTH_ORIGIN: undefined, SETUP_URL: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    return { code, stderr }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+}
+
+const consentHandle = 'H'.repeat(42) + '_'
+const consentPath = `/api/v1/mcp/authorization-requests/${consentHandle}`
+const consentSet = (name = 'tendo_mcp_consent', path = consentPath, extra = '') =>
+  `${name}=${'B'.repeat(43)}; Path=${path}; Max-Age=300; HttpOnly; SameSite=Lax${extra}`
+const consentClear = (name = 'tendo_mcp_consent', path = consentPath, extra = '') =>
+  `${name}=; Path=${path}; Max-Age=0; HttpOnly; SameSite=Lax${extra}`
+
+test('health checker validates the MCP authorize 303 consent binding cookie', async () => {
+  const run = (location, cookie) => checkFixture({
+    path: '/oauth/authorize', method: 'get', status: 303,
+    headers: { 'x-request-id': requestId, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', location, ...(cookie === undefined ? {} : { 'set-cookie': cookie }) },
+  })
+  const success = `/connect#request=${consentHandle}`
+  for (const [label, location, cookie] of [
+    ['plain binding', success, consentSet()],
+    ['secure binding', success, consentSet('__Secure-tendo_mcp_consent', consentPath, '; Secure')],
+    ['refusal without a cookie', '/connect#error=invalid_request', undefined],
+  ]) {
+    const accepted = await run(location, cookie)
+    assert.equal(accepted.code, 0, `${label}: ${accepted.stderr}`)
+  }
+  for (const [label, location, cookie] of [
+    ['success without a cookie', success, undefined],
+    ['refusal with a cookie', '/connect#error=invalid_request', consentSet()],
+    ['session cookie name', success, consentSet('tendo_session')],
+    ['secure name without Secure', success, consentSet('__Secure-tendo_mcp_consent')],
+    ['Path of another handle', success, consentSet('tendo_mcp_consent', `/api/v1/mcp/authorization-requests/${'Z'.repeat(43)}`)],
+    ['Path=/', success, consentSet('tendo_mcp_consent', '/')],
+    ['short binding value', success, `tendo_mcp_consent=short; Path=${consentPath}; Max-Age=300; HttpOnly; SameSite=Lax`],
+    ['wrong Max-Age', success, consentSet().replace('Max-Age=300', 'Max-Age=600')],
+    ['missing HttpOnly', success, consentSet().replace('; HttpOnly', '')],
+    ['SameSite=None', success, consentSet().replace('SameSite=Lax', 'SameSite=None')],
+    ['Domain attribute', success, consentSet('tendo_mcp_consent', consentPath, '; Domain=evil.test')],
+    ['two cookies', success, [consentSet(), consentSet()]],
+    ['a clear instead of a set', success, consentClear()],
+  ]) {
+    const rejected = await run(location, cookie)
+    assert.notEqual(rejected.code, 0, `checker accepted ${label}`)
+  }
+})
+
+test('health checker validates the MCP decision consent binding clear', async () => {
+  const decisionPath = '/api/v1/mcp/authorization-requests/{requestHandle}/decision'
+  const run = (status, cookie, url) => checkFixture({
+    path: decisionPath, ...(url === null ? {} : { url: url ?? `${consentPath}/decision` }), method: 'post', status,
+    headers: { 'x-request-id': requestId, 'cache-control': 'no-store', 'content-type': status === 200 ? 'application/json' : 'application/problem+json', ...(cookie === undefined ? {} : { 'set-cookie': cookie }) },
+    body: status === 200 ? { redirectTo: 'http://127.0.0.1:9/cb?code=x&iss=http%3A%2F%2Flocalhost' } : { type: 'about:blank', title: 'Not Found', status: 404, code: 'authorization_request_not_found' },
+  })
+  for (const status of [200, 404]) {
+    const plain = await run(status, consentClear())
+    assert.equal(plain.code, 0, `${status} plain clear: ${plain.stderr}`)
+    const secure = await run(status, consentClear('__Secure-tendo_mcp_consent', consentPath, '; Secure'))
+    assert.equal(secure.code, 0, `${status} secure clear: ${secure.stderr}`)
+    if (status === 404) {
+      // A malformed handle has no binding Path Tendo ever issued, so the 404 clears nothing.
+      const malformedURL = '/api/v1/mcp/authorization-requests/short/decision'
+      const malformed = await run(status, undefined, malformedURL)
+      assert.equal(malformed.code, 0, `malformed handle without a clear: ${malformed.stderr}`)
+      const cleared = await run(status, consentClear(), malformedURL)
+      assert.notEqual(cleared.code, 0, 'checker accepted a clear for a malformed handle')
+    }
+    for (const [label, cookie, url] of [
+      ['no clear', undefined],
+      ['a set instead of a clear', consentSet()],
+      ['session cookie clear', 'tendo_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'],
+      ['clear of another handle', consentClear('tendo_mcp_consent', `/api/v1/mcp/authorization-requests/${'Z'.repeat(43)}`)],
+      ['clear without the request URL', consentClear(), null],
+    ]) {
+      const rejected = await run(status, cookie, url)
+      assert.notEqual(rejected.code, 0, `${status}: checker accepted ${label}`)
+    }
+  }
+})
+
 test('health checker validates readiness response contract', async (t) => {
   for (const [name, response] of cases) {
     await t.test(name, async () => {

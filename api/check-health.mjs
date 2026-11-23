@@ -123,7 +123,66 @@ function assertSessionCookie(path, status, setCookie, clearing = Number(status) 
   }
 }
 
-function assertResponse(path, status, body, method, headers = {}) {
+const mcpConsentRequestURL = /^\/api\/v1\/mcp\/authorization-requests\/([A-Za-z0-9_-]{43})(?:\/decision)?$/
+
+// assertMcpConsentCookie checks the browser binding of one pending MCP consent
+// (SetMcpConsentCookie, ClearMcpConsentCookie). Its Path is the request's own
+// /api/v1/mcp/authorization-requests/<handle>, so the handle the response is
+// about must be known: from the authorize Location, or from the concrete
+// decision URL a fixture records next to its path template.
+function assertMcpConsentCookie(path, status, setCookie, handle, clearing) {
+  const cookies = cookieValues(setCookie)
+  assert.equal(cookies.length, 1, `${path} HTTP ${status} must send exactly one consent binding cookie`)
+  const [pair, ...rest] = cookies[0].split(';').map(part => part.trim())
+  const separator = pair.indexOf('=')
+  assert.ok(separator > 0, `${path} HTTP ${status} malformed consent binding cookie`)
+  const name = pair.slice(0, separator)
+  const value = pair.slice(separator + 1)
+  assert.ok(['tendo_mcp_consent', '__Secure-tendo_mcp_consent'].includes(name), `${path} HTTP ${status} unexpected consent cookie name ${name}`)
+  const attributes = rest.map(attribute => attribute.toLowerCase())
+  const requireAttribute = attribute => assert.ok(attributes.includes(attribute), `${path} HTTP ${status} consent cookie missing ${attribute}`)
+  requireAttribute('httponly')
+  requireAttribute('samesite=lax')
+  assert.equal(attributes.includes('secure'), name.startsWith('__Secure-'), `${path} HTTP ${status} consent cookie Secure must match its __Secure- name`)
+  assert.ok(!attributes.some(attribute => attribute.startsWith('domain=')), `${path} HTTP ${status} consent cookie must not set Domain`)
+  const paths = rest.filter(attribute => attribute.toLowerCase().startsWith('path='))
+  assert.deepEqual(paths, [`Path=/api/v1/mcp/authorization-requests/${handle}`], `${path} HTTP ${status} consent cookie Path must be its own request`)
+  const maxAge = attributes.filter(attribute => attribute.startsWith('max-age='))
+  assert.equal(maxAge.length, 1, `${path} HTTP ${status} consent cookie needs one Max-Age`)
+  if (clearing) {
+    assert.equal(value, '', `${path} HTTP ${status} consent clear must have an empty value`)
+    assert.ok(['max-age=0', 'max-age=-1'].includes(maxAge[0]), `${path} HTTP ${status} consent clear must have a clearing Max-Age`)
+  } else {
+    assert.match(value, /^[A-Za-z0-9_-]{43}$/, `${path} HTTP ${status} consent binding must be 43 base64url characters`)
+    assert.equal(maxAge[0], 'max-age=300', `${path} HTTP ${status} consent binding must have Max-Age=300`)
+  }
+}
+
+// assertMcpConsentResponse applies the consent cookie rules of the two
+// responses that carry one. Authorize sets the binding only on a success
+// redirect (#request=<handle>); a refusal (#error=) sets no cookie. The decision
+// clears the binding of a well-formed handle on 200 and 404.
+function assertMcpConsentResponse(path, status, headers, cookieName, url) {
+  if (cookieName === 'SetMcpConsentCookie') {
+    const handle = /^\/connect#request=([A-Za-z0-9_-]{43})$/.exec(headers.location ?? '')?.[1]
+    if (!handle) {
+      assert.equal(headers['set-cookie'], undefined, `${path} HTTP ${status} refusal must not set a consent cookie`)
+      return
+    }
+    assertMcpConsentCookie(path, status, headers['set-cookie'], handle, false)
+    return
+  }
+  assert.equal(typeof url, 'string', `${path} HTTP ${status} fixture needs the request url to check the consent clear`)
+  const handle = mcpConsentRequestURL.exec(url)?.[1]
+  if (!handle) {
+    // A malformed handle has no Path Tendo ever issued, so nothing is cleared.
+    assert.equal(headers['set-cookie'], undefined, `${path} HTTP ${status} malformed handle must not clear a cookie`)
+    return
+  }
+  assertMcpConsentCookie(path, status, headers['set-cookie'], handle, true)
+}
+
+function assertResponse(path, status, body, method, headers = {}, { url } = {}) {
   const normalizedHeaders = Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
   )
@@ -159,7 +218,10 @@ function assertResponse(path, status, body, method, headers = {}) {
   }
   const cookieHeader = responseSpec.headers?.['Set-Cookie']
   const cookieRef = cookieHeader?.$ref
-  if (cookieRef && path === '/api/v1/auth/oidc/identity') {
+  const cookieName = cookieRef?.split('/').pop()
+  if (cookieName === 'SetMcpConsentCookie' || cookieName === 'ClearMcpConsentCookie') {
+    assertMcpConsentResponse(path, status, headers, cookieName, url)
+  } else if (cookieRef && path === '/api/v1/auth/oidc/identity') {
     // On authenticated routes this header describes a stale session clear; a valid
     // session response must not emit any cookie.
     if (headers['set-cookie'] !== undefined) assertSessionCookie(path, status, headers['set-cookie'])
@@ -289,7 +351,7 @@ if (fixturePath) {
     const headers = Object.fromEntries(
       Object.entries(fixture.headers ?? {}).map(([key, value]) => [key.toLowerCase(), value]),
     )
-    assertResponse(fixture.path, fixture.status, fixture.body, fixture.method.toLowerCase(), headers)
+    assertResponse(fixture.path, fixture.status, fixture.body, fixture.method.toLowerCase(), headers, { url: fixture.url })
   }
   if (process.env.API_REQUIRE_OPERATION_COVERAGE === '1') {
     const captured = new Map()
