@@ -429,7 +429,8 @@ def phase_enabled(state):
     tokens = connect(cid, owner)  # grant E survives the switch-off
     state.update(client_id=cid, owner=owner, home=home, grant_e=tokens, grant_e_id=grant_of(tokens['access_token']))
     events = psql("SELECT string_agg(grant_id || ':' || reason, ',' ORDER BY grant_id) FROM mcp_grant_events WHERE event='revoked'")
-    check(dict(event.split(':') for event in events.split(',')) == revoked, ('revocation reasons per grant', events, revoked))
+    rows = sorted(tuple(event.split(':')) for event in events.split(',') if event)
+    check(rows == sorted(revoked.items()), ('revocation reasons per grant', rows, revoked))
 
 
 def phase_disabled(state):
@@ -477,6 +478,8 @@ def redact(text):
 
 def main():
     phase, state_path = sys.argv[1], sys.argv[2]
+    secret(PASSWORD)
+    secret(os.environ['MCP_SMOKE_SETUP_TOKEN'])
     state = json.load(open(state_path)) if os.path.exists(state_path) and os.path.getsize(state_path) else {}
     try:
         {'enabled': phase_enabled, 'disabled': phase_disabled, 'reenabled': phase_reenabled}[phase](state)
