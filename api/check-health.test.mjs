@@ -220,6 +220,8 @@ test('health checker validates the MCP authorize 303 consent binding cookie', as
     ['SameSite=None', success, consentSet().replace('SameSite=Lax', 'SameSite=None')],
     ['Domain attribute', success, consentSet('tendo_mcp_consent', consentPath, '; Domain=evil.test')],
     ['two cookies', success, [consentSet(), consentSet()]],
+    ['plain name with Secure', success, consentSet('tendo_mcp_consent', consentPath, '; Secure')],
+    ['two Max-Age', success, consentSet() + '; Max-Age=300'],
     ['a clear instead of a set', success, consentClear()],
   ]) {
     const rejected = await run(location, cookie)
@@ -253,6 +255,12 @@ test('health checker validates the MCP decision consent binding clear', async ()
       ['session cookie clear', 'tendo_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'],
       ['clear of another handle', consentClear('tendo_mcp_consent', `/api/v1/mcp/authorization-requests/${'Z'.repeat(43)}`)],
       ['clear without the request URL', consentClear(), null],
+      ['no clear and no request URL', undefined, null],
+      ['clear with a value', consentClear().replace('tendo_mcp_consent=;', `tendo_mcp_consent=${'B'.repeat(43)};`)],
+      ['clear that does not expire', consentClear().replace('Max-Age=0', 'Max-Age=300')],
+      ['url that is not the decision', consentClear(), consentPath],
+      ['absolute url', consentClear(), `http://localhost${consentPath}/decision`],
+      ['url with a query', undefined, `${consentPath}/decision?x=1`],
     ]) {
       const rejected = await run(status, cookie, url)
       assert.notEqual(rejected.code, 0, `${status}: checker accepted ${label}`)
