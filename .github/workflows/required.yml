@@ -297,6 +297,7 @@ jobs:
           - smoke: compose-startup-smoke
             timeout: 900
           - smoke: oidc-smoke
+          - smoke: mcp-smoke
           - smoke: proxy-smoke
             timeout: 720
           - smoke: household-backup-smoke

@@ -109,23 +109,16 @@ test('smoke coverage scopes partition every OpenAPI operationId', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')
   const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
-  // No live smoke enables TENDO_MCP_ENABLED yet, so the MCP operations are
-  // covered by backend composition and real-PostgreSQL tests. Slice A4c of #456
-  // adds the live MCP smoke and removes this exclusion (ADR 0023, A4a).
-  const mcpOperationIds = [
-    'registerMcpClient', 'getMcpProtectedResourceMetadata', 'getMcpAuthorizationServerMetadata',
-    'authorizeMcpClient', 'getMcpAuthorizationRequest', 'decideMcpAuthorizationRequest', 'exchangeMcpToken', 'revokeMcpToken', 'callMcp',
-  ]
   const operationIds = Object.values(contract.paths)
     .flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))
-    .filter(id => !mcpOperationIds.includes(id))
   const scripts = new URL('../scripts/', import.meta.url)
   const read = name => readFile(new URL(name, scripts), 'utf8')
   const ids = text => text.match(/[A-Za-z]+/g) ?? []
   const setup = ids((await read('setup_smoke_api_capture.py')).match(/COVERAGE_SCOPE = ','\.join\(\(([\s\S]*?)\)\)/)[1])
   const oidc = ids((await read('oidc-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=([\s\S]*?) \\\n {2}node/)[1].replace(/\\\n/g, ''))
   const runtime = ids((await read('setup-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=(\S+)/)[1])
-  const scoped = [...setup, ...oidc, ...runtime]
+  const mcp = ids((await read('mcp-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=([\s\S]*?) \\\n {2}node/)[1].replace(/\\\n/g, ''))
+  const scoped = [...setup, ...oidc, ...runtime, ...mcp]
   assert.deepEqual([...scoped].sort(), [...new Set(scoped)].sort(), 'an operationId appears in more than one smoke scope')
   assert.deepEqual([...scoped].sort(), [...operationIds].sort(), 'smoke coverage scopes must cover every OpenAPI operationId exactly once')
 })
