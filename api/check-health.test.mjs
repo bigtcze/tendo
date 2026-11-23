@@ -260,7 +260,7 @@ test('health checker validates the MCP decision consent binding clear', async ()
       ['clear that does not expire', consentClear().replace('Max-Age=0', 'Max-Age=300')],
       ['url that is not the decision', consentClear(), consentPath],
       ['absolute url', consentClear(), `http://localhost${consentPath}/decision`],
-      ['url with a query', undefined, `${consentPath}/decision?x=1`],
+      ['url with a query', consentClear(), `${consentPath}/decision?x=1`],
     ]) {
       const rejected = await run(status, cookie, url)
       assert.notEqual(rejected.code, 0, `${status}: checker accepted ${label}`)
