@@ -153,7 +153,7 @@ function assertMcpConsentCookie(path, status, setCookie, handle, clearing) {
   assert.equal(maxAge.length, 1, `${path} HTTP ${status} consent cookie needs one Max-Age`)
   if (clearing) {
     assert.equal(value, '', `${path} HTTP ${status} consent clear must have an empty value`)
-    assert.ok(['max-age=0', 'max-age=-1'].includes(maxAge[0]), `${path} HTTP ${status} consent clear must have a clearing Max-Age`)
+    assert.equal(maxAge[0], 'max-age=0', `${path} HTTP ${status} consent clear must have Max-Age=0`)
   } else {
     assert.match(value, /^[A-Za-z0-9_-]{43}$/, `${path} HTTP ${status} consent binding must be 43 base64url characters`)
     assert.equal(maxAge[0], 'max-age=300', `${path} HTTP ${status} consent binding must have Max-Age=300`)

@@ -1903,7 +1903,7 @@ export interface components {
         ClearStaleSessionCookie: string;
         /** @description Set only on success (Location /connect#request=...); an error redirect sets no cookie. Browser binding of one pending MCP consent. HttpOnly; SameSite=Lax; Max-Age=300; Path is the request's own /api/v1/mcp/authorization-requests/<handle>. HTTPS public URL uses __Secure-tendo_mcp_consent with Secure; HTTP uses tendo_mcp_consent. The cookie is never read by /oauth/authorize. */
         SetMcpConsentCookie: string;
-        /** @description Expires the consent binding cookie on the same Path it was set with (Max-Age=-1). */
+        /** @description Expires the consent binding cookie on the same Path it was set with (empty value, Max-Age=0). Sent on decision 200 and 404 while MCP is enabled; a malformed handle clears nothing. */
         ClearMcpConsentCookie: string;
         /**
          * @description Session cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. Login and a password change set Max-Age=2592000, logout sets Max-Age=0. HTTPS public URL uses the name __Host-tendo_session with Secure; HTTP public URL uses tendo_session.
@@ -13188,7 +13188,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description No pending consent for this handle and browser, or it was already decided or expired. */
+            /** @description No pending consent for this handle and browser, or it was already decided or expired. MCP disabled answers the unknown-path 404 instead, which clears no cookie. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

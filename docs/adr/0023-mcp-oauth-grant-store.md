@@ -610,6 +610,8 @@ excluding the MCP operations, now including `callMcp`. The endpoint is covered
 by composition tests in `backend/cmd/tendo` and real-PostgreSQL tests. A4c adds
 the live MCP smoke and removes the exclusion.
 
+Resolved in slice A4c1b: see "Slice A4c1b: live MCP smoke".
+
 ## Slice A4b: connected apps
 
 Slice A4b lets a signed-in person list their own MCP grants and revoke one,
@@ -691,3 +693,43 @@ database (MCP stays disabled there) is listed, disconnected with 204 and
 audited once with reason `user` and the owner as actor. Both operations are in
 the setup smoke coverage scope, which requires a success status for each. The MCP protocol and OAuth exclusion in `api/check-health.test.mjs`
 stays until A4c.
+
+## Slice A4c1b: live MCP smoke
+
+`scripts/mcp-smoke.sh` runs the Compose app with `TENDO_MCP_ENABLED=true` on
+the loopback origin `http://localhost:<port>`, and `scripts/mcp_smoke_driver.py`
+acts as both the public client and the browser. The smoke is an entry in the
+required `deployment` matrix, and its coverage scope holds the nine MCP
+protocol and OAuth operationIds, so the smoke-scope exclusion in
+`api/check-health.test.mjs` is removed. Every captured response, including
+each `Set-Cookie` value as a list, goes through the shared checker.
+
+- **One role per grant.** Code replay and refresh replay revoke the whole
+  grant, so each grant is used for one purpose in a fixed order: A (wrong
+  verifier, exchange, code replay), B (refresh rotation, then replay of the old
+  refresh token), C (`/mcp` protocol checks, then RFC 7009 revocation), D
+  (Connected apps disconnect), E (kept across the kill switch), W
+  (`tendo:write` only, `/mcp` 403 `insufficient_scope`) and M (a second account
+  for cross-household isolation). Each revoked grant records exactly its own
+  reason: A `code_reuse`, B `replay`, C `client`, D `user`.
+- **Kill switch.** The app alone is recreated (`up -d --no-deps --wait app`)
+  with MCP off: all nine MCP routes answer the unknown-path 404 with no cookie,
+  and Connected apps still lists the paused grant. After it is recreated with
+  MCP on, grant E's refresh token rotates and the new access token works. The
+  ten-minute access token is not expected to survive.
+- **Disabled decision 404.** While MCP is off, the decision route answers the
+  unknown-path 404 and sets no cookie, like every other disabled MCP route. The
+  contract now says so on the decision 404, as it already did on the consent
+  GET, and the `ClearMcpConsentCookie` wording matches the `Max-Age=0` Go
+  sends, and the checker accepts only `Max-Age=0`. The disabled probe is
+  asserted to match the unknown-path 404 (status, body bytes, `Content-Type`,
+  `Cache-Control`, no cookie) but not recorded as a fixture, because the
+  decision 404 schema documents the enabled response.
+- **Secrets.** Every token, code, verifier, handle, binding and session value
+  is collected. None may appear in the MCP tables, neither as text nor as its
+  raw decoded bytes; this proves the plaintext is absent, not which digest is
+  stored. None may appear in the logs of any of the three app containers,
+  which are saved before each recreation. A driver failure report is redacted
+  of all of them.
+- **Not tested live.** Rate limits are not tripped, because that would disturb
+  the smoke; they stay covered by backend tests. No real AI client is used.

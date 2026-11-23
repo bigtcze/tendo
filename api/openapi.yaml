@@ -3002,7 +3002,7 @@ paths:
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
         '404':
-          description: No pending consent for this handle and browser, or it was already decided or expired.
+          description: No pending consent for this handle and browser, or it was already decided or expired. MCP disabled answers the unknown-path 404 instead, which clears no cookie.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -3281,7 +3281,7 @@ components:
       schema: { type: string }
     ClearMcpConsentCookie:
       required: true
-      description: Expires the consent binding cookie on the same Path it was set with (Max-Age=-1).
+      description: Expires the consent binding cookie on the same Path it was set with (empty value, Max-Age=0). Sent on decision 200 and 404 while MCP is enabled; a malformed handle clears nothing.
       schema: { type: string }
     SetSessionCookie:
       required: true
