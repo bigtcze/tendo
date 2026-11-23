@@ -710,8 +710,8 @@ each `Set-Cookie` value as a list, goes through the shared checker.
   refresh token), C (`/mcp` protocol checks, then RFC 7009 revocation), D
   (Connected apps disconnect), E (kept across the kill switch), W
   (`tendo:write` only, `/mcp` 403 `insufficient_scope`) and M (a second account
-  for cross-household isolation). The revocation reasons recorded are exactly
-  `client`, `code_reuse`, `replay` and `user`.
+  for cross-household isolation). Each revoked grant records exactly its own
+  reason: A `code_reuse`, B `replay`, C `client`, D `user`.
 - **Kill switch.** The app alone is recreated (`up -d --no-deps --wait app`)
   with MCP off: all nine MCP routes answer the unknown-path 404 with no cookie,
   and Connected apps still lists the paused grant. After it is recreated with
@@ -721,11 +721,15 @@ each `Set-Cookie` value as a list, goes through the shared checker.
   unknown-path 404 and sets no cookie, like every other disabled MCP route. The
   contract now says so on the decision 404, as it already did on the consent
   GET, and the `ClearMcpConsentCookie` wording matches the `Max-Age=0` Go
-  sends. The disabled probe is asserted byte-equal to the unknown-path 404 but
-  not recorded as a fixture, because the decision 404 schema documents the
-  enabled response.
+  sends, and the checker accepts only `Max-Age=0`. The disabled probe is
+  asserted to match the unknown-path 404 (status, body bytes, `Content-Type`,
+  `Cache-Control`, no cookie) but not recorded as a fixture, because the
+  decision 404 schema documents the enabled response.
 - **Secrets.** Every token, code, verifier, handle, binding and session value
-  is collected and must not appear in the MCP tables (digests only) or the app
-  logs.
+  is collected. None may appear in the MCP tables, neither as text nor as its
+  raw decoded bytes; this proves the plaintext is absent, not which digest is
+  stored. None may appear in the logs of any of the three app containers,
+  which are saved before each recreation. A driver failure report is redacted
+  of all of them.
 - **Not tested live.** Rate limits are not tripped, because that would disturb
   the smoke; they stay covered by backend tests. No real AI client is used.

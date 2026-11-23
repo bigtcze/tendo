@@ -251,6 +251,7 @@ test('health checker validates the MCP decision consent binding clear', async ()
       ['no clear and no request URL', undefined, null],
       ['clear with a value', consentClear().replace('tendo_mcp_consent=;', `tendo_mcp_consent=${'B'.repeat(43)};`)],
       ['clear that does not expire', consentClear().replace('Max-Age=0', 'Max-Age=300')],
+      ['clear with Max-Age=-1, which Go never emits', consentClear().replace('Max-Age=0', 'Max-Age=-1')],
       ['url that is not the decision', consentClear(), consentPath],
       ['absolute url', consentClear(), `http://localhost${consentPath}/decision`],
       ['url with a query', consentClear(), `${consentPath}/decision?x=1`],

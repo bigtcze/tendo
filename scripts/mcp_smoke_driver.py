@@ -3,7 +3,9 @@
 
 Usage: mcp_smoke_driver.py <phase> <state.json>, phase is one of enabled,
 disabled, reenabled. Environment: MCP_SMOKE_ORIGIN, MCP_SMOKE_SETUP_TOKEN,
-MCP_SMOKE_PSQL (a psql command line), MCP_SMOKE_FIXTURES, MCP_SMOKE_SECRETS.
+MCP_SMOKE_PSQL (a JSON array argv for psql), MCP_SMOKE_FIXTURES,
+MCP_SMOKE_SECRETS. Failures raise SmokeFailure explicitly (not assert, which
+python -O strips), and the report is redacted of every collected secret.
 
 The script is the MCP client and the browser at once: it registers a public
 client, runs PKCE authorization through the consent API with a signed-in
@@ -18,7 +20,7 @@ and refresh replay revoke the whole grant (ADR 0023):
   W  tendo:write only: no tool scope, so /mcp is 403 insufficient_scope
   M  a second account: cross-household isolation
 """
-import base64, hashlib, json, os, secrets as rnd, subprocess, sys
+import base64, hashlib, json, os, secrets as rnd, subprocess, sys, traceback
 import urllib.error, urllib.parse, urllib.request
 
 ORIGIN = os.environ['MCP_SMOKE_ORIGIN']
@@ -41,14 +43,24 @@ opener = urllib.request.build_opener(NoRedirect)
 fixtures = []
 
 
+class SmokeFailure(Exception):
+    pass
+
+
+def check(condition, *detail):
+    if not condition:
+        raise SmokeFailure(detail)
+
+
 def secret(value):
     if value:
         with open(os.environ['MCP_SMOKE_SECRETS'], 'a', encoding='utf-8') as f:
             f.write(value + '\n')
 
 
-def request(method, url, template=None, json_body=None, form=None, raw=None, headers=None):
-    """Send one request. A template records the response as a fixture."""
+def send(method, url, template=None, json_body=None, form=None, raw=None, headers=None):
+    """Send one request; return status, headers, raw payload and decoded body.
+    A template records the response as a fixture."""
     hs = dict(headers or {})
     data = None
     if json_body is not None:
@@ -67,10 +79,21 @@ def request(method, url, template=None, json_body=None, form=None, raw=None, hea
         status, h, payload = e.code, e.headers, e.read()
     for cookie in h.get_all('Set-Cookie') or []:
         secret(cookie.split(';', 1)[0].split('=', 1)[-1])
+    location = h.get('Location') or ''
+    if '#request=' in location:
+        secret(location.split('#request=', 1)[1])
     media = (h.get('Content-Type') or '').split(';')[0].strip()
     body = None
     if payload:
         body = payload.decode() if media == 'text/plain' else json.loads(payload)
+    if isinstance(body, dict):
+        # Recorded before any check, so a failure report is always redacted.
+        for key in ('access_token', 'refresh_token', 'token'):
+            if isinstance(body.get(key), str):
+                secret(body[key])
+        if isinstance(body.get('redirectTo'), str):
+            for code in urllib.parse.parse_qs(urllib.parse.urlsplit(body['redirectTo']).query).get('code', []):
+                secret(code)
     if template:
         fixture = {
             'path': template, 'url': url.split('?', 1)[0], 'method': method.lower(), 'status': status,
@@ -79,11 +102,16 @@ def request(method, url, template=None, json_body=None, form=None, raw=None, hea
         if payload:
             fixture['body'] = body
         fixtures.append(fixture)
+    return status, h, payload, body
+
+
+def request(*args, **kwargs):
+    status, h, _, body = send(*args, **kwargs)
     return status, h, body
 
 
 def psql(sql):
-    out = subprocess.check_output(os.environ['MCP_SMOKE_PSQL'].split() + ['-c', sql], text=True)
+    out = subprocess.check_output(json.loads(os.environ['MCP_SMOKE_PSQL']) + ['-c', sql], text=True)
     return out.strip().splitlines()[-1] if out.strip() else ''
 
 
@@ -92,13 +120,13 @@ def cookie_pair(headers, name):
         pair = value.split(';', 1)[0]
         if pair.startswith(name + '=') and pair.split('=', 1)[1]:
             return pair
-    raise AssertionError(('missing cookie', name, headers.get_all('Set-Cookie')))
+    raise SmokeFailure(('missing cookie', name, headers.get_all('Set-Cookie')))
 
 
 def login(user):
     status, h, body = request('POST', '/api/v1/session', json_body={'login': user, 'password': PASSWORD},
                               headers={'Origin': ORIGIN})
-    assert status == 201, ('login', user, status, body)
+    check(status == 201, ('login', user, status, body))
     return cookie_pair(h, 'tendo_session')
 
 
@@ -125,7 +153,7 @@ def begin(client_id, scope=None):
     state = rnd.token_urlsafe(12)
     status, h, body = request('GET', authorize_url(client_id, challenge, state, scope), '/oauth/authorize')
     location = h.get('Location', '')
-    assert status == 303 and body is None and location.startswith('/connect#request='), ('authorize', status, location)
+    check(status == 303 and body is None and location.startswith('/connect#request='), ('authorize', status, location))
     handle = location.split('=', 1)[1]
     secret(handle)
     binding = cookie_pair(h, 'tendo_mcp_consent')
@@ -136,28 +164,28 @@ def decide(flow, session, decision, expect=200):
     url = f"/api/v1/mcp/authorization-requests/{flow['handle']}/decision"
     status, h, body = request('POST', url, DECISION, json_body={'decision': decision},
                               headers={'Origin': ORIGIN, 'Cookie': session + '; ' + flow['binding']})
-    assert status == expect, ('decision', decision, status, body)
+    check(status == expect, ('decision', decision, status, body))
     if status != 200:
         return body
     target = urllib.parse.urlsplit(body['redirectTo'])
-    assert f'{target.scheme}://{target.netloc}{target.path}' == REDIRECT, body
+    check(f'{target.scheme}://{target.netloc}{target.path}' == REDIRECT, body)
     query = urllib.parse.parse_qs(target.query, strict_parsing=True)
-    assert query['state'] == [flow['state']] and query['iss'] == [ORIGIN], query
+    check(query['state'] == [flow['state']] and query['iss'] == [ORIGIN], query)
     if decision == 'approve':
-        assert set(query) == {'code', 'state', 'iss'}, query
+        check(set(query) == {'code', 'state', 'iss'}, query)
         secret(query['code'][0])
         return query['code'][0]
-    assert set(query) == {'error', 'state', 'iss'} and query['error'] == ['access_denied'], query
+    check(set(query) == {'error', 'state', 'iss'} and query['error'] == ['access_denied'], query)
     return None
 
 
 def token(form, expect=200, error=None):
     status, _, body = request('POST', '/oauth/token', '/oauth/token', form=form)
-    assert status == expect, ('token', form.get('grant_type'), status, body)
+    check(status == expect, ('token', form.get('grant_type'), status, body))
     if error:
-        assert body == {'error': error, 'error_description': body.get('error_description')}, body
+        check(body['error'] == error and set(body) == {'error', 'error_description'}, body)
     if status == 200:
-        assert body['token_type'] == 'Bearer' and 0 < body['expires_in'] <= 600, body
+        check(body['token_type'] == 'Bearer' and 0 < body['expires_in'] <= 600, body)
         secret(body['access_token'])
         secret(body['refresh_token'])
     return body
@@ -188,7 +216,7 @@ def mcp(access, message, version=PROTOCOL, origin=None, raw=None, expect=200):
     if origin:
         headers['Origin'] = origin
     status, h, body = request('POST', '/mcp', '/mcp', json_body=message if raw is None else None, raw=raw, headers=headers)
-    assert status == expect, ('mcp', message, status, body)
+    check(status == expect, ('mcp', message, status, body))
     return h, body
 
 
@@ -196,13 +224,13 @@ def households(access):
     _, body = mcp(access, {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
                            'params': {'name': 'list_households', 'arguments': {}}})
     result = body['result']
-    assert result.get('isError') is not True, body
+    check(result.get('isError') is not True, body)
     return {(row['id'], row['name'], row['role']) for row in result['structuredContent']['households']}
 
 
 def mcp_refused(access):
     h, body = mcp(access, {'jsonrpc': '2.0', 'id': 9, 'method': 'tools/list'}, expect=401)
-    assert body['error'] == 'invalid_token' and 'error="invalid_token"' in h['WWW-Authenticate'], (h, body)
+    check(body['error'] == 'invalid_token' and 'error="invalid_token"' in h['WWW-Authenticate'], (h, body))
 
 
 def grant_of(access):
@@ -211,164 +239,201 @@ def grant_of(access):
 
 
 def unknown_path_404():
-    status, _, body = request('GET', '/api/v1/no-such-route')
-    assert status == 404, (status, body)
-    return body
+    status, h, payload, _ = send('GET', '/api/v1/no-such-route')
+    check(status == 404, status)
+    return h, payload
 
 
-def phase_enabled(state):
+def setup_owner():
     status, _, body = request('PUT', '/api/v1/auth/setup', json_body={
         'login': 'mcp_owner', 'password': PASSWORD, 'householdName': 'MCP Smoke', 'timezone': 'UTC'},
         headers={'Origin': ORIGIN, 'X-Tendo-Setup-Token': os.environ['MCP_SMOKE_SETUP_TOKEN']})
-    assert status == 201, ('setup', status, body)
+    check(status == 201, ('setup', status, body))
     owner = login('mcp_owner')
-    secret(owner.split('=', 1)[1])
     _, _, me = request('GET', '/api/v1/session', headers={'Cookie': owner})
-    home = me['defaultHouseholdId']
+    return owner, me['defaultHouseholdId']
 
-    # Discovery.
+
+def discover():
     status, _, prm = request('GET', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-protected-resource/mcp')
-    assert status == 200 and prm['resource'] == RESOURCE and prm['authorization_servers'] == [ORIGIN], prm
+    check(status == 200 and prm['resource'] == RESOURCE and prm['authorization_servers'] == [ORIGIN], prm)
     status, _, asm = request('GET', '/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server')
-    assert status == 200 and asm['issuer'] == ORIGIN, asm
+    check(status == 200 and asm['issuer'] == ORIGIN, asm)
     for key, path in [('authorization_endpoint', '/oauth/authorize'), ('token_endpoint', '/oauth/token'),
                       ('registration_endpoint', '/oauth/register'), ('revocation_endpoint', '/oauth/revoke')]:
-        assert asm[key] == ORIGIN + path, (key, asm)
-    assert asm['code_challenge_methods_supported'] == ['S256'], asm
+        check(asm[key] == ORIGIN + path, (key, asm))
+    check(asm['code_challenge_methods_supported'] == ['S256'], asm)
 
-    # Registration: one client for the whole smoke (10 per minute per IP).
+
+def register():
+    """One client for the whole smoke: registration allows 10 per minute per IP."""
     status, _, refused = request('POST', '/oauth/register', '/oauth/register',
                                  json_body={'redirect_uris': ['javascript:alert(1)'], 'client_name': 'Refused'})
-    assert status == 400 and refused['error'] == 'invalid_redirect_uri', refused
+    check(status == 400 and refused['error'] == 'invalid_redirect_uri', refused)
     status, _, client = request('POST', '/oauth/register', '/oauth/register',
                                 json_body={'redirect_uris': [REDIRECT], 'client_name': 'MCP Smoke Client'})
-    assert status == 201 and client['token_endpoint_auth_method'] == 'none', client
-    assert client['scope'] == 'tendo:read tendo:write' and client['redirect_uris'] == [REDIRECT], client
-    cid = client['client_id']
+    check(status == 201 and client['token_endpoint_auth_method'] == 'none', client)
+    check(client['scope'] == 'tendo:read tendo:write' and client['redirect_uris'] == [REDIRECT], client)
+    return client['client_id']
 
-    # Authorize refusals redirect to /connect#error= and set no cookie.
+
+def authorize_refusals(cid):
+    """Authorize refusals redirect to /connect#error= and set no cookie."""
     _, challenge = pkce()
     for label, url, code in [
             ('plain PKCE', authorize_url(cid, challenge, 's', method='plain'), 'invalid_request'),
             ('foreign resource', authorize_url(cid, challenge, 's', resource='http://evil.invalid/mcp'), 'invalid_target')]:
         status, h, body = request('GET', url, '/oauth/authorize')
-        assert status == 303 and h['Location'] == '/connect#error=' + code, (label, status, h['Location'])
-        assert not h.get_all('Set-Cookie'), (label, h.get_all('Set-Cookie'))
+        check(status == 303 and h['Location'] == '/connect#error=' + code, (label, status, h['Location']))
+        check(not h.get_all('Set-Cookie'), (label, h.get_all('Set-Cookie')))
 
-    # Grant A: consent reads, decision refusals, verifier mismatch and code reuse.
+
+def grant_a(cid, owner):
+    """Consent reads, decision refusals, verifier mismatch and code reuse."""
     flow = begin(cid)
     consent_url = f"/api/v1/mcp/authorization-requests/{flow['handle']}"
     status, _, body = request('GET', consent_url, CONSENT, headers={'Cookie': flow['binding']})
-    assert status == 401 and body['code'] == 'unauthenticated', ('consent without session', status, body)
+    check(status == 401 and body['code'] == 'unauthenticated', ('consent without session', status, body))
     status, _, body = request('GET', consent_url, CONSENT, headers={'Cookie': owner})
-    assert status == 404 and body['code'] == 'authorization_request_not_found', ('consent without binding', status, body)
+    check(status == 404 and body['code'] == 'authorization_request_not_found', ('consent without binding', status, body))
     status, _, view = request('GET', consent_url, CONSENT, headers={'Cookie': owner + '; ' + flow['binding']})
-    assert status == 200 and view['clientName'] == 'MCP Smoke Client' and view['clientNameVerified'] is False, view
-    assert view['redirectUri'] == REDIRECT and sorted(view['scopes']) == ['tendo:read', 'tendo:write'], view
+    check(status == 200 and view['clientName'] == 'MCP Smoke Client' and view['clientNameVerified'] is False, view)
+    check(view['redirectUri'] == REDIRECT and sorted(view['scopes']) == ['tendo:read', 'tendo:write'], view)
     status, _, body = request('POST', consent_url + '/decision', DECISION, json_body={'decision': 'approve'},
                               headers={'Origin': FOREIGN, 'Cookie': owner + '; ' + flow['binding']})
-    assert status == 403, ('decision foreign Origin', status, body)
+    check(status == 403, ('decision foreign Origin', status, body))
     status, _, body = request('POST', consent_url + '/decision', DECISION, json_body={'decision': 'maybe'},
                               headers={'Origin': ORIGIN, 'Cookie': owner + '; ' + flow['binding']})
-    assert status == 400 and body['code'] == 'invalid_request', ('decision value', status, body)
+    check(status == 400 and body['code'] == 'invalid_request', ('decision value', status, body))
     code = decide(flow, owner, 'approve')
     replay = decide(flow, owner, 'approve', expect=404)
-    assert replay['code'] == 'authorization_request_not_found', replay
+    check(replay['code'] == 'authorization_request_not_found', replay)
     token({'grant_type': 'authorization_code', 'code': code, 'redirect_uri': REDIRECT, 'client_id': cid,
            'code_verifier': flow['verifier'], 'resource': 'http://evil.invalid/mcp'}, 400, 'invalid_target')
     wrong, _ = pkce()
     exchange(cid, flow, code, 400, 'invalid_grant', verifier=wrong)
-    grant_a = exchange(cid, flow, code)
+    tokens = exchange(cid, flow, code)
+    grant_id = grant_of(tokens['access_token'])
     exchange(cid, flow, code, 400, 'invalid_grant')
-    mcp_refused(grant_a['access_token'])
-    refresh(cid, grant_a, 400, 'invalid_grant')
+    mcp_refused(tokens['access_token'])
+    refresh(cid, tokens, 400, 'invalid_grant')
+    return grant_id
 
-    # Denial issues no code and creates no grant.
+
+def denial(cid, owner):
+    """Denial issues no code and creates no grant."""
     before = psql('SELECT count(*) FROM mcp_grants')
-    assert decide(begin(cid), owner, 'deny') is None
-    assert psql('SELECT count(*) FROM mcp_grants') == before, 'denial created a grant'
+    check(decide(begin(cid), owner, 'deny') is None, 'denial issued a code')
+    check(psql('SELECT count(*) FROM mcp_grants') == before, 'denial created a grant')
 
-    # Grant B: refresh rotation, then replay of the consumed refresh token.
-    grant_b = connect(cid, owner)
-    rotated = refresh(cid, grant_b)
-    assert rotated['refresh_token'] != grant_b['refresh_token'], 'refresh token not rotated'
-    assert households(rotated['access_token']) == {(home, 'MCP Smoke', 'admin')}
-    refresh(cid, grant_b, 400, 'invalid_grant')
+
+def grant_b(cid, owner, home):
+    """Refresh rotation, then replay of the consumed refresh token."""
+    tokens = connect(cid, owner)
+    grant_id = grant_of(tokens['access_token'])
+    rotated = refresh(cid, tokens)
+    check(rotated['refresh_token'] != tokens['refresh_token'], 'refresh token not rotated')
+    check(households(rotated['access_token']) == {(home, 'MCP Smoke', 'admin')}, 'rotated households')
+    refresh(cid, tokens, 400, 'invalid_grant')
     refresh(cid, rotated, 400, 'invalid_grant')
     mcp_refused(rotated['access_token'])
+    return grant_id
 
-    # Grant C: the /mcp protocol surface, then client revocation.
-    grant_c = connect(cid, owner)
-    access = grant_c['access_token']
+
+def grant_c(cid, owner, home):
+    """The /mcp protocol surface, then RFC 7009 revocation by the client."""
+    tokens = connect(cid, owner)
+    access = tokens['access_token']
+    grant_id = grant_of(access)
     h, body = mcp(None, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, expect=401)
     challenge = h['WWW-Authenticate']
-    assert 'error=' not in challenge and f'resource_metadata="{ORIGIN}/.well-known/oauth-protected-resource/mcp"' in challenge, challenge
+    check('error=' not in challenge and f'resource_metadata="{ORIGIN}/.well-known/oauth-protected-resource/mcp"' in challenge, challenge)
     mcp_refused('A' * 43)
     mcp(access, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, origin=FOREIGN, expect=403)
     _, body = mcp(access, None, raw=b'[{"jsonrpc":"2.0","id":1,"method":"tools/list"}]', expect=400)
-    assert body['error']['code'] == -32600, body
+    check(body['error']['code'] == -32600, body)
     _, body = mcp(access, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, version=None, expect=400)
-    assert body['error']['code'] == -32600, body
+    check(body['error']['code'] == -32600, body)
     _, body = mcp(access, {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
         'protocolVersion': PROTOCOL, 'capabilities': {}, 'clientInfo': {'name': 'mcp-smoke', 'version': '1'}}}, version=None)
-    assert body['result']['protocolVersion'] == PROTOCOL, body
+    check(body['result']['protocolVersion'] == PROTOCOL, body)
     mcp(access, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}, expect=202)
     _, body = mcp(access, {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
-    assert [tool['name'] for tool in body['result']['tools']] == ['list_households'], body
-    assert households(access) == {(home, 'MCP Smoke', 'admin')}
+    check([tool['name'] for tool in body['result']['tools']] == ['list_households'], body)
+    check(households(access) == {(home, 'MCP Smoke', 'admin')}, 'grant C households')
     status, _, body = request('POST', '/oauth/revoke', '/oauth/revoke', form={'client_id': cid})
-    assert status == 400 and body['error'] == 'invalid_request', ('revoke without token', status, body)
-    status, _, body = request('POST', '/oauth/revoke', '/oauth/revoke', form={'token': grant_c['refresh_token'], 'client_id': cid})
-    assert status == 200 and body is None, ('revoke', status, body)
+    check(status == 400 and body['error'] == 'invalid_request', ('revoke without token', status, body))
+    status, _, body = request('POST', '/oauth/revoke', '/oauth/revoke', form={'token': tokens['refresh_token'], 'client_id': cid})
+    check(status == 200 and body is None, ('revoke', status, body))
     mcp_refused(access)
-    refresh(cid, grant_c, 400, 'invalid_grant')
+    refresh(cid, tokens, 400, 'invalid_grant')
+    return grant_id
 
-    # Grant W: a tendo:write-only grant holds no scope any tool requires.
-    grant_w = connect(cid, owner, scope='tendo:write')
-    assert grant_w['scope'] == 'tendo:write', grant_w
-    h, body = mcp(grant_w['access_token'], {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, expect=403)
-    assert body['error'] == 'insufficient_scope' and 'error="insufficient_scope"' in h['WWW-Authenticate'], (h, body)
 
-    # Grant D: disconnect through Connected apps reaches the next request.
-    grant_d = connect(cid, owner)
-    grant_d_id = grant_of(grant_d['access_token'])
+def grant_w(cid, owner):
+    """A tendo:write-only grant holds no scope any tool requires."""
+    tokens = connect(cid, owner, scope='tendo:write')
+    check(tokens['scope'] == 'tendo:write', tokens['scope'])
+    h, body = mcp(tokens['access_token'], {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, expect=403)
+    check(body['error'] == 'insufficient_scope' and 'error="insufficient_scope"' in h['WWW-Authenticate'], (h, body))
+
+
+def grant_d(cid, owner):
+    """Disconnect through Connected apps reaches the next request."""
+    tokens = connect(cid, owner)
+    grant_id = grant_of(tokens['access_token'])
     status, _, listed = request('GET', '/api/v1/mcp/grants', headers={'Cookie': owner})
-    assert status == 200 and grant_d_id in {item['id'] for item in listed['items']}, listed
-    status, _, body = request('DELETE', '/api/v1/mcp/grants/' + grant_d_id, headers={'Origin': ORIGIN, 'Cookie': owner})
-    assert status == 204, ('disconnect', status, body)
-    mcp_refused(grant_d['access_token'])
-    refresh(cid, grant_d, 400, 'invalid_grant')
+    check(status == 200 and grant_id in {item['id'] for item in listed['items']}, listed)
+    status, _, body = request('DELETE', '/api/v1/mcp/grants/' + grant_id, headers={'Origin': ORIGIN, 'Cookie': owner})
+    check(status == 204, ('disconnect', status, body))
+    mcp_refused(tokens['access_token'])
+    refresh(cid, tokens, 400, 'invalid_grant')
+    return grant_id
 
-    # Grant M: a second account in a household the owner does not belong to.
+
+def grant_m(cid, owner, home):
+    """A second account in a household the owner does not belong to."""
     status, _, invite = request('POST', f'/api/v1/households/{home}/invitations', json_body={},
                                 headers={'Origin': ORIGIN, 'Cookie': owner, 'Idempotency-Key': 'mcp-smoke-member'})
-    assert status == 201, ('invitation', status, invite)
-    secret(invite['token'])
+    check(status == 201, ('invitation', status, invite))
     status, _, body = request('POST', '/api/v1/auth/invitations/accept', json_body={
         'token': invite['token'], 'login': 'mcp_member', 'password': PASSWORD}, headers={'Origin': ORIGIN})
-    assert status == 201, ('accept', status, body)
+    check(status == 201, ('accept', status, body))
     member = login('mcp_member')
-    secret(member.split('=', 1)[1])
     _, _, member_me = request('GET', '/api/v1/session', headers={'Cookie': member})
     status, _, other = request('POST', '/api/v1/admin/households', json_body={
         'name': 'Member Only', 'timezone': 'UTC', 'adminUserId': member_me['userId']},
         headers={'Origin': ORIGIN, 'Cookie': owner, 'Idempotency-Key': 'mcp-smoke-other'})
-    assert status == 201, ('member household', status, other)
-    grant_m = connect(cid, member)
-    assert households(grant_m['access_token']) == {(home, 'MCP Smoke', 'member'), (other['id'], 'Member Only', 'admin')}
+    check(status == 201, ('member household', status, other))
+    tokens = connect(cid, member)
+    check(households(tokens['access_token']) == {(home, 'MCP Smoke', 'member'), (other['id'], 'Member Only', 'admin')},
+          'member households')
     owner_check = connect(cid, owner)
-    assert households(owner_check['access_token']) == {(home, 'MCP Smoke', 'admin')}, 'owner sees a foreign household'
+    check(households(owner_check['access_token']) == {(home, 'MCP Smoke', 'admin')}, 'owner sees a foreign household')
 
-    # Grant E survives the switch-off.
-    grant_e = connect(cid, owner)
-    state.update(client_id=cid, owner=owner, home=home, grant_e=grant_e, grant_e_id=grant_of(grant_e['access_token']))
 
-    reasons = psql("SELECT string_agg(DISTINCT reason, ',' ORDER BY reason) FROM mcp_grant_events WHERE event='revoked'")
-    assert reasons == 'client,code_reuse,replay,user', reasons
+def phase_enabled(state):
+    # Fixed order: replays revoke a whole grant, so each grant has one role.
+    # /oauth/authorize allows 20 requests per minute per IP; this phase makes 11.
+    owner, home = setup_owner()
+    discover()
+    cid = register()
+    authorize_refusals(cid)
+    revoked = {grant_a(cid, owner): 'code_reuse'}
+    denial(cid, owner)
+    revoked[grant_b(cid, owner, home)] = 'replay'
+    revoked[grant_c(cid, owner, home)] = 'client'
+    grant_w(cid, owner)
+    revoked[grant_d(cid, owner)] = 'user'
+    grant_m(cid, owner, home)
+    tokens = connect(cid, owner)  # grant E survives the switch-off
+    state.update(client_id=cid, owner=owner, home=home, grant_e=tokens, grant_e_id=grant_of(tokens['access_token']))
+    events = psql("SELECT string_agg(grant_id || ':' || reason, ',' ORDER BY grant_id) FROM mcp_grant_events WHERE event='revoked'")
+    check(dict(event.split(':') for event in events.split(',')) == revoked, ('revocation reasons per grant', events, revoked))
 
 
 def phase_disabled(state):
-    unknown = unknown_path_404()
+    unknown_headers, unknown = unknown_path_404()
     flow_handle = 'H' * 43
     probes = [
         ('POST', '/oauth/register', '/oauth/register', {'json_body': {'redirect_uris': [REDIRECT]}}),
@@ -376,10 +441,10 @@ def phase_disabled(state):
         ('GET', '/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server', {}),
         ('GET', authorize_url(state['client_id'], 'C' * 43, 's'), '/oauth/authorize', {}),
         ('GET', f'/api/v1/mcp/authorization-requests/{flow_handle}', CONSENT, {'headers': {'Cookie': state['owner']}}),
-        # Asserted but not recorded: the contract declares the consent cookie
-        # clear on every decision 404, while the disabled surface answers the
-        # byte-identical unknown-path 404 with no cookie. The enabled 404s are
-        # recorded above.
+        # Asserted but not recorded: the decision 404 schema documents the
+        # enabled response, which clears the consent cookie. While disabled the
+        # route answers the unknown-path 404 with no cookie. The enabled 404s
+        # are recorded in phase_enabled.
         ('POST', f'/api/v1/mcp/authorization-requests/{flow_handle}/decision', None,
          {'json_body': {'decision': 'approve'}, 'headers': {'Origin': ORIGIN, 'Cookie': state['owner']}}),
         ('POST', '/oauth/token', '/oauth/token', {'form': {'grant_type': 'refresh_token',
@@ -390,21 +455,35 @@ def phase_disabled(state):
             'Accept': 'application/json, text/event-stream'}}),
     ]
     for method, url, template, kwargs in probes:
-        status, h, body = request(method, url, template, **kwargs)
-        assert status == 404 and body == unknown and not h.get_all('Set-Cookie'), ('disabled', url, status, body)
+        status, h, payload, _ = send(method, url, template, **kwargs)
+        check(status == 404 and payload == unknown and not h.get_all('Set-Cookie'), ('disabled', url, status, payload))
+        for header in ('Content-Type', 'Cache-Control'):
+            check(h.get(header) == unknown_headers.get(header), ('disabled', url, header, h.get(header)))
     status, _, listed = request('GET', '/api/v1/mcp/grants', headers={'Cookie': state['owner']})
-    assert status == 200 and state['grant_e_id'] in {item['id'] for item in listed['items']}, ('paused grant listed', listed)
+    check(status == 200 and state['grant_e_id'] in {item['id'] for item in listed['items']}, ('paused grant listed', listed))
 
 
 def phase_reenabled(state):
     tokens = refresh(state['client_id'], state['grant_e'])
-    assert households(tokens['access_token']) == {(state['home'], 'MCP Smoke', 'admin')}
+    check(households(tokens['access_token']) == {(state['home'], 'MCP Smoke', 'admin')}, 'grant E households')
+
+
+def redact(text):
+    with open(os.environ['MCP_SMOKE_SECRETS'], encoding='utf-8') as f:
+        for value in sorted(filter(None, f.read().splitlines()), key=len, reverse=True):
+            text = text.replace(value, '[REDACTED]')
+    return text
 
 
 def main():
     phase, state_path = sys.argv[1], sys.argv[2]
     state = json.load(open(state_path)) if os.path.exists(state_path) and os.path.getsize(state_path) else {}
-    {'enabled': phase_enabled, 'disabled': phase_disabled, 'reenabled': phase_reenabled}[phase](state)
+    try:
+        {'enabled': phase_enabled, 'disabled': phase_disabled, 'reenabled': phase_reenabled}[phase](state)
+    except Exception:
+        # Tokens, codes, handles and cookies must not reach the CI log.
+        sys.stderr.write(redact(f'MCP smoke {phase} phase failed\n' + traceback.format_exc()))
+        sys.exit(1)
     with open(state_path, 'w', encoding='utf-8') as f:
         json.dump(state, f)
     path = os.environ['MCP_SMOKE_FIXTURES']
