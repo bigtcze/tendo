@@ -1,4 +1,5 @@
 import { chromium, expect, request, test, type BrowserContext, type ConsoleMessage, type Frame, type Locator, type Page, type Request } from '@playwright/test';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -207,6 +208,7 @@ test.describe('Tendo production journey', () => {
   let passwordResetFailures: string[] = [];
   let passwordChangeFailures: string[] = [];
   let connectGoneRefusal = '';
+  let n32FailedResponses: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
@@ -368,8 +370,8 @@ test.describe('Tendo production journey', () => {
   });
 
   test('g1. the MCP consent page cannot be framed, strips its fragment and states a dead request calmly', async () => {
-    // V5-12 A3b: /connect is where the authorization endpoint lands. Production MCP is still disabled (A4), so the
-    // page can only show its error states here: a carried error code, and a request the server no longer knows.
+    // V5-12 A3b: /connect is where the authorization endpoint lands. This step covers only its error states: a carried
+    // error code, and a request the server does not know. n32 walks a real request through the same page.
     const response = await page.goto('/connect#error=invalid_client');
     expect(response?.status()).toBe(200);
     expect(response?.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
@@ -395,7 +397,8 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByText(en['connect.problem.request'], { exact: true })).toBeVisible();
     expect(new URL(page.url()).hash).toBe('');
 
-    // A pattern-valid handle the server does not know (MCP disabled: the unknown-path 404) is "no longer valid".
+    // A pattern-valid handle the server does not know is "no longer valid": with an unknown handle, or with no binding
+    // cookie, the request read answers 404.
     const handle = 'B'.repeat(43);
     const consentPath = `/api/v1/mcp/authorization-requests/${handle}`;
     expectedFailedStatuses.add(`${consentPath} 404`);
@@ -7494,6 +7497,267 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n32. 17. MCP OAuth consent: sign in from the consent page, Allow after its delay, use the token, deny once, disconnect in Account', async ({ browser }) => {
+    // V5-12 A4c2, TESTING journey 17, against the MCP-enabled production binary and the deterministic test IdP. Only
+    // what needs a real browser is checked here: the consent screen, the return after sign-in, the redirect the
+    // browser follows, the Allow delay, that a decided request cannot be decided again, and that Disconnect in
+    // Account ends the token. Rate limits, audience, issuer, CSRF Origin, cross-household and disabled-MCP refusals
+    // are the deployment MCP smoke's and the unit tests'. Budgets: 1 registration, 2 authorizations, 2 token calls
+    // and 1 provider sign-in, all far under their per-minute limits.
+    test.setTimeout(120_000);
+    const redirect = 'http://127.0.0.1:9/callback';
+    const clientName = 'Journey MCP Client';
+    const provider = 'OIDC Smoke Provider';
+    const issuer = process.env.E2E_OIDC_ISSUER;
+    if (!issuer) throw new Error('E2E_OIDC_ISSUER is required; run scripts/e2e-smoke.sh');
+    const fill = (template: string, params: Record<string, string>) => Object.entries(params)
+      .reduce((text, [key, value]) => text.replaceAll(`{${key}}`, value), template);
+    const requestPath = (handle: string) => `/api/v1/mcp/authorization-requests/${handle}`;
+
+    // n9 linked the owner to the test IdP, and nothing since has unlinked it: the provider sign-in below needs it.
+    expect(await (await page.request.get('/api/v1/auth/oidc/identity')).json(), 'the owner is still linked').toEqual({ linked: true });
+
+    // The MCP client is its own HTTP client: it never shares the browser's cookies.
+    const client = await request.newContext({ baseURL });
+    const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      const registered = await client.post('/oauth/register', { data: { redirect_uris: [redirect], client_name: clientName } });
+      expect(registered.status(), 'the client registers').toBe(201);
+      const clientId = (await registered.json() as { client_id: string }).client_id;
+
+      // The app's loopback redirect is intercepted: each hit is recorded and answered by a page without script.
+      const callbacks: URL[] = [];
+      await context.route('http://127.0.0.1:9/**', async (route) => {
+        callbacks.push(new URL(route.request().url()));
+        await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Callback</title><link rel="icon" href="data:,"><p>Back in the app.</p>' });
+      });
+      // The page clock is paused before the consent can load, so the Allow delay is measured in page time.
+      await context.clock.install();
+      await context.clock.pauseAt(new Date(Date.now() + 1_000));
+      const consent = await context.newPage();
+      watch(consent);
+      const failures: string[] = [];
+      consent.on('response', (response) => {
+        if (response.status() >= 400) failures.push(`${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`);
+      });
+
+      /** One authorization request from the browser: the server answers 303 to the consent page with the handle. */
+      const begin = async () => {
+        const verifier = randomBytes(32).toString('base64url');
+        const challenge = createHash('sha256').update(verifier).digest('base64url');
+        const state = randomBytes(12).toString('base64url');
+        const query = new URLSearchParams({
+          response_type: 'code', client_id: clientId, redirect_uri: redirect, code_challenge: challenge,
+          code_challenge_method: 'S256', state, resource: `${baseURL}/mcp`,
+        });
+        const authorized = consent.waitForResponse((response) => new URL(response.url()).pathname === '/oauth/authorize');
+        await consent.goto(`/oauth/authorize?${query}`);
+        const response = await authorized;
+        expect(response.status(), 'authorize redirects to the consent page').toBe(303);
+        const location = response.headers()['location'] ?? '';
+        expect(location).toMatch(/^\/connect#request=[A-Za-z0-9_-]{43}$/);
+        return { verifier, state, handle: location.slice('/connect#request='.length) };
+      };
+      const bindingCookie = async (handle: string) => (await context.cookies(`${baseURL}${requestPath(handle)}`))
+        .find((cookie) => cookie.name === 'tendo_mcp_consent')?.value ?? '';
+      const sessionCookie = async () => (await context.cookies(baseURL))
+        .find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
+      /**
+       * The browser's own credentials for one request, replayed by the client. Before the decision they read the
+       * request (200), which proves they are the right ones; after it the same credentials can neither read nor
+       * approve it, so a denied or allowed request is decided at most once.
+       */
+      const browserCredentials = async (handle: string) => {
+        const binding = await bindingCookie(handle);
+        const session = await sessionCookie();
+        expect(binding, 'the binding cookie is set for this request').not.toBe('');
+        expect(session).not.toBe('');
+        const headers = { Origin: baseURL, Cookie: `tendo_session=${session}; tendo_mcp_consent=${binding}` };
+        expect((await client.get(requestPath(handle), { headers })).status(), 'the replayed credentials are the browser\'s').toBe(200);
+        return headers;
+      };
+      const expectDecidedOnce = async (handle: string, headers: Record<string, string>) => {
+        expect(await bindingCookie(handle), 'the decision clears the binding cookie').toBe('');
+        const replay = await client.post(`${requestPath(handle)}/decision`, { headers, data: { decision: 'approve' } });
+        expect(replay.status(), 'a decided request cannot be approved').toBe(404);
+        expect(await replay.json()).toMatchObject({ status: 404, code: 'authorization_request_not_found' });
+        expect((await client.get(requestPath(handle), { headers })).status(), 'nor read again').toBe(404);
+      };
+      const serverGrants = async () => {
+        const listed = await consent.request.get('/api/v1/mcp/grants');
+        expect(listed.status()).toBe(200);
+        return await listed.json() as { items: Array<{ id: string; clientName: string; scopes: string[] }>; nextCursor: string | null };
+      };
+      const heading = consent.getByRole('heading', { level: 1, name: fill(en['connect.heading'], { client: clientName }) });
+      const allow = consent.getByRole('button', { name: en['connect.allow'], exact: true });
+      const deny = consent.getByRole('button', { name: en['connect.deny'], exact: true });
+
+      // 1. Signed out, the consent page asks for sign-in first and keeps the handle out of the address bar.
+      const allowed = await begin();
+      await expect(consent.getByRole('heading', { level: 1, name: en['login.title'], exact: true })).toBeVisible();
+      await expect(consent.getByRole('main').getByText(en['connect.signIn.notice'], { exact: true })).toBeVisible();
+      expect(new URL(consent.url()).pathname).toBe('/connect');
+      expect(new URL(consent.url()).hash).toBe('');
+      await expect(heading).toHaveCount(0);
+
+      // 2. A provider sign-in comes back to the same request, not to Home.
+      await consent.route(`${issuer}/authorize**`, (route) => route.continue({ url: `${route.request().url()}&sub=owner-subject` }));
+      await consent.getByRole('button', { name: fill(en['login.oidc.submit'], { provider }), exact: true }).click();
+      await expect(heading).toBeVisible();
+      expect(new URL(consent.url()).pathname).toBe('/connect');
+      const main = consent.getByRole('main');
+      await expect(main.getByText(en['connect.unverified'], { exact: true })).toBeVisible();
+      await expect(main.getByText(fill(en['connect.destination.loopback'], { host: '127.0.0.1:9' }), { exact: true })).toBeVisible();
+      await expect(main.getByText(en['connect.scope.read'], { exact: true })).toBeVisible();
+      await expect(main.getByText(en['connect.scope.write'], { exact: true })).toBeVisible();
+      await expect(main.getByText(fill(en['connect.signedInAs'], { login: ownerLogin }), { exact: true })).toBeVisible();
+      const expiresLine = new RegExp(`^${en['connect.expires'].replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace('{time}', '.+')}$`);
+      await expect(main.getByText(expiresLine)).toBeVisible();
+      await expect(deny).toBeEnabled();
+
+      // 3. Allow waits a full second of visible, focused page time, and says why while it waits.
+      await expect(allow).toBeDisabled();
+      await expect(allow).toHaveAccessibleDescription(en['connect.allowHint']);
+      // The delay timer is armed in an effect after the render; one message-channel round trip, which the page clock
+      // does not hold, lets that effect run before the clock moves.
+      await consent.evaluate(() => new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => resolve(null);
+        channel.port2.postMessage(0);
+      }));
+      await context.clock.runFor(999);
+      await expect(allow).toBeDisabled();
+      await expect(allow).toHaveAccessibleDescription(en['connect.allowHint']);
+      await expect(main.getByText(en['connect.allowHint'], { exact: true })).toBeVisible();
+      await context.clock.runFor(1);
+      await expect(allow).toBeEnabled();
+      await expect(allow).not.toHaveAttribute('aria-describedby');
+      await expect(main.getByText(en['connect.allowHint'], { exact: true })).toHaveCount(0);
+      await context.clock.resume();
+      await expectNoAxeViolations(consent, 'connect-consent');
+
+      // 4. Allow: the browser follows the redirect once, with exactly the code, the client's state and the issuer.
+      const allowedHeaders = await browserCredentials(allowed.handle);
+      await allow.click();
+      await consent.waitForURL((url) => url.origin === 'http://127.0.0.1:9');
+      expect(callbacks, 'the browser returns to the app once').toHaveLength(1);
+      const approved = callbacks[0]!;
+      expect(`${approved.origin}${approved.pathname}`).toBe(redirect);
+      expect([...approved.searchParams.keys()].sort()).toEqual(['code', 'iss', 'state']);
+      expect(approved.searchParams.get('state')).toBe(allowed.state);
+      expect(approved.searchParams.get('iss')).toBe(baseURL);
+      await expectDecidedOnce(allowed.handle, allowedHeaders);
+
+      // 5. The client exchanges the code and sees exactly the owner's households, as the browser's API lists them.
+      const exchanged = await client.post('/oauth/token', { form: {
+        grant_type: 'authorization_code', code: approved.searchParams.get('code') ?? '', redirect_uri: redirect,
+        client_id: clientId, code_verifier: allowed.verifier,
+      } });
+      expect(exchanged.status(), 'the code exchanges for tokens').toBe(200);
+      const tokens = await exchanged.json() as { access_token: string; refresh_token: string; token_type: string; scope: string };
+      expect(tokens.token_type).toBe('Bearer');
+      expect(tokens.scope).toBe('tendo:read tendo:write');
+      const mcp = (message: unknown, version: string | null = '2025-11-25') => client.post('/mcp', {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`, Accept: 'application/json, text/event-stream',
+          'Content-Type': 'application/json', ...(version ? { 'MCP-Protocol-Version': version } : {}),
+        },
+        data: message,
+      });
+      const initialized = await mcp({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+        protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'journey', version: '1' } } }, null);
+      expect(initialized.status()).toBe(200);
+      expect((await initialized.json() as { result: { protocolVersion: string } }).result.protocolVersion).toBe('2025-11-25');
+      expect((await mcp({ jsonrpc: '2.0', method: 'notifications/initialized' })).status()).toBe(202);
+      const called = await mcp({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_households', arguments: {} } });
+      expect(called.status()).toBe(200);
+      const result = (await called.json() as { result: { isError?: boolean; structuredContent: { households: Array<{ id: string; name: string; role: string }>; nextCursor: string } } }).result;
+      expect(result.isError).not.toBe(true);
+      const listed = await consent.request.get('/api/v1/households?limit=100');
+      expect(listed.status()).toBe(200);
+      const own = await listed.json() as { items: Array<{ id: string; name: string; viewerRole: string }>; nextCursor: string | null };
+      expect(own.nextCursor, 'the browser read every household').toBeNull();
+      expect(result.structuredContent.nextCursor, 'the tool read every household').toBe('');
+      const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
+      expect(own.items.length).toBeGreaterThan(0);
+      expect([...result.structuredContent.households].sort(byId))
+        .toEqual(own.items.map((household) => ({ id: household.id, name: household.name, role: household.viewerRole })).sort(byId));
+
+      // 6. Account lists the app; Disconnect asks first, then removes it on the server and ends its token.
+      await consent.goto('/account');
+      await expect(main.getByRole('heading', { level: 1, name: en['account.title'], exact: true })).toBeVisible();
+      const appsHeading = main.getByRole('heading', { level: 2, name: en['connectedApps.title'], exact: true });
+      await expect(appsHeading).toBeVisible();
+      const rows = main.locator('li[data-grant-id]');
+      await expect(rows).toHaveCount(1);
+      await expect(rows.first()).toContainText(clientName);
+      await expect(rows.first()).toContainText(en['connectedApps.access.write']);
+      const [grant] = (await serverGrants()).items;
+      expect(grant).toMatchObject({ clientName, scopes: ['tendo:read', 'tendo:write'] });
+      await expect(rows.first()).toHaveAttribute('data-grant-id', grant!.id);
+      await rows.first().getByRole('button', { name: fill(en['connectedApps.disconnectLabel'], { client: clientName }), exact: true }).click();
+      const dialog = consent.getByRole('dialog', { name: fill(en['connectedApps.dialog.title'], { client: clientName }), exact: true });
+      await expect(dialog).toBeVisible();
+      expect((await serverGrants()).items.map((item) => item.id), 'nothing is removed before the confirmation').toEqual([grant!.id]);
+      const removal = consent.waitForResponse((response) => response.request().method() === 'DELETE' && new URL(response.url()).pathname === `/api/v1/mcp/grants/${grant!.id}`);
+      await dialog.getByRole('button', { name: en['connectedApps.dialog.confirm'], exact: true }).click();
+      expect((await removal).status()).toBe(204);
+      await expect(consent.getByRole('dialog')).toHaveCount(0);
+      const disconnectedNotice = main.getByText(fill(en['connectedApps.notice.disconnected'], { client: clientName }), { exact: true });
+      // The emptied section drops its heading and list but stays shown while the notice is on screen.
+      await expect(disconnectedNotice).toBeVisible();
+      await expect(rows).toHaveCount(0);
+      expect(await serverGrants(), 'the server holds no connected app').toEqual({ items: [], nextCursor: null });
+      // The notice keeps the emptied section on screen for a while; a fresh load of Account shows no section at all.
+      const reloadedList = consent.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/v1/mcp/grants');
+      await consent.reload();
+      expect((await reloadedList).status()).toBe(200);
+      await expect(main.getByRole('heading', { level: 1, name: en['account.title'], exact: true })).toBeVisible();
+      await expect(disconnectedNotice).toHaveCount(0);
+      await expect(appsHeading).toHaveCount(0);
+      await expect(rows).toHaveCount(0);
+      const refused = await mcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+      expect(refused.status(), 'the disconnected token no longer works').toBe(401);
+      expect(await refused.json()).toMatchObject({ error: 'invalid_token' });
+      const refreshed = await client.post('/oauth/token', { form: { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId } });
+      expect(refreshed.status(), 'nor does its refresh token').toBe(400);
+      expect(await refreshed.json()).toMatchObject({ error: 'invalid_grant' });
+
+      // 7. Signed in, a second request goes straight to the consent; Deny needs no delay and returns no code.
+      const denied = await begin();
+      await expect(heading).toBeVisible();
+      await expect(consent.getByRole('heading', { level: 1, name: en['login.title'] })).toHaveCount(0);
+      const deniedHeaders = await browserCredentials(denied.handle);
+      await expect(deny).toBeEnabled();
+      await deny.click();
+      await expect.poll(() => callbacks.length, { message: 'the browser returns to the app once more' }).toBe(2);
+      await consent.waitForURL((url) => url.origin === 'http://127.0.0.1:9');
+      const refusal = callbacks[1]!;
+      expect(`${refusal.origin}${refusal.pathname}`).toBe(redirect);
+      expect([...refusal.searchParams.keys()].sort()).toEqual(['error', 'iss', 'state']);
+      expect(refusal.searchParams.get('error')).toBe('access_denied');
+      expect(refusal.searchParams.get('state')).toBe(denied.state);
+      expect(refusal.searchParams.get('iss')).toBe(baseURL);
+      await expectDecidedOnce(denied.handle, deniedHeaders);
+      expect(await serverGrants(), 'a denial creates no connected app').toEqual({ items: [], nextCursor: null });
+      expect(callbacks, 'no further redirect was followed').toHaveLength(2);
+
+      // The provider sign-in made an owner session; end it so no later run inherits it.
+      const signedOut = await consent.request.delete('/api/v1/session', { headers: { Origin: baseURL } });
+      expect(signedOut.status(), 'the consent browser signs out').toBe(204);
+      // The consent browser's only failed response is the signed-out session probe; r. ledgers it once proved here.
+      expect(failures).toEqual(['GET /api/v1/session 401']);
+      n32FailedResponses = [...failures];
+    } catch (error) { primaryFailure = error; }
+    // A cleanup failure never hides the step's own failure.
+    await context.close().catch((error: unknown) => { cleanupFailure ??= error; });
+    await client.dispose().catch((error: unknown) => { cleanupFailure ??= error; });
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
@@ -7511,7 +7775,7 @@ test.describe('Tendo production journey', () => {
     // The two refusals are only ledgered by the tests that proved them, so a skipped proof cannot pass here.
     // The ledger is a set, so two independent proofs of the same refusal (a reset and a password change each end a
     // session, and both prove it with the same refused household read) collapse into one expected entry.
-    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, connectGoneRefusal, ...instanceAdminRefusals, ...passwordResetFailures, ...passwordChangeFailures])].sort());
+    expect([...failedResponses].sort()).toEqual([...new Set([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, connectGoneRefusal, ...instanceAdminRefusals, ...passwordResetFailures, ...passwordChangeFailures, ...n32FailedResponses])].sort());
     expect(problems).toEqual([]);
   });
 });

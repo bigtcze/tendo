@@ -109,3 +109,31 @@ export async function pinInvitationDates(context: BrowserContext) {
     await route.fulfill({ response, json: { ...page, items } });
   });
 }
+
+// Connected-app timestamps are server wall-clock values too: when the person approved the app and the 90-day latest
+// end of its access. Pin both in real grant-list responses; the consent request's 5-minute expiry is pinned the same
+// way. Non-200 responses and every other field pass through unchanged.
+const MCP_GRANT_CREATED_AT = '2026-05-14T08:00:00Z';
+const MCP_GRANT_EXPIRES_AT = '2026-08-12T08:00:00Z';
+const MCP_REQUEST_EXPIRES_AT = '2026-05-14T08:05:00Z';
+
+export async function pinMcpGrantDates(context: BrowserContext) {
+  await context.route((url) => url.pathname === '/api/v1/mcp/grants', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 200) return route.fulfill({ response });
+    const page = await response.json() as components['schemas']['McpGrantList'];
+    const items = page.items.map((grant) => ({ ...grant, createdAt: MCP_GRANT_CREATED_AT, expiresAt: MCP_GRANT_EXPIRES_AT }));
+    await route.fulfill({ response, json: { ...page, items } });
+  });
+}
+
+export async function pinMcpRequestExpiry(context: BrowserContext) {
+  await context.route((url) => /^\/api\/v1\/mcp\/authorization-requests\/[A-Za-z0-9_-]{43}$/.test(url.pathname), async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 200) return route.fulfill({ response });
+    const request = await response.json() as components['schemas']['McpAuthorizationRequest'];
+    await route.fulfill({ response, json: { ...request, expiresAt: MCP_REQUEST_EXPIRES_AT } });
+  });
+}
