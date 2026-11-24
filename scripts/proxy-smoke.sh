@@ -24,7 +24,7 @@ setup_environment() {
   mkdir "$cert_dir" "$smoke_dir"
   chmod 755 "$cert_dir" "$smoke_dir"
   export COMPOSE_PROJECT_NAME=$project
-  export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_OIDC_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
+  export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_IP TENDO_HOST_PORT TENDO_OIDC_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
   POSTGRES_PASSWORD=$(openssl rand -hex 32)
   TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
   TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
@@ -34,6 +34,9 @@ setup_environment() {
   TENDO_OIDC_CLIENT_SECRET_FILE=
   TENDO_OIDC_DISPLAY_NAME=
   TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+  # The app's own HTTP port stays published through compose.yaml, on a non-default
+  # TENDO_HOST_IP opt-in (the proxy owns 127.0.0.1 on the same port number).
+  TENDO_HOST_IP=127.0.0.3
   TENDO_OIDC_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
   TENDO_OIDC_CLIENT_SECRET=tendo-proxy-oidc-secret
   secret_inventory="$temp_dir/oidc-secret-values"
@@ -151,7 +154,6 @@ services:
       TENDO_TRUSTED_PROXY_CIDRS: 172.29.247.10/32
     volumes:
       - $cert_dir/ca.crt:/certs/ca.crt:ro
-    ports: !reset []
     networks:
       proxy-net:
         ipv4_address: 172.29.247.20
@@ -321,6 +323,24 @@ PY
   # Local login through the HTTPS proxy: the cookie policy follows TENDO_PUBLIC_URL (https), not the plain-HTTP backend socket.
 }
 
+# A client that reaches the app's published TENDO_HOST_IP port directly is not the
+# trusted proxy: its forged forwarded headers must never yield the public origin.
+probe_direct_host_ip() {
+  local direct="http://$TENDO_HOST_IP:$TENDO_HOST_PORT" actual
+  [[ "$("${compose[@]}" port app 8080)" == "$TENDO_HOST_IP:$TENDO_HOST_PORT" ]] || { printf 'App is not published on TENDO_HOST_IP %s\n' "$TENDO_HOST_IP" >&2; exit 1; }
+  actual=$(curl --silent --show-error --noproxy '*' --max-time 5 -o "$smoke_dir/direct-body" -w '%{http_code}' "$direct/health/live")
+  [[ "$actual" == 200 ]] || { printf 'Direct TENDO_HOST_IP liveness expected HTTP 200, got %s\n' "$actual" >&2; exit 1; }
+  actual=$(curl --silent --show-error --noproxy '*' --max-time 5 -o "$smoke_dir/direct-body" -w '%{http_code}' \
+    -H 'Host: tendo.test' -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: tendo.test' -H 'Forwarded: for=192.0.2.1;proto=https;host=tendo.test' -H 'Origin: https://tendo.test' \
+    "$direct/api/not-a-route")
+  [[ "$actual" == 421 ]] || { printf 'Direct TENDO_HOST_IP client with forged forwarded headers expected HTTP 421, got %s\n' "$actual" >&2; exit 1; }
+  python3 - "$smoke_dir/direct-body" <<'PY'
+import json, sys
+body = json.load(open(sys.argv[1], encoding="utf-8"))
+assert body == {"type": "about:blank", "title": "Misdirected Request", "status": 421}, body
+PY
+}
+
 probe_cookie_and_local_session() {
   base="https://tendo.test:$TENDO_HOST_PORT"
   setup_status=$(curl "${curl_args[@]}" --output "$temp_dir/setup-body" --write-out '%{http_code}' -X PUT -H "Origin: https://tendo.test" -H "X-Tendo-Setup-Token: $TENDO_SETUP_TOKEN" -H 'Content-Type: application/json' --data '{"login":"proxy_owner","password":"correct horse battery","householdName":"Proxy home","timezone":"UTC"}' "$base/api/v1/auth/setup")
@@ -456,6 +476,7 @@ trap cleanup EXIT
 setup_certificates_and_compose
 bring_up_proxy_variant
 probe_http_contract
+probe_direct_host_ip
 probe_cookie_and_local_session
 probe_oidc_round_trip
 scan_logs_for_secrets

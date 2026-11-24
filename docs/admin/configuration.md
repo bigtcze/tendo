@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This is the reference for every setting. For step-by-step installation, see [install](install.md). The Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Administrators create invite links from **Members** (the **Household members** screen); no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). When OIDC is configured, the sign-in screen and invite pages offer it; on first use people confirm their existing account or create a new one; see the [OIDC guide](oidc.md). PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This is the reference for every setting. For step-by-step installation, see [install](install.md). The Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Administrators create invite links from **Members** (the **Household members** screen); no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). When OIDC is configured, the sign-in screen and invite pages offer it; on first use people confirm their existing account or create a new one; see the [OIDC guide](oidc.md). PostgreSQL has no host-published port. The app's HTTP port is published on `127.0.0.1` only, unless you opt in with [`TENDO_HOST_IP`](#make-the-app-port-reachable-from-other-devices).
 
 Settings live in `.env` next to `compose.yaml`; the release's `example.env` is the template (`.env.example` in the repository). Generate two independent hexadecimal database passwords:
 
@@ -29,7 +29,8 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 | `POSTGRES_PASSWORD` | Required; no default | PostgreSQL bootstrap superuser password; independent random hexadecimal value. |
 | `TENDO_DATABASE_PASSWORD` | Required; no default | Restricted web-role password; independent random hexadecimal value. |
 | `TENDO_SETUP_TOKEN` | Empty; first-run setup disabled (the onboarding screen says so) | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |
-| `TENDO_HOST_PORT` | `8080` | Loopback-only host port for HTTP. Match `TENDO_PUBLIC_URL`. |
+| `TENDO_HOST_IP` | `127.0.0.1`; this machine only | Host address on which Compose publishes the app's plain-HTTP port. Empty or unset also means `127.0.0.1`. `0.0.0.0` (all interfaces) or one interface address is an explicit opt-in; see [below](#make-the-app-port-reachable-from-other-devices). |
+| `TENDO_HOST_PORT` | `8080` | Host port for the app's HTTP port, on `TENDO_HOST_IP`. Match `TENDO_PUBLIC_URL`. |
 | `TENDO_PUBLIC_URL` | Required; example `http://localhost:8080` | Canonical external origin with scheme, host, optional port, and no path except `/`, query, or fragment. Use HTTPS for internet-facing deployments. |
 | `TENDO_TRUSTED_PROXY_CIDRS` | Empty; trusts no proxy | CIDRs for the immediate, controlled proxy peer only. |
 | `TENDO_DB_TIMEOUT` | `2` seconds | PostgreSQL readiness ping bound, 1–10 seconds. |
@@ -44,6 +45,26 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 | `DATABASE_URL` | Compose constructs it | Restricted runtime connection as role `tendo`; used for normal requests. Compose uses `sslmode=disable` on its private bridge. |
 | `TENDO_DATABASE_ADMIN_URL` | Compose constructs it from `POSTGRES_PASSWORD`; not an `.env` setting | Privileged connection used only during startup to create or validate the restricted role and apply migrations. Compose sets it automatically; do not add it to `.env`. It must name the same host, port and database as `DATABASE_URL` with a different user, so an override pointing Tendo at another PostgreSQL server must change both URLs. The app closes this connection before serving, but the password stays in the container environment for its lifetime (see the security note below). |
 | `TENDO_LISTEN_ADDR` | Compose sets `0.0.0.0:8080` | Container HTTP bind address; process defaults to `:8080` outside Compose. |
+
+## Make the app port reachable from other devices
+
+By default Compose publishes the app on `127.0.0.1` only, so it answers on this machine and nowhere else. To reach Tendo from other devices, the recommended way is an HTTPS [reverse proxy](reverse-proxy.md) on the same machine or on the app's Docker network; keep `TENDO_HOST_IP=127.0.0.1` then.
+
+If the proxy runs on another host, or you accept plain HTTP on a trusted home network, publish the port deliberately in `.env`:
+
+```text
+TENDO_HOST_IP=0.0.0.0
+TENDO_PUBLIC_URL=http://192.168.1.20:8080
+```
+
+`0.0.0.0` listens on every interface of the host; a single address such as `192.168.1.20` listens only on that interface. Set `TENDO_PUBLIC_URL` to the exact address people open; any other address is refused with 421. Then recreate the app with `docker compose up -d --wait`.
+
+- Plain HTTP sends passwords and session cookies unencrypted. Use it only on a network you trust, never on the internet.
+- Docker's published ports bypass many host firewall rules (for example `ufw`). Opening the port in `.env` makes it reachable even when your firewall seems to block it.
+- Leave `TENDO_TRUSTED_PROXY_CIDRS` empty unless a proxy connects from a known address; never add the client network there.
+- `TENDO_MCP_ENABLED=true` needs an HTTPS `TENDO_PUBLIC_URL` on such an address.
+
+Updating never changes this setting. An `.env` from an earlier release has no `TENDO_HOST_IP` line and stays on `127.0.0.1`.
 
 ## AI apps (MCP)
 

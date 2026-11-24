@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Installs from the release assets of this checkout (scripts/release-assets.sh) with an app image built from it.
-for name in TENDO_VERSION POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_SETUP_TOKEN TENDO_RESTART_POLICY TENDO_TEST_CLOCK_NOW TENDO_TEST_CLOCK_ACK; do
+for name in TENDO_VERSION POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_IP TENDO_HOST_PORT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_SETUP_TOKEN TENDO_RESTART_POLICY TENDO_TEST_CLOCK_NOW TENDO_TEST_CLOCK_ACK; do
   unset "$name"
 done
 while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep -E '^TENDO_(OIDC_|TEST_CLOCK_)' || true)
@@ -146,6 +146,9 @@ poll_ready() {
 (cd "$clone" && bash -euo pipefail -c "${blocks[3]}")
 poll_ready "${blocks[6]}"
 [[ $(docker inspect --format '{{.Config.Image}}' "$(cd "$clone" && docker compose ps -q app)") == "$image" ]] || { printf 'app container does not run the image built from this checkout\n' >&2; exit 1; }
+# The documented install publishes the app on this machine only.
+published=$(cd "$clone" && docker compose port app 8080)
+[[ $published == 127.0.0.1:8080 ]] || { printf 'Documented install publishes the app on %s, expected 127.0.0.1:8080 only\n' "$published" >&2; exit 1; }
 token=$(cd "$clone" && bash -euo pipefail -c "${blocks[4]}")
 [[ -n $token ]] || { printf 'Setup-code command returned an empty token\n' >&2; exit 1; }
 TOKEN="$token" CLONE_ENV="$clone/.env" COOKIE_FILE="$cookie_file" python3 - <<'PY'

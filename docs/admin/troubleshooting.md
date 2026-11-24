@@ -52,7 +52,7 @@ The app logs `database schema validation failed` when it cannot use the database
 
 ## The page does not open
 
-- **Connection refused at `http://localhost:8080`:** check that `app` is running and healthy. If you changed `TENDO_HOST_PORT`, use that port. The app listens only on this machine; other devices need a reverse proxy.
+- **Connection refused at `http://localhost:8080`:** check that `app` is running and healthy. If you changed `TENDO_HOST_PORT`, use that port. By default the app listens only on this machine; other devices need a reverse proxy or the [`TENDO_HOST_IP` opt-in](configuration.md#make-the-app-port-reachable-from-other-devices). If you set `TENDO_HOST_IP` to one interface address, use that address instead of `localhost`.
 - **"Misdirected Request" (421):** the address in the browser does not match `TENDO_PUBLIC_URL`, for example `http://127.0.0.1:8080` instead of `http://localhost:8080`. Open exactly that address, or change `TENDO_PUBLIC_URL` and recreate the app. Behind a proxy, also check `TENDO_TRUSTED_PROXY_CIDRS` and the forwarded headers; see [reverse proxy](reverse-proxy.md).
 - **Saving or signing in fails with "Forbidden" (403):** the request came from a page whose origin is not `TENDO_PUBLIC_URL`, for example a bookmark to another address or a proxy that rewrites `Origin`. Open Tendo at exactly `TENDO_PUBLIC_URL`.
 

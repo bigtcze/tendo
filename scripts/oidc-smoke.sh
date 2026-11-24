@@ -2,13 +2,16 @@
 set -Eeuo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project="tendo-oidc-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
-export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_HOST_PORT OIDC_SMOKE_BACKEND="$root/backend"
+export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_IP TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_HOST_PORT OIDC_SMOKE_BACKEND="$root/backend"
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
-TENDO_HOST_PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+# A non-default host address (TENDO_HOST_IP opt-in): the public origin, Origin checks and
+# the OIDC callback must follow TENDO_PUBLIC_URL, not the default 127.0.0.1 bind.
+TENDO_HOST_IP=127.0.0.2
+TENDO_HOST_PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.2",0));print(s.getsockname()[1]);s.close()')
 TENDO_OIDC_HOST_PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
-TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
+TENDO_PUBLIC_URL="http://${TENDO_HOST_IP}:${TENDO_HOST_PORT}"
 TENDO_TRUSTED_PROXY_CIDRS=
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
@@ -44,6 +47,8 @@ trap cleanup EXIT
 "${compose[@]}" up -d --build --wait --wait-timeout 180 postgres oidc-provider
 "${compose[@]}" up -d --build --wait --wait-timeout 180
 origin=$TENDO_PUBLIC_URL
+[[ "$("${compose[@]}" port app 8080)" == "${TENDO_HOST_IP}:${TENDO_HOST_PORT}" ]] || { echo 'OIDC smoke app is not published on its TENDO_HOST_IP' >&2; exit 1; }
+if curl -sS --max-time 3 -o /dev/null "http://127.0.0.1:${TENDO_HOST_PORT}/health/live" 2>/dev/null; then echo 'App answered on 127.0.0.1 although TENDO_HOST_IP selects another address' >&2; exit 1; fi
 ready=0
 for _ in $(seq 1 60); do
   if curl -fsS --max-time 3 "$origin/health/ready" >/dev/null; then ready=1; break; fi
@@ -111,7 +116,7 @@ def auth_start(purpose,session=None,sub=None,deny=False,password=None,invitation
  code,hdr,body=provider_get('http://oidc.test:8089/authorize?'+urllib.parse.urlencode(q,doseq=True))
  assert code==302,('provider authorize',code,body)
  callback=hdr.get('Location'); parsed=urllib.parse.urlsplit(callback)
- assert parsed.scheme=='http' and parsed.netloc=='localhost:'+origin.rsplit(':',1)[1],callback
+ assert parsed.scheme=='http' and parsed.netloc==urllib.parse.urlsplit(origin).netloc,callback
  cb_headers={'Cookie':flow+('; '+session if session else '')}
  with open(os.environ['OIDC_SMOKE_SECRETS'],'a',encoding='utf-8') as sf:
   sf.write(flow.split('=',1)[1]+'\n')

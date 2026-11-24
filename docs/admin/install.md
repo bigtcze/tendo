@@ -45,7 +45,7 @@ sed -i \
 
 Never commit `.env` or share it. Keep a private copy with your backups; Tendo cannot recover lost database passwords for you. Every setting is described in the [configuration reference](configuration.md).
 
-The defaults serve Tendo at `http://localhost:8080`, only on this machine. To reach Tendo from other devices, put it behind an HTTPS reverse proxy and set `TENDO_PUBLIC_URL` to that address first; see [reverse proxy](reverse-proxy.md). Do not open port 8080 to your network directly.
+The defaults serve Tendo at `http://localhost:8080`, only on this machine (`TENDO_HOST_IP=127.0.0.1`). To reach Tendo from other devices, put it behind an HTTPS reverse proxy and set `TENDO_PUBLIC_URL` to that address first; see [reverse proxy](reverse-proxy.md). Opening the plain-HTTP port to your network with `TENDO_HOST_IP` is a deliberate opt-in; read [its risks](configuration.md#make-the-app-port-reachable-from-other-devices) first.
 
 ## 3. Start Tendo
 

@@ -10,6 +10,8 @@ export TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIME
 export TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN
 export TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET
 export TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
+# The default host address is under test, so an inherited value must not mask it.
+unset TENDO_HOST_IP
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=
@@ -71,6 +73,20 @@ compose_config() {
   "${compose[@]}" config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); assert set(c["services"])=={"postgres","app"}, sorted(c["services"]); assert "configs" not in c, sorted(c); assert "migrate" not in c["services"]'
 }
 compose_config
+
+# The app's published host address: 127.0.0.1 unless TENDO_HOST_IP opts in to another
+# address. An installation whose .env predates TENDO_HOST_IP (unset) or leaves it empty
+# must stay local-only; PostgreSQL never publishes a port.
+published_bind() {
+  "${compose[@]}" config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); assert "ports" not in c["services"]["postgres"], c["services"]["postgres"]["ports"]; p=c["services"]["app"]["ports"]; assert len(p)==1, p; print(p[0]["host_ip"]+"|"+str(p[0]["published"])+"|"+str(p[0]["target"]))'
+}
+[[ "$(published_bind)" == "127.0.0.1|${TENDO_HOST_PORT}|8080" ]] || { printf 'Unset TENDO_HOST_IP publishes %s, expected 127.0.0.1\n' "$(published_bind)" >&2; exit 1; }
+for host_ip in '' 127.0.0.1 0.0.0.0 192.0.2.10; do
+  expected=${host_ip:-127.0.0.1}
+  actual=$(TENDO_HOST_IP=$host_ip published_bind)
+  [[ "$actual" == "${expected}|${TENDO_HOST_PORT}|8080" ]] || { printf 'TENDO_HOST_IP=%q publishes %s, expected %s\n' "$host_ip" "$actual" "$expected" >&2; exit 1; }
+done
+printf 'Compose host address: local-only by default, explicit TENDO_HOST_IP opt-in honoured.\n'
 
 psql_at() {
   "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "$1"
@@ -155,6 +171,8 @@ migration_latest=$(printf '%s\n' "$migration_files" | sed -E 's/^0*([0-9]+)_.*/\
 "${compose[@]}" up -d --build --wait --wait-timeout 240
 wait_ready
 [[ "$(app_health)" == healthy ]] || { printf 'Fresh app container is not healthy\n' >&2; exit 1; }
+live_bind=$("${compose[@]}" port app 8080)
+[[ "$live_bind" == "127.0.0.1:${TENDO_HOST_PORT}" ]] || { printf 'Running app is published on %s, expected 127.0.0.1:%s only\n' "$live_bind" "$TENDO_HOST_PORT" >&2; exit 1; }
 [[ "$(ledger)" == "${migration_latest}:false" ]] || { printf 'Fresh ledger is %s, expected %s:false\n' "$(ledger)" "$migration_latest" >&2; exit 1; }
 role_flags=$(psql_at "SELECT rolsuper||'|'||rolcreatedb||'|'||rolcreaterole||'|'||rolbypassrls||'|'||rolreplication||'|'||rolinherit FROM pg_roles WHERE rolname='tendo'")
 [[ "$role_flags" == 'false|false|false|false|false|false' ]] || { printf 'Role tendo flags are %s\n' "$role_flags" >&2; exit 1; }

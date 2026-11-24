@@ -37,7 +37,9 @@ services:
       TENDO_OIDC_DISPLAY_NAME: ${TENDO_OIDC_DISPLAY_NAME:-}
       TENDO_MCP_ENABLED: ${TENDO_MCP_ENABLED:-false}
     ports:
-      - "127.0.0.1:${TENDO_HOST_PORT:-8080}:8080"
+      # Local-only by default. TENDO_HOST_IP=0.0.0.0 (or one interface address) is an
+      # explicit opt-in to publish the app's plain-HTTP port to the network.
+      - "${TENDO_HOST_IP:-127.0.0.1}:${TENDO_HOST_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
