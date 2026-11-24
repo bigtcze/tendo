@@ -84,7 +84,13 @@ For problems with **Sign in with …**, see the [OIDC troubleshooting table](oid
 - **The app gets 421 or cannot finish discovery:** the app must use exactly `TENDO_PUBLIC_URL` followed by `/mcp`. Another host name, IP address or port for the same server is refused.
 - **The browser shows "Can’t connect this app":** the sentence under the heading names the cause. "Too many connection attempts" clears after a minute. For "not registered … or its return address does not match", remove Tendo from the app and add it again so it registers afresh; an app that registered but never connected is forgotten after 24 hours. For "The app sent a request Tendo cannot use", check that the app's server address is exactly `TENDO_PUBLIC_URL` followed by `/mcp`.
 - **The browser shows "This request is no longer valid":** the request lasted 5 minutes or was already answered. Start again in the app, and finish in the same browser.
-- **The app connected earlier and now gets 401:** its connection was disconnected under **Connected apps**, ended after 90 days or 30 days without use, or the account's password was changed or reset, or the app presented an old refresh token again, which ends the whole connection as a safeguard. A connection that ended is no longer listed under **Connected apps**. Connect the app again from the app.
+- **The app connected earlier and now gets 401:** its connection ended. Any of these ends it:
+  - it was disconnected under **Connected apps**;
+  - it reached its 90-day end, or went 30 days without use;
+  - the account's password was changed or reset;
+  - the app presented an old refresh token again, which ends the whole connection as a safeguard.
+
+  A connection that was disconnected, revoked or reached its 90-day end is no longer listed under **Connected apps**; one that lapsed after 30 days without use stays listed until its end date and can be disconnected there. Connect the app again from the app.
 
 ## Restore a forgotten password from the host
 
