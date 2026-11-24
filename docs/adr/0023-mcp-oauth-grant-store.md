@@ -896,3 +896,69 @@ AND (account maximum ∩ user scopes ∩ grant scopes)
 - A `--data-only` restore of `user_accounts` into an existing schema fires
   the policy trigger before the policy rows load; restore into an empty
   database as documented.
+
+## Slice B1b1: account policy API
+
+Issue #457 slice B1b is split into three PRs: B1b1 (this section, the
+administrator's per-account policy and the account owner's own settings),
+B1b2 (installation policy, the installation switch on every MCP route, the
+policy audit list) and B1b3 (administrator grant list and revocation).
+
+### Routes
+
+- `GET`/`PUT /api/v1/admin/accounts/{userId}/mcp-policy`: an instance
+  administrator reads or replaces one account's override. `enabled` and
+  `maxScopes` are each a value or `null`, which returns the term to the
+  installation default.
+- `GET`/`PUT /api/v1/mcp/settings`: the signed-in account's own switch and
+  scopes. The response also reports `maximumScopes` (what the operator, the
+  installation and the administrator allow) and `effectiveScopes`. The owner's
+  settings can only narrow: storing a scope the maximum lacks grants nothing.
+- Session cookie only; an MCP bearer token is never a session. Writes need the
+  canonical Origin (global origin policy) and a strong `If-Match`; a missing
+  header is 428, a stale or malformed one 412. The routes work whether or not
+  `TENDO_MCP_ENABLED` is set; while it is off the reported effective and
+  maximum scopes are empty.
+- The administrator pre-check runs before `If-Match`, the body and any lookup,
+  and is repeated inside the command's transaction. A malformed, unknown or
+  deleted account is the same 404. A deleted owner is 401 with the cookie
+  cleared, like the connected-apps routes.
+- The owner's writes share a per-account limit of 30 per minute, checked before
+  any database call.
+
+### Version and audit
+
+- The account row has one version shared by the administrator columns and the
+  owner's columns, so a concurrent change by either side is 412 for the other.
+- A change bumps the version and appends exactly one `mcp_policy_events` row
+  (`account` with the administrator as actor, or `user` with actor and target
+  the owner) holding the stored values after the change. A write that changes
+  nothing writes no row and keeps the version.
+- A missing account row reads as inactive with version 1. A write with
+  `If-Match: "1"` inserts the default row and always stores and audits the
+  submitted values, so the repair is never silent.
+
+### Lock order
+
+Administrator commands follow amendment 8 above: `installation_state`
+`FOR SHARE`, the live instance-administrator check, the target `user_accounts`
+row `FOR SHARE`, then the policy row `FOR UPDATE`. The owner's writes start at
+the account row. Unlike issuance, neither takes `local_credentials`: a policy
+write has nothing to serialize with a password replacement. Account deletion
+takes `installation_state` `FOR UPDATE` before the account row, so an
+administrator write meets a deletion there, and only the owner's writes meet
+it at the account row; either way the later command sees the deleted account
+and refuses. Both read the
+policy back under the row lock before answering. The update itself is guarded
+by the expected previous version and must affect exactly one row.
+
+### Deviations and follow-ups (B1b1)
+
+- The design adopted on #457 said `If-Match` uses version 0 before an account
+  row exists. The strong entity tag is a positive integer (`"[1-9][0-9]*"`), so
+  a missing row reads as version 1 instead, the version the migration 032
+  default row starts at. The effect is the same: one precondition value
+  repairs the row with an audited write.
+- The administrator directory does not show the policy yet; the screens are
+  slice B4.
+- The installation switch and the audit list arrive with B1b2.

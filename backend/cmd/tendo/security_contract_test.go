@@ -300,6 +300,8 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 var mcpConnectedAppsPaths = map[string]bool{
 	"/api/v1/mcp/grants":           true,
 	"/api/v1/mcp/grants/{grantId}": true,
+	// The own MCP settings (ADR 0023, slice B1b1) follow the same rule.
+	"/api/v1/mcp/settings": true,
 }
 
 // mcpPreflightRoutes are the CORS preflight routes of the MCP endpoints. The

@@ -189,6 +189,13 @@ func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessi
 	// Connected apps work whether or not TENDO_MCP_ENABLED is set: a paused
 	// grant can still be listed and disconnected.
 	identityhttp.NewMCPGrants(mcpService, sessions).Register(routes)
+	// The account policy API (ADR 0023, slice B1b1) works whether or not
+	// TENDO_MCP_ENABLED is set; the flag only empties the effective scopes.
+	policyService, err := identityapp.NewMCPPolicyService(identitypostgres.NewMCPRepository(pool), cfg.MCPEnabled, time.Now)
+	if err != nil {
+		return err
+	}
+	identityhttp.NewMCPPolicy(policyService, sessions).Register(routes)
 	endpoint, err := identityhttp.NewMCPEndpoint(mcpService, cfg.PublicURL, cfg.DBTimeout, []identityhttp.MCPTool{
 		householdmcp.ListHouseholds(households),
 	})

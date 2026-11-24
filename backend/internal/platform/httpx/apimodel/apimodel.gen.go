@@ -744,6 +744,39 @@ func (e McpJsonRpcMessageJsonrpc) Valid() bool {
 	}
 }
 
+// Defines values for McpPolicyValidationProblemCode.
+const (
+	McpPolicyValidationProblemCodeInvalidValue McpPolicyValidationProblemCode = "invalid_value"
+)
+
+// Valid indicates whether the value is a known member of the McpPolicyValidationProblemCode enum.
+func (e McpPolicyValidationProblemCode) Valid() bool {
+	switch e {
+	case McpPolicyValidationProblemCodeInvalidValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpPolicyValidationProblemField.
+const (
+	MaxScopes McpPolicyValidationProblemField = "maxScopes"
+	Scopes    McpPolicyValidationProblemField = "scopes"
+)
+
+// Valid indicates whether the value is a known member of the McpPolicyValidationProblemField enum.
+func (e McpPolicyValidationProblemField) Valid() bool {
+	switch e {
+	case MaxScopes:
+		return true
+	case Scopes:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpProtectedResourceMetadataBearerMethodsSupported.
 const (
 	Header McpProtectedResourceMetadataBearerMethodsSupported = "header"
@@ -1010,16 +1043,16 @@ func (e OIDCStartRequestPurpose) Valid() bool {
 
 // Defines values for OIDCValidationProblemCode.
 const (
-	InvalidInvitation OIDCValidationProblemCode = "invalid_invitation"
-	InvalidValue      OIDCValidationProblemCode = "invalid_value"
+	OIDCValidationProblemCodeInvalidInvitation OIDCValidationProblemCode = "invalid_invitation"
+	OIDCValidationProblemCodeInvalidValue      OIDCValidationProblemCode = "invalid_value"
 )
 
 // Valid indicates whether the value is a known member of the OIDCValidationProblemCode enum.
 func (e OIDCValidationProblemCode) Valid() bool {
 	switch e {
-	case InvalidInvitation:
+	case OIDCValidationProblemCodeInvalidInvitation:
 		return true
-	case InvalidValue:
+	case OIDCValidationProblemCodeInvalidValue:
 		return true
 	default:
 		return false
@@ -1697,7 +1730,7 @@ type CompletionList struct {
 
 // CompletionProblem defines model for CompletionProblem.
 type CompletionProblem struct {
-	// Code Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
+	// Code Stable machine-readable code, for example admin_required, instance_admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                 `json:"code,omitempty"`
 	Detail               *string                 `json:"detail,omitempty"`
 	Field                *CompletionProblemField `json:"field,omitempty"`
@@ -1978,6 +2011,31 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// McpAccountPolicy The administrator columns and the owner's own settings of one account, with the effective scopes an app may use now. Shares one policy version (ETag) with the owner's own settings.
+type McpAccountPolicy struct {
+	// EffectiveScopes What an app may use now for this account: TENDO_MCP_ENABLED AND installation on AND account on AND user on, then account maximum intersected with user scopes. Empty when any switch is off. A grant further narrows to its consented scopes.
+	EffectiveScopes McpEffectiveScopes `json:"effectiveScopes"`
+
+	// Enabled Administrator override. null means the account follows the installation default.
+	Enabled *bool `json:"enabled"`
+
+	// MaxScopes Administrator scope maximum, the McpScopeList shape. null follows the installation default maximum.
+	MaxScopes *McpScopeList `json:"maxScopes"`
+
+	// UserEnabled The account owner's own switch.
+	UserEnabled bool   `json:"userEnabled"`
+	UserId      string `json:"userId"`
+
+	// UserScopes The account owner's own scopes. They can only narrow.
+	UserScopes McpScopeList `json:"userScopes"`
+}
+
+// McpAccountPolicyUpdate Full replacement of the administrator columns. null returns that term to the installation default.
+type McpAccountPolicyUpdate struct {
+	Enabled   *bool         `json:"enabled"`
+	MaxScopes *McpScopeList `json:"maxScopes"`
+}
+
 // McpAuthorizationDecisionRequest The person's decision. Strict JSON; unknown fields are refused.
 type McpAuthorizationDecisionRequest struct {
 	Decision McpAuthorizationDecisionRequestDecision `json:"decision"`
@@ -2094,6 +2152,9 @@ type McpClientRegistrationResponseScope string
 // McpClientRegistrationResponseTokenEndpointAuthMethod defines model for McpClientRegistrationResponse.TokenEndpointAuthMethod.
 type McpClientRegistrationResponseTokenEndpointAuthMethod string
 
+// McpEffectiveScopes Sorted, with tendo:read before tendo:write. Empty when the account cannot use MCP now.
+type McpEffectiveScopes = []string
+
 // McpEventStream A finite text/event-stream body whose events carry JSON-RPC messages; it ends after the JSON-RPC response.
 type McpEventStream = string
 
@@ -2138,6 +2199,24 @@ type McpJsonRpcMessageJsonrpc string
 // McpPlainTextError A plain-text refusal written by the MCP SDK transport layer.
 type McpPlainTextError = string
 
+// McpPolicyValidationProblem defines model for McpPolicyValidationProblem.
+type McpPolicyValidationProblem struct {
+	Code                 McpPolicyValidationProblemCode  `json:"code"`
+	Detail               *string                         `json:"detail,omitempty"`
+	Field                McpPolicyValidationProblemField `json:"field"`
+	Instance             *string                         `json:"instance,omitempty"`
+	Status               int                             `json:"status"`
+	Title                string                          `json:"title"`
+	Type                 string                          `json:"type"`
+	AdditionalProperties map[string]interface{}          `json:"-"`
+}
+
+// McpPolicyValidationProblemCode defines model for McpPolicyValidationProblem.Code.
+type McpPolicyValidationProblemCode string
+
+// McpPolicyValidationProblemField defines model for McpPolicyValidationProblem.Field.
+type McpPolicyValidationProblemField string
+
 // McpProtectedResourceMetadata RFC 9728 protected resource metadata. Field names are RFC snake_case wire names.
 type McpProtectedResourceMetadata struct {
 	AuthorizationServers   []string                                             `json:"authorization_servers"`
@@ -2166,6 +2245,26 @@ type McpRevocationRequest struct {
 
 // McpRevocationRequestTokenTypeHint defines model for McpRevocationRequest.TokenTypeHint.
 type McpRevocationRequestTokenTypeHint string
+
+// McpScopeList defines model for McpScopeList.
+type McpScopeList = []string
+
+// McpSettings The signed-in account's own MCP settings.
+type McpSettings struct {
+	// EffectiveScopes maximumScopes intersected with scopes while enabled
+	EffectiveScopes McpEffectiveScopes `json:"effectiveScopes"`
+	Enabled         bool               `json:"enabled"`
+
+	// MaximumScopes What the operator
+	MaximumScopes McpEffectiveScopes `json:"maximumScopes"`
+	Scopes        McpScopeList       `json:"scopes"`
+}
+
+// McpSettingsUpdate Full replacement of the signed-in account's own MCP settings.
+type McpSettingsUpdate struct {
+	Enabled bool         `json:"enabled"`
+	Scopes  McpScopeList `json:"scopes"`
+}
 
 // McpTokenRequest RFC 6749 section 4.1.3 (authorization_code) or section 6 (refresh_token) form body. Parameters are read from the body only.
 type McpTokenRequest struct {
@@ -2385,7 +2484,7 @@ type PasswordResetRedeemed struct {
 
 // Problem defines model for Problem.
 type Problem struct {
-	// Code Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
+	// Code Stable machine-readable code, for example admin_required, instance_admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
@@ -2397,7 +2496,7 @@ type Problem struct {
 
 // QueryProblem defines model for QueryProblem.
 type QueryProblem struct {
-	// Code Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
+	// Code Stable machine-readable code, for example admin_required, instance_admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
@@ -2708,6 +2807,24 @@ type ListAdminAccountsParams struct {
 
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetAdminAccountMcpPolicyParams defines parameters for GetAdminAccountMcpPolicy.
+type GetAdminAccountMcpPolicyParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateAdminAccountMcpPolicyParams defines parameters for UpdateAdminAccountMcpPolicy.
+type UpdateAdminAccountMcpPolicyParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+
+	// IfMatch Strong account policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+	IfMatch string `json:"If-Match"`
 }
 
 // ListAdminHouseholdsParams defines parameters for ListAdminHouseholds.
@@ -3226,6 +3343,24 @@ type RevokeMcpGrantParams struct {
 	Origin string `json:"Origin"`
 }
 
+// GetMcpSettingsParams defines parameters for GetMcpSettings.
+type GetMcpSettingsParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateMcpSettingsParams defines parameters for UpdateMcpSettings.
+type UpdateMcpSettingsParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+
+	// IfMatch Strong account policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+	IfMatch string `json:"If-Match"`
+}
+
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
@@ -3322,6 +3457,9 @@ type ExchangeMcpTokenParams struct {
 // CreateAdminAccountDeletionJSONRequestBody defines body for CreateAdminAccountDeletion for application/json ContentType.
 type CreateAdminAccountDeletionJSONRequestBody = AdminAccountDeletionRequest
 
+// UpdateAdminAccountMcpPolicyJSONRequestBody defines body for UpdateAdminAccountMcpPolicy for application/json ContentType.
+type UpdateAdminAccountMcpPolicyJSONRequestBody = McpAccountPolicyUpdate
+
 // CreateAdminHouseholdJSONRequestBody defines body for CreateAdminHousehold for application/json ContentType.
 type CreateAdminHouseholdJSONRequestBody = CreateAdminHouseholdRequest
 
@@ -3384,6 +3522,9 @@ type AcceptInvitationJSONRequestBody = AcceptInvitationRequest
 
 // DecideMcpAuthorizationRequestJSONRequestBody defines body for DecideMcpAuthorizationRequest for application/json ContentType.
 type DecideMcpAuthorizationRequestJSONRequestBody = McpAuthorizationDecisionRequest
+
+// UpdateMcpSettingsJSONRequestBody defines body for UpdateMcpSettings for application/json ContentType.
+type UpdateMcpSettingsJSONRequestBody = McpSettingsUpdate
 
 // UpdateSessionJSONRequestBody defines body for UpdateSession for application/json ContentType.
 type UpdateSessionJSONRequestBody = UpdateSessionRequest
@@ -4645,6 +4786,154 @@ func (a McpJsonRpcMessage) MarshalJSON() ([]byte, error) {
 	object["jsonrpc"], err = json.Marshal(a.Jsonrpc)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'jsonrpc': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpPolicyValidationProblem. Returns the specified
+// element and whether it was found
+func (a McpPolicyValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpPolicyValidationProblem
+func (a *McpPolicyValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpPolicyValidationProblem to handle AdditionalProperties
+func (a *McpPolicyValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpPolicyValidationProblem to handle AdditionalProperties
+func (a McpPolicyValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

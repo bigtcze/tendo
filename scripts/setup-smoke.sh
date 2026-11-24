@@ -218,6 +218,30 @@ assert psql(f"SELECT revoke_reason FROM mcp_grants WHERE id='{seeded_grant}' AND
 assert psql(f"SELECT count(*) FROM mcp_grant_events WHERE grant_id='{seeded_grant}' AND event='revoked' AND reason='user' AND actor_user_id='{owner_id}'")=='1','user revocation not audited once'
 status,_,apps=call('GET','/api/v1/mcp/grants',template='/api/v1/mcp/grants',headers=cookie_header,sink=fixtures)[:3]
 assert status==200 and apps=={'items':[],'nextCursor':None},('connected apps after disconnect',status,apps)
+# Own MCP settings (ADR 0023, slice B1b1). MCP stays disabled here, so maximumScopes
+# and effectiveScopes are empty; the owner's own switch and scopes are still stored
+# and each change appends one user audit row with the owner as actor and target.
+MCP_SETTINGS='/api/v1/mcp/settings'
+def mcp_settings_req(method,headers=None,body=None):
+ return call(method,MCP_SETTINGS,template=MCP_SETTINGS,body=body,headers=headers,sink=fixtures)[:3]
+st,h,own_settings=mcp_settings_req('GET',cookie_header)
+assert st==200 and own_settings=={'enabled':True,'scopes':['tendo:read','tendo:write'],'maximumScopes':[],'effectiveScopes':[]} and h['ETag']=='"1"' and h['Cache-Control']=='no-store',('own mcp settings',st,own_settings,dict(h))
+st,_,anon_settings=mcp_settings_req('GET')
+assert st==401 and anon_settings['code']=='unauthenticated',('own mcp settings without cookie',st,anon_settings)
+st,_,no_if_match=mcp_settings_req('PUT',{**cookie_header,'Origin':origin},{'enabled':True,'scopes':['tendo:read']})
+assert st==428 and no_if_match['code']=='precondition_required',('own mcp settings without If-Match',st,no_if_match)
+st,h,put_settings=mcp_settings_req('PUT',{**cookie_header,'Origin':origin,'If-Match':'"1"'},{'enabled':True,'scopes':['tendo:read']})
+assert st==200 and put_settings['enabled'] is True and put_settings['scopes']==['tendo:read'] and h['ETag']=='"2"' and h['Cache-Control']=='no-store',('update own mcp settings',st,put_settings,dict(h))
+assert psql(f"SELECT count(*)||'|'||COALESCE(min(policy),'')||'|'||COALESCE(min(actor_user_id::text),'')||'|'||COALESCE(min(target_user_id::text),'')||'|'||COALESCE(min(enabled::text),'')||'|'||COALESCE(min(array_to_string(scopes,',')),'') FROM mcp_policy_events WHERE policy='user' AND target_user_id='{owner_id}'")==f'1|user|{owner_id}|{owner_id}|true|tendo:read','own mcp settings audit row'
+st,h,replay_settings=mcp_settings_req('PUT',{**cookie_header,'Origin':origin,'If-Match':'"2"'},{'enabled':True,'scopes':['tendo:read']})
+assert st==200 and replay_settings==put_settings and h['ETag']=='"2"',('own mcp settings no-op',st,replay_settings,dict(h))
+assert psql("SELECT count(*) FROM mcp_policy_events WHERE policy='user'")=='1','own mcp no-op PUT wrote an audit row'
+st,_,stale_settings=mcp_settings_req('PUT',{**cookie_header,'Origin':origin,'If-Match':'"1"'},{'enabled':True,'scopes':['tendo:read']})
+assert st==412 and stale_settings['code']=='precondition_failed',('own mcp settings stale If-Match',st,stale_settings)
+st,_,empty_settings=mcp_settings_req('PUT',{**cookie_header,'Origin':origin,'If-Match':'"2"'},{'enabled':True,'scopes':[]})
+assert st==422 and empty_settings['code']=='invalid_value' and empty_settings['field']=='scopes',('own mcp settings empty scopes',st,empty_settings)
+st,_,foreign_settings=mcp_settings_req('PUT',{**cookie_header,'Origin':'http://foreign.example','If-Match':'"2"'},{'enabled':True,'scopes':['tendo:read']})
+assert st==403,('own mcp settings foreign Origin',st,foreign_settings)
 COLL='/api/v1/households/{householdId}/subjects'
 ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
 MEMBER_PERSON='/api/v1/households/{householdId}/members/{userId}/person'
@@ -756,6 +780,32 @@ assert st==201,('free account login',st)
 free_cookie={'Cookie':free_headers['Set-Cookie'].split(';',1)[0]}
 st,_,free_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':free_invite['token']},{**free_cookie,'Origin':origin})
 assert st==201 and free_accept['role']=='member',('free existing-account acceptance',st,free_accept)
+# Administrator MCP policy of one account (ADR 0023, slice B1b1). The owner is the
+# instance administrator; the member account owns its own switch and scopes, which
+# stay untouched here. Each administrator change appends one account audit row.
+ADM_MCP='/api/v1/admin/accounts/{userId}/mcp-policy'
+def amcp_req(method,user_id,headers=None,body=None):
+ return call(method,f'/api/v1/admin/accounts/{user_id}/mcp-policy',template=ADM_MCP,body=body,headers=headers,sink=fixtures)[:3]
+st,h,member_policy=amcp_req('GET',member_account_id,cookie_header)
+assert st==200 and member_policy=={'userId':member_account_id,'enabled':None,'maxScopes':None,'userEnabled':True,'userScopes':['tendo:read','tendo:write'],'effectiveScopes':[]} and h['ETag']=='"1"' and h['Cache-Control']=='no-store',('admin read mcp policy',st,member_policy,dict(h))
+st,_,member_forbidden=amcp_req('GET',member_account_id,member_cookie)
+assert st==403 and member_forbidden['code']=='instance_admin_required',('member reads admin mcp policy',st,member_forbidden)
+st,_,missing_policy=amcp_req('GET',random_id,cookie_header)
+assert st==404 and missing_policy['code']=='not_found',('admin mcp policy unknown account',st,missing_policy)
+st,h,set_policy=amcp_req('PUT',member_account_id,{**owner_mut,'If-Match':'"1"'},{'enabled':False,'maxScopes':['tendo:read']})
+assert st==200 and set_policy['enabled'] is False and set_policy['maxScopes']==['tendo:read'] and h['ETag']=='"2"' and h['Cache-Control']=='no-store',('admin set mcp policy',st,set_policy,dict(h))
+assert psql(f"SELECT count(*)||'|'||COALESCE(min(policy),'')||'|'||COALESCE(min(actor_user_id::text),'')||'|'||COALESCE(min(target_user_id::text),'')||'|'||COALESCE(min(enabled::text),'')||'|'||COALESCE(min(array_to_string(scopes,',')),'') FROM mcp_policy_events WHERE policy='account' AND target_user_id='{member_account_id}'")==f'1|account|{owner_account_id}|{member_account_id}|false|tendo:read','admin mcp policy audit row'
+st,_,admin_bad_scope=amcp_req('PUT',member_account_id,{**owner_mut,'If-Match':'"2"'},{'enabled':None,'maxScopes':['tendo:admin']})
+assert st==422 and admin_bad_scope['code']=='invalid_value' and admin_bad_scope['field']=='maxScopes',('admin mcp policy unknown scope',st,admin_bad_scope)
+st,_,admin_no_if_match=amcp_req('PUT',member_account_id,owner_mut,{'enabled':None,'maxScopes':None})
+assert st==428 and admin_no_if_match['code']=='precondition_required',('admin mcp policy without If-Match',st,admin_no_if_match)
+st,_,admin_stale=amcp_req('PUT',member_account_id,{**owner_mut,'If-Match':'"1"'},{'enabled':None,'maxScopes':None})
+assert st==412 and admin_stale['code']=='precondition_failed',('admin mcp policy stale If-Match',st,admin_stale)
+st,_,member_put=amcp_req('PUT',member_account_id,{**member_cookie,'Origin':origin,'If-Match':'"2"'},{'enabled':None,'maxScopes':None})
+assert st==403 and member_put['code']=='instance_admin_required',('member writes admin mcp policy',st,member_put)
+st,h,restored_policy=amcp_req('PUT',member_account_id,{**owner_mut,'If-Match':'"2"'},{'enabled':None,'maxScopes':None})
+assert st==200 and restored_policy['enabled'] is None and restored_policy['maxScopes'] is None and h['ETag']=='"3"' and h['Cache-Control']=='no-store',('admin restore mcp policy default',st,restored_policy,dict(h))
+assert psql(f"SELECT count(*) FROM mcp_policy_events WHERE policy='account' AND target_user_id='{member_account_id}'")=='2','admin mcp policy restore audit row'
 # Instance-administrator household account center (ADR 0020). The owner is the
 # only instance administrator; other_id has one plain member and no admin, so a
 # plain-member assignment is refused and an admin assignment is audited with the
