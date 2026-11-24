@@ -759,7 +759,8 @@ Origin check and disabled MCP stay with the live smoke and the unit tests.
   enabled after 1000 ms.
 - Allow follows a redirect whose query keys are exactly `code`, `iss` and
   `state`. The code is exchanged, and the token's `list_households` matches
-  the households the browser sees, with no further page on either side.
+  the households the browser sees, with no further page of results on either
+  side (`nextCursor` empty).
 - After each decision, an approve replayed with the browser's own binding
   cookie, Origin and session answers 404. Deny follows a redirect with `error`,
   `iss` and `state` and no `code`. Back navigation is not tested, because
