@@ -33,6 +33,13 @@ const (
 	KindNullableString
 	KindInteger
 	KindNullableObject
+	// KindNullableBool accepts a JSON boolean or null; null is a nil entry.
+	KindNullableBool
+	// KindStringArray accepts a JSON array of strings, stored as []string. null
+	// and non-string elements are rejected; the domain validates the values.
+	KindStringArray
+	// KindNullableStringArray is KindStringArray that also accepts null.
+	KindNullableStringArray
 )
 
 // Field describes one accepted object key.
@@ -265,7 +272,9 @@ func nextKey(dec *json.Decoder, fields map[string]Field, seen map[string]any) (s
 // kind. JSON null yields a nil value only for nullable kinds.
 func decodeValue(raw json.RawMessage, field Field) (any, error) {
 	if string(raw) == "null" {
-		if field.Kind != KindNullableString && field.Kind != KindNullableObject {
+		switch field.Kind {
+		case KindNullableString, KindNullableObject, KindNullableBool, KindNullableStringArray:
+		default:
 			return nil, fmt.Errorf("invalid value")
 		}
 		return nil, nil
@@ -277,7 +286,9 @@ func decodeValue(raw json.RawMessage, field Field) (any, error) {
 			return nil, fmt.Errorf("expected string")
 		}
 		return v, nil
-	case KindBool:
+	case KindStringArray, KindNullableStringArray:
+		return decodeStringArray(raw)
+	case KindBool, KindNullableBool:
 		var v bool
 		if err := json.Unmarshal(raw, &v); err != nil {
 			return nil, fmt.Errorf("expected boolean")
@@ -292,6 +303,23 @@ func decodeValue(raw json.RawMessage, field Field) (any, error) {
 		return decodeObject(raw, field.Fields, false)
 	}
 	return nil, fmt.Errorf("unsupported field kind")
+}
+
+// decodeStringArray accepts only a JSON array whose elements are all strings.
+func decodeStringArray(raw json.RawMessage) ([]string, error) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("expected array")
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		var v string
+		if string(item) == "null" || json.Unmarshal(item, &v) != nil {
+			return nil, fmt.Errorf("expected string element")
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // decodeInteger accepts only an integer literal. Values outside int64

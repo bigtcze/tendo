@@ -807,7 +807,7 @@ func TestOIDCValidationProblemMatchesGeneratedModel(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
-		if w.Code != 422 || got.Status != apimodel.N422 || !got.Status.Valid() || got.Code != apimodel.InvalidValue || !got.Code.Valid() || got.Field != field || !strings.Contains(w.Body.String(), `"status":422`) {
+		if w.Code != 422 || got.Status != apimodel.N422 || !got.Status.Valid() || got.Code != apimodel.OIDCValidationProblemCodeInvalidValue || !got.Code.Valid() || got.Field != field || !strings.Contains(w.Body.String(), `"status":422`) {
 			t.Fatalf("%s: status=%d body=%s", body, w.Code, w.Body)
 		}
 	}

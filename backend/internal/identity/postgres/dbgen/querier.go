@@ -18,6 +18,9 @@ type Querier interface {
 	// unique index frees the old login. Email facts, the default household and
 	// every session are cleared; exactly one live row must change.
 	AnonymizeAccount(ctx context.Context, arg AnonymizeAccountParams) (int64, error)
+	// Append-only. Account and user events only; the installation level arrives
+	// with slice B1b2.
+	AppendMCPPolicyEvent(ctx context.Context, arg AppendMCPPolicyEventParams) error
 	CompletePasswordReset(ctx context.Context, arg CompletePasswordResetParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
 	// Single use: the delete and the return are one statement. A wrong binding or an
@@ -78,6 +81,10 @@ type Querier interface {
 	DeleteMCPGrantRefreshTokens(ctx context.Context, grantID pgtype.UUID) error
 	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
+	// Repairs a missing account row with the defaults the migration 032 trigger
+	// inserts. It affects one row only when the row was missing; the caller then
+	// always writes the row, which sets updated_at from the service clock.
+	EnsureMCPAccountPolicy(ctx context.Context, userID pgtype.UUID) (int64, error)
 	// Verification re-reads the grant, the account and the MCP policy (#457) on
 	// every request, so a revocation, deletion or policy change takes effect on the
 	// next request. A missing policy row comes back as NULL columns and evaluates
@@ -134,6 +141,8 @@ type Querier interface {
 	HasLocalCredential(ctx context.Context, userID pgtype.UUID) (bool, error)
 	InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) error
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
+	// Only a grant whose account is still live confers authority.
+	IsMCPPolicyInstanceAdmin(ctx context.Context, userID pgtype.UUID) (bool, error)
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
 	// The identity pairs whose advisory lock the deletion must take, so a
 	// concurrent OIDC sign-in either finishes before the transaction or sees the
@@ -162,6 +171,9 @@ type Querier interface {
 	// for an account whose deletion committed or is in progress.
 	LockLiveMCPAccount(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (LockLocalCredentialRow, error)
+	// The account row FOR UPDATE, after the live account lock (ADR 0023 lock
+	// order). Administrator and owner writes of one account serialize here.
+	LockMCPAccountPolicy(ctx context.Context, userID pgtype.UUID) (LockMCPAccountPolicyRow, error)
 	LockMCPAuthorizationCode(ctx context.Context, codeHash []byte) (LockMCPAuthorizationCodeRow, error)
 	LockMCPGrant(ctx context.Context, id pgtype.UUID) (LockMCPGrantRow, error)
 	// The used codes that issued the grant, FOR UPDATE, before the grant row: the
@@ -196,6 +208,11 @@ type Querier interface {
 	PasswordResetPermitted(ctx context.Context, arg PasswordResetPermittedParams) (pgtype.Bool, error)
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.Timestamptz) error
+	// A live account's stored policy without a lock. No row means the account is
+	// unknown or deleted. A NULL policy column means the account row is missing; a
+	// NULL installation column means the installation row is missing. Both
+	// evaluate as inactive.
+	ReadLiveMCPAccountPolicy(ctx context.Context, id pgtype.UUID) (ReadLiveMCPAccountPolicyRow, error)
 	ReadLocalCredential(ctx context.Context, userID pgtype.UUID) (ReadLocalCredentialRow, error)
 	// The installation and account policy (#457) as stored. Issuance reads it after
 	// the account lock and takes no policy lock: a change that commits meanwhile is
@@ -240,6 +257,10 @@ type Querier interface {
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	// An instance-admin assignment never moves an existing navigation hint.
 	SetDefaultHouseholdIfUnset(ctx context.Context, arg SetDefaultHouseholdIfUnsetParams) error
+	// FOR SHARE, the first lock of every instance-administrator policy command
+	// (ADR 0020, ADR 0023 "Slice B1b1"): a future instance-admin grant revoke takes
+	// it FOR UPDATE and serializes with in-flight commands.
+	ShareInstallationForMCPPolicy(ctx context.Context) (bool, error)
 	// The credential row, when the account has one, FOR SHARE: a password
 	// replacement holding it FOR UPDATE either finishes first (and the issuance
 	// then sees the grant revoked) or waits and revokes what was issued.
@@ -277,6 +298,9 @@ type Querier interface {
 	// replayed refresh token is still detected.
 	SweepMCPRefreshTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	SweepMCPUnusedCodesExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// The caller holds the row FOR UPDATE; the version guard makes a lost lock a
+	// zero-row update, which the caller refuses, instead of a silent overwrite.
+	UpdateMCPAccountPolicy(ctx context.Context, arg UpdateMCPAccountPolicyParams) (int64, error)
 	UserSessionActive(ctx context.Context, arg UserSessionActiveParams) (bool, error)
 }
 

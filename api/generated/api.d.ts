@@ -597,6 +597,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/accounts/{userId}/mcp-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one account's MCP policy
+         * @description Instance administrator only (ADR 0023, slice B1b1). Returns the administrator columns and the account owner's own settings of one account, with the effective scopes an app may use now: TENDO_MCP_ENABLED, the installation switch, the account switch and the owner's switch must all be on, and then the account maximum is intersected with the owner's scopes. effectiveScopes is empty when any switch is off. The policy version is shared by the administrator columns and the owner's own settings, so a concurrent change by either is a 412 for the other. Session cookie only; an MCP bearer token is never accepted. Reads need no Origin header; writes need the canonical Origin. The instance-administrator grant is checked before any lookup, and a malformed, unknown or deleted account is the same 404 not_found.
+         */
+        get: operations["getAdminAccountMcpPolicy"];
+        /**
+         * Replace one account's MCP administrator policy
+         * @description Instance administrator only (ADR 0023, slice B1b1). Full replacement of the administrator columns enabled and maxScopes of one account, where null returns that term to the installation default. The owner's own settings are not changed by this route. A change appends one row to the policy audit (mcp_policy_events) with the administrator as actor and bumps the version; a PUT that changes nothing writes no audit row and keeps the version. Switching an account off pauses its apps on their next request; it does not revoke them. Session cookie only; an MCP bearer token is never accepted. Writes need the canonical Origin header.
+         */
+        put: operations["updateAdminAccountMcpPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households": {
         parameters: {
             query?: never;
@@ -999,6 +1023,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the signed-in account's own MCP settings
+         * @description Returns the signed-in account's own MCP switch and scopes, with maximumScopes (what the operator, the installation and the administrator currently allow this account; empty when any of them switches MCP off) and effectiveScopes (maximumScopes intersected with scopes while enabled, else empty). The route works whether or not TENDO_MCP_ENABLED is set. Session cookie only; an MCP bearer token is never accepted. Reads need no Origin header; writes need the canonical Origin.
+         */
+        get: operations["getMcpSettings"];
+        /**
+         * Change the signed-in account's own MCP settings
+         * @description Full replacement of the signed-in account's own MCP switch and scopes. The settings can only narrow what the administrator allows: storing a scope the maximum lacks grants nothing. Session cookie only; an MCP bearer token is never accepted. Writes need the canonical Origin header. A change appends one row to the policy audit (mcp_policy_events) with the account as actor and bumps the version; a PUT that changes nothing writes no audit row and keeps the version. Switching MCP off pauses the account's apps on their next request; it does not revoke them. Rate limited per account (30 per minute). Works whether or not TENDO_MCP_ENABLED is set.
+         */
+        put: operations["updateMcpSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/oauth/token": {
         parameters: {
             query?: never;
@@ -1202,6 +1250,49 @@ export interface components {
             /** @description Opaque cursor for the next page; null on the last page. */
             nextCursor: string | null;
         };
+        McpScopeList: ("tendo:read" | "tendo:write")[];
+        /** @description Sorted, with tendo:read before tendo:write. Empty when the account cannot use MCP now. */
+        McpEffectiveScopes: ("tendo:read" | "tendo:write")[];
+        /** @description The administrator columns and the owner's own settings of one account, with the effective scopes an app may use now. Shares one policy version (ETag) with the owner's own settings. */
+        McpAccountPolicy: {
+            /** Format: uuid */
+            userId: string;
+            /** @description Administrator override. null means the account follows the installation default. */
+            enabled: boolean | null;
+            /** @description Administrator scope maximum, the McpScopeList shape. null follows the installation default maximum. */
+            maxScopes: components["schemas"]["McpScopeList"] | null;
+            /** @description The account owner's own switch. */
+            userEnabled: boolean;
+            /** @description The account owner's own scopes. They can only narrow. */
+            userScopes: components["schemas"]["McpScopeList"];
+            /** @description What an app may use now for this account: TENDO_MCP_ENABLED AND installation on AND account on AND user on, then account maximum intersected with user scopes. Empty when any switch is off. A grant further narrows to its consented scopes. */
+            effectiveScopes: components["schemas"]["McpEffectiveScopes"];
+        };
+        /** @description Full replacement of the administrator columns. null returns that term to the installation default. */
+        McpAccountPolicyUpdate: {
+            enabled: boolean | null;
+            maxScopes: components["schemas"]["McpScopeList"] | null;
+        };
+        /** @description The signed-in account's own MCP settings. */
+        McpSettings: {
+            enabled: boolean;
+            scopes: components["schemas"]["McpScopeList"];
+            /** @description What the operator */
+            maximumScopes: components["schemas"]["McpEffectiveScopes"];
+            /** @description maximumScopes intersected with scopes while enabled */
+            effectiveScopes: components["schemas"]["McpEffectiveScopes"];
+        };
+        /** @description Full replacement of the signed-in account's own MCP settings. */
+        McpSettingsUpdate: {
+            enabled: boolean;
+            scopes: components["schemas"]["McpScopeList"];
+        };
+        McpPolicyValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "maxScopes" | "scopes";
+            /** @enum {string} */
+            code: "invalid_value";
+        };
         /** @description RFC 6749 section 4.1.3 (authorization_code) or section 6 (refresh_token) form body. Parameters are read from the body only. */
         McpTokenRequest: {
             /** @enum {string} */
@@ -1297,7 +1388,7 @@ export interface components {
             detail?: string;
             /** Format: uri-reference */
             instance?: string;
-            /** @description Stable machine-readable code, for example admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable. */
+            /** @description Stable machine-readable code, for example admin_required, instance_admin_required, cannot_delete_self, last_admin, last_instance_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable. */
             code?: string;
         } & {
             [key: string]: unknown;
@@ -9468,6 +9559,444 @@ export interface operations {
             };
         };
     };
+    getAdminAccountMcpPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Account identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62
+                 */
+                userId: components["parameters"]["AdminAccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's MCP policy. */
+            200: {
+                headers: {
+                    /** @description Strong account policy version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                     *       "enabled": null,
+                     *       "maxScopes": null,
+                     *       "userEnabled": true,
+                     *       "userScopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "effectiveScopes": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpAccountPolicy"];
+                };
+            };
+            /** @description Malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter or account lookup), code instance_admin_required; or a supplied Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "instance_admin_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account is malformed, unknown, or deleted. The same not_found answers all three. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateAdminAccountMcpPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+                /**
+                 * @description Strong account policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+                 * @example "1"
+                 */
+                "If-Match": string;
+            };
+            path: {
+                /**
+                 * @description Account identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62
+                 */
+                userId: components["parameters"]["AdminAccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "enabled": false,
+                 *       "maxScopes": [
+                 *         "tendo:read"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["McpAccountPolicyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated administrator policy, or the current one for a PUT that changes nothing. */
+            200: {
+                headers: {
+                    /** @description Strong account policy version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                     *       "enabled": false,
+                     *       "maxScopes": [
+                     *         "tendo:read"
+                     *       ],
+                     *       "userEnabled": true,
+                     *       "userScopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "effectiveScopes": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpAccountPolicy"];
+                };
+            };
+            /** @description Invalid body (invalid_request): malformed JSON, unknown or duplicate keys, or wrong JSON types; or malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body or account lookup), or Origin is missing, malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account is malformed, unknown, or deleted. The same not_found answers all three. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match is malformed, weak, a list, or stale. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description maxScopes is empty, duplicated, or names an unknown scope. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_value",
+                     *       "field": "maxScopes"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["McpPolicyValidationProblem"];
+                };
+            };
+            /** @description If-Match is required. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable; the policy may not have changed. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listHouseholds: {
         parameters: {
             query?: {
@@ -13395,6 +13924,24 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description A supplied Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Request authority does not match the configured public origin. */
             421: {
                 headers: {
@@ -13582,6 +14129,425 @@ export interface operations {
                 };
             };
             /** @description Persistence is unavailable; the app may not have been disconnected. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMcpSettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's own MCP settings. */
+            200: {
+                headers: {
+                    /** @description Strong account policy version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true,
+                     *       "scopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "maximumScopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "effectiveScopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpSettings"];
+                };
+            };
+            /** @description Malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on this resource. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A supplied Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateMcpSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+                /**
+                 * @description Strong account policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+                 * @example "1"
+                 */
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "enabled": true,
+                 *       "scopes": [
+                 *         "tendo:read"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["McpSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated MCP settings, or the current ones for a PUT that changes nothing. */
+            200: {
+                headers: {
+                    /** @description Strong account policy version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true,
+                     *       "scopes": [
+                     *         "tendo:read"
+                     *       ],
+                     *       "maximumScopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ],
+                     *       "effectiveScopes": [
+                     *         "tendo:read"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpSettings"];
+                };
+            };
+            /** @description Invalid body (invalid_request): malformed JSON, unknown or duplicate keys, or wrong JSON types; or malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie, or the account was deleted meanwhile; the session cookie is cleared. An MCP token is never accepted on this resource. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, malformed, duplicated, or does not match the configured canonical public origin. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match is malformed, weak, a list, or stale. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description scopes is empty, duplicated, or names an unknown scope. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_value",
+                     *       "field": "scopes"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["McpPolicyValidationProblem"];
+                };
+            };
+            /** @description If-Match is required. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The per-account settings limit (30 per minute) is reached. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence is unavailable; the settings may not have changed. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

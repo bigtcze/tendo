@@ -225,3 +225,45 @@ func TestProblemWriters(t *testing.T) {
 		t.Fatal(ETag(12))
 	}
 }
+
+func TestDecodeNullableBoolAndStringArrays(t *testing.T) {
+	fields := map[string]Field{
+		"b": {Kind: KindNullableBool, Required: true},
+		"s": {Kind: KindStringArray},
+		"n": {Kind: KindNullableStringArray},
+	}
+	got, err := DecodeObject([]byte(`{"b":null,"s":["x","y"],"n":null}`), fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, present := got["b"]; !present || v != nil {
+		t.Fatalf("b=%#v present=%v", v, present)
+	}
+	if s, ok := got["s"].([]string); !ok || len(s) != 2 || s[0] != "x" || s[1] != "y" {
+		t.Fatalf("s=%#v", got["s"])
+	}
+	if v, present := got["n"]; !present || v != nil {
+		t.Fatalf("n=%#v", v)
+	}
+	got, err = DecodeObject([]byte(`{"b":false,"s":[],"n":["z"]}`), fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["b"] != false {
+		t.Fatalf("b=%#v", got["b"])
+	}
+	if s, ok := got["s"].([]string); !ok || len(s) != 0 {
+		t.Fatalf("empty s=%#v", got["s"])
+	}
+	if n, ok := got["n"].([]string); !ok || len(n) != 1 || n[0] != "z" {
+		t.Fatalf("n=%#v", got["n"])
+	}
+	for _, body := range []string{
+		`{"b":"true"}`, `{"b":0}`, `{"b":null,"s":null}`, `{"b":null,"s":"x"}`, `{"b":null,"s":[1]}`,
+		`{"b":null,"s":[null]}`, `{"b":null,"s":[["x"]]}`, `{"b":null,"n":{"a":"x"}}`, `{"b":null,"n":[true]}`,
+	} {
+		if _, err := DecodeObject([]byte(body), fields); err == nil {
+			t.Fatalf("accepted %s", body)
+		}
+	}
+}

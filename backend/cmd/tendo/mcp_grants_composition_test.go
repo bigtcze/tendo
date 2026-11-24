@@ -66,3 +66,38 @@ func TestConnectedAppsNoCORSHeaders(t *testing.T) {
 		}
 	}
 }
+
+// TestMCPPolicyRoutesWhileMCPDisabled (ADR 0023, slice B1b1): the account policy
+// and own settings routes exist in the disabled composition, answer anonymous
+// callers 401 with no-store and no CORS header, and refuse a PUT without the
+// canonical Origin before any handler runs.
+func TestMCPPolicyRoutesWhileMCPDisabled(t *testing.T) {
+	app, cfg := newProductionTestApp(t)
+	unknown := serveAt(app, http.MethodGet, cfg.PublicURL+"/oauth/xyz", cfg.PublicURL)
+	routes := []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/mcp/settings"},
+		{http.MethodPut, "/api/v1/mcp/settings"},
+		{http.MethodGet, "/api/v1/admin/accounts/" + mcpGrantCompositionID + "/mcp-policy"},
+		{http.MethodPut, "/api/v1/admin/accounts/" + mcpGrantCompositionID + "/mcp-policy"},
+	}
+	for _, tc := range routes {
+		w := serveAt(app, tc.method, cfg.PublicURL+tc.path, cfg.PublicURL)
+		if w.Code == unknown.Code && w.Body.String() == unknown.Body.String() {
+			t.Errorf("%s %s answered the disabled unknown-path 404", tc.method, tc.path)
+		}
+		if w.Code != http.StatusUnauthorized || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s %s anonymous status = %d cache = %q, want 401 no-store", tc.method, tc.path, w.Code, w.Header().Get("Cache-Control"))
+		}
+		if w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("%s %s sends a CORS allow-origin header", tc.method, tc.path)
+		}
+		if tc.method != http.MethodPut {
+			continue
+		}
+		for _, origin := range []string{"", "https://evil.example"} {
+			if w := serveAt(app, tc.method, cfg.PublicURL+tc.path, origin); w.Code != http.StatusForbidden {
+				t.Errorf("%s %s with origin %q status = %d, want 403", tc.method, tc.path, origin, w.Code)
+			}
+		}
+	}
+}
