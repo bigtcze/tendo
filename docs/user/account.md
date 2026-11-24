@@ -18,6 +18,21 @@ If you no longer remember your current password, changing it here is not possibl
 
 Leaving gives up access to everything in that household: your items stay there with no one responsible for them, completed items stay in the history, and invitations you sent and password reset links involving you in that household stop working. You keep your other households and your account keeps working; if you belong to no other household, Tendo explains that you can join one with an invitation. The last administrator of a household cannot leave; make someone else an administrator first. See [Remove someone or leave the household](household-members.md#remove-someone-or-leave-the-household).
 
+## Connect an AI app
+
+If whoever runs your Tendo installation has switched AI apps on, you can connect an AI app that supports MCP to your Tendo account. In the app, add Tendo as an MCP server with the address they give you, normally your Tendo address followed by `/mcp`, for example `https://tendo.example.com/mcp`.
+
+The app then opens a Tendo page in your browser. If you are not signed in, sign in first, with your password or **Sign in with …**; Tendo brings you back to the same request afterwards. The page shows:
+
+- **Connect …?** with the name the app gave itself. Tendo has not checked that name, so connect only an app you started connecting yourself.
+- Where Tendo sends you back afterwards: a website address, an app on this computer, or an app on this device.
+- What the app will be able to do, and that this covers all your current and future households until you disconnect it.
+- Which account you are signed in as, with **Not you? Sign out**.
+
+Select **Allow** to connect the app or **Deny** to refuse. **Allow** becomes available a moment after the page appears, and again a moment after you come back to the tab, so a click meant for something else cannot approve it. Tendo then shows **Returning to the app…** and hands you back to the app; you can close the tab if nothing happens. A request lasts 5 minutes and can be answered once; to try again, start connecting again in the app.
+
+The app acts as you: it sees only what you can see. In this version it can only list your households and your role in each. It cannot read items or people, or change anything, yet, even though the page lists those.
+
 ## Connected apps
 
 If you have connected an AI app to Tendo, **Your account** shows a **Connected apps** section. It is not shown when you have no connected apps. Each entry shows the name the app gave itself (Tendo has not checked it), when you connected it, whether it can only read or can also change items, and the date its access ends by at the latest. Access can end sooner, for example when the app has not been used for a long time.
@@ -72,4 +87,6 @@ While the new account has no household, select **I already have a Tendo account 
 | That sign-in attempt expired or was already used. / That sign-in attempt is no longer valid. | Start again: select **Sign in with …** on the sign-in screen. |
 | You signed in or out in another tab while this was in progress. | Start again in one tab. |
 | … can't be reached right now. | The identity provider is unavailable. Use your password. |
+| This request is no longer valid. Start connecting again from the app. | The connection request expired after 5 minutes, was already answered, or was opened in another browser. Start connecting again in the AI app. |
+| Can’t connect this app | The app's request could not be used: it is not registered with Tendo, its return address does not match, it sent something Tendo cannot use, or there were too many attempts. Follow the sentence under the heading, then start again in the app. |
 | Other sign-in options couldn't be loaded. | Tendo couldn't check for the **Sign in with …** button. Choose **Try again**, or use your password. |

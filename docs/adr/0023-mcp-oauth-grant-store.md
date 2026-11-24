@@ -486,6 +486,9 @@ Deferred to A4, where a real pending request exists without mocking the
 backend: the visual baselines of a live consent, the consent screen in E2E
 journey 17, and the user documentation.
 
+Resolved in slices A4c2 and A4c3: see "Slices A4c2 and A4c3: browser journey,
+baselines and documentation".
+
 ## Slice A4a: the `/mcp` endpoint and the kill switch
 
 Slice A4a adds `POST /mcp`, the `TENDO_MCP_ENABLED` setting and one read-only
@@ -513,7 +516,7 @@ review recorded on #456.
   must revoke them (A4b) rather than toggle the switch.
 - The admin documentation marks the setting incomplete until A4c ships,
   because no live smoke or end-to-end journey has exercised a real MCP client
-  yet.
+  yet. Lifted in slice A4c3; see "Slices A4c2 and A4c3".
 
 ### Endpoint
 
@@ -682,7 +685,8 @@ review recorded on #456.
   name. The confirmation says access ends at once and the app must be
   connected again.
 - The visual baseline of the section is deferred to A4c, together with the
-  consent baselines, journey 17 and the live MCP smoke.
+  consent baselines, journey 17 and the live MCP smoke. Resolved in slice
+  A4c2; see "Slices A4c2 and A4c3".
 
 ### Smoke scope (A4b)
 
@@ -733,3 +737,63 @@ each `Set-Cookie` value as a list, goes through the shared checker.
   of all of them.
 - **Not tested live.** Rate limits are not tripped, because that would disturb
   the smoke; they stay covered by backend tests. No real AI client is used.
+
+## Slices A4c2 and A4c3: browser journey, baselines and documentation
+
+The decisions below follow the independent design review recorded on #456.
+
+### Journey 17 (A4c2)
+
+E2E n32 runs TESTING journey 17 in Chromium against the production binary with
+`TENDO_MCP_ENABLED=true` on a loopback origin. It keeps only what needs a real
+browser; rate limits, audience, issuer, cross-household isolation, the CSRF
+Origin check and disabled MCP stay with the live smoke and the unit tests.
+
+- A client registers with the fixed redirect `http://127.0.0.1:9/callback`.
+  The browser routes that address to a page with no script, so each decision's
+  redirect is caught exactly once and nothing is ever contacted there.
+- Signed out, the consent page asks for sign-in. A sign-in through the test IdP
+  returns to the same request, not to Home.
+- The page clock is installed and paused before the consent loads. Allow is
+  disabled, with the hint as its accessible description, after 999 ms and
+  enabled after 1000 ms.
+- Allow follows a redirect whose query keys are exactly `code`, `iss` and
+  `state`. The code is exchanged, and the token's `list_households` matches
+  the households the browser sees, with no further page of results on either
+  side (`nextCursor` empty).
+- After each decision, an approve replayed with the browser's own binding
+  cookie, Origin and session answers 404. Deny follows a redirect with `error`,
+  `iss` and `state` and no `code`. Back navigation is not tested, because
+  Playwright's Chromium has no back-forward cache.
+- Disconnect in Account asks for confirmation. Afterwards the notice is shown,
+  no row remains, the server lists no grant, and a reload shows no section.
+  The token then gets 401 at `/mcp` and its refresh `invalid_grant`.
+- n32's expected failed responses are its own ledger, joined to the final `r.`
+  check only after n32 proves them; the shared path allowance is not widened.
+- Mutation proofs, each reverted: removing `TENDO_MCP_ENABLED` from the
+  harness, dropping `iss` from the decision redirect, skipping the Disconnect
+  confirmation and setting the Allow delay to zero each fail n32 alone.
+
+### Visual baselines (A4c2)
+
+One real authorization request serves every consent capture with the page clock
+paused: waiting and enabled Allow, dark and Czech after reloads of the same
+page. A carried `#error=` is captured in its own page. That request is then
+approved through the API and its code exchanged, so Account shows one connected
+app in light, dark and Czech; the app is disconnected at the end. Grant
+`createdAt` and `expiresAt` and the consent `expiresAt` are server wall-clock
+values outside the test clock, so the visual contexts pin them in real
+responses; non-200 responses pass through unchanged.
+
+### Documentation and the marker (A4c3)
+
+- The "Incomplete" marker on `TENDO_MCP_ENABLED` in the configuration reference
+  and the matching `.env.example` comment are lifted only after A4c1b and A4c2
+  are green on `main`. The default stays `false`.
+- The configuration reference states the evidence that actually shipped: the
+  scripted-client live smoke in the required `deployment` matrix and the
+  browser journey. It does not claim that any particular AI app product was
+  tested.
+- User documentation covers connecting an app from the consent page and the
+  consent page's messages; admin documentation covers the server address,
+  discovery, lifetimes, the reverse proxy and troubleshooting.

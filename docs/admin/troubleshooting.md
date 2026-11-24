@@ -26,6 +26,7 @@ The deployment has exactly two services, `postgres` and `app`; there is no `migr
 | `invalid TENDO_TRUSTED_PROXY_CIDRS` | Use comma-separated CIDRs such as `172.29.0.10/32`; see [reverse proxy](reverse-proxy.md). |
 | A message naming `TENDO_DB_TIMEOUT` or `TENDO_SHUTDOWN_TIMEOUT` | Use whole seconds: 1–10 for the database timeout, 1–60 for shutdown. |
 | A message naming `TENDO_OIDC_…` | See the [OIDC troubleshooting table](oidc.md#troubleshooting). Leave `TENDO_OIDC_ISSUER` and the other OIDC settings empty to switch OIDC off. |
+| `TENDO_MCP_ENABLED must be true or false` or `TENDO_MCP_ENABLED requires an HTTPS TENDO_PUBLIC_URL or a loopback HTTP origin` | Use exactly `true` or `false`. For `true`, see [an AI app cannot connect](#an-ai-app-cannot-connect). |
 | `database schema validation failed` | See [the database is not ready](#the-database-is-not-ready) below. |
 | `database administrator connection failed` | The app could not connect as the PostgreSQL administrator during startup. Check that `postgres` is healthy and that `POSTGRES_PASSWORD` still matches the value the data volume was created with. |
 | `database runtime role tendo has elevated privileges or role memberships` | The restricted role was changed outside Tendo. Remove the elevated attributes or role memberships, or restore a backup. |
@@ -75,6 +76,21 @@ The app logs `database schema validation failed` when it cannot use the database
 | "Your account isn’t part of a household yet." | The account exists but has no household. Ask an administrator for an invite link; see [household members](../user/household-members.md). |
 
 For problems with **Sign in with …**, see the [OIDC troubleshooting table](oidc.md#troubleshooting).
+
+## An AI app cannot connect
+
+- **The app reports that the server was not found, or gets 404 from `/mcp`:** `TENDO_MCP_ENABLED` is not `true`. Set it in `.env` and recreate the app with `docker compose up -d --wait`; see [AI apps (MCP)](configuration.md#ai-apps-mcp).
+- **Tendo keeps restarting and logs `TENDO_MCP_ENABLED requires an HTTPS TENDO_PUBLIC_URL or a loopback HTTP origin`:** MCP sends access tokens, so it needs an `https://` `TENDO_PUBLIC_URL`, or a loopback address such as `http://localhost:…` for use on this machine only. Set `TENDO_PUBLIC_URL` to your HTTPS address behind the reverse proxy, or set `TENDO_MCP_ENABLED=false`, then run `docker compose up -d --wait`.
+- **The app gets 421 or cannot finish discovery:** the app must use exactly `TENDO_PUBLIC_URL` followed by `/mcp`. Another host name, IP address or port for the same server is refused.
+- **The browser shows "Can’t connect this app":** the sentence under the heading names the cause. "Too many connection attempts" clears after a minute. For "not registered … or its return address does not match", remove Tendo from the app and add it again so it registers afresh; an app that registered but never connected is forgotten after 24 hours. For "The app sent a request Tendo cannot use", check that the app's server address is exactly `TENDO_PUBLIC_URL` followed by `/mcp`.
+- **The browser shows "This request is no longer valid":** the request lasted 5 minutes or was already answered. Start again in the app, and finish in the same browser.
+- **The app connected earlier and now gets 401:** its connection ended. Any of these ends it:
+  - it was disconnected under **Connected apps**;
+  - it reached its 90-day end, or went 30 days without use;
+  - the account's password was changed or reset;
+  - the app presented an old refresh token again, which ends the whole connection as a safeguard.
+
+  A connection that was disconnected, revoked or reached its 90-day end is no longer listed under **Connected apps**; one that lapsed after 30 days without use stays listed until its end date and can be disconnected there. Connect the app again from the app.
 
 ## Restore a forgotten password from the host
 
