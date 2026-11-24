@@ -275,14 +275,14 @@ func TestInvitationPostgresRuntimePrivilegesConstraintsAndCascade(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, q := range []string{`DELETE FROM household_invitations`, `TRUNCATE household_invitations`, `UPDATE household_invitations SET token_hash=token_hash`, `UPDATE household_invitations SET household_id=household_id`, `UPDATE household_invitations SET expires_at=expires_at`, `UPDATE household_invitations SET creation_key=creation_key`, `UPDATE household_invitations SET created_by_user_id=created_by_user_id`} {
+	for _, q := range []string{`DELETE FROM household_invitations`, `TRUNCATE household_invitations`, `UPDATE household_invitations SET token_hash=decode(repeat('aa',32),'hex')`, `UPDATE household_invitations SET household_id=household_id`, `UPDATE household_invitations SET expires_at=expires_at`, `UPDATE household_invitations SET creation_key=creation_key`, `UPDATE household_invitations SET created_by_user_id=created_by_user_id`} {
 		_, e = app.Exec(ctx, q)
 		var pe *pgconn.PgError
 		if !errors.As(e, &pe) || pe.Code != "42501" {
 			t.Errorf("%s: %v", q, e)
 		}
 	}
-	if _, e = app.Exec(ctx, `UPDATE household_invitations SET accepted_at=now() WHERE id=$1::uuid`, inv.Invitation.ID); e != nil {
+	if _, e = app.Exec(ctx, `UPDATE household_invitations SET accepted_at=now(), token_hash=NULL WHERE id=$1::uuid`, inv.Invitation.ID); e != nil {
 		t.Fatal(e)
 	}
 	now := time.Now().UTC().Truncate(time.Second)

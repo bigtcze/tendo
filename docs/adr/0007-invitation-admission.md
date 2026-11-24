@@ -22,4 +22,4 @@ V1 households are multi-user. New access must be granted explicitly by the house
 
 - A leaked token admits one account until it expires, is used, or is revoked. Tokens travel only in request bodies, never in API URLs.
 - Removing members and changing roles are not part of this decision. Revoking an invitation does not take access away from someone who already joined.
-- Invitation rows are kept after they are used or revoked. There is no cleanup job.
+- Invitation rows are kept after they are used, revoked or expired. Since [ADR 0024](0024-invitation-digest-retention.md) they keep no token digest: acceptance and revocation clear it, and a retention sweep clears it after expiry.

@@ -14,6 +14,25 @@ RETURNING issuer,client_id,nonce,pkce_verifier,purpose,COALESCE(user_id::text,''
 -- name: PruneOIDCPendingLogins :exec
 DELETE FROM oidc_pending_logins WHERE expires_at <= $1;
 
+-- name: SweepExpiredOIDCFlows :execrows
+-- One bounded batch for the invitation retention sweep (ADR 0024). An expired
+-- flow can never be consumed, and it may carry an invitation digest. No row
+-- lock in the subquery: the runtime role has no UPDATE on these tables, live
+-- flows are never expired, and lock_timeout bounds any wait.
+DELETE FROM oidc_flows WHERE state_hash IN (
+  SELECT state_hash FROM oidc_flows WHERE expires_at <= sqlc.arg(cutoff)::timestamptz
+  ORDER BY state_hash LIMIT 1000
+);
+
+-- name: SweepExpiredOIDCPendingLogins :execrows
+-- One bounded batch for the invitation retention sweep (ADR 0024). An expired
+-- pending sign-in can never be completed, and it may carry an invitation digest.
+-- Same locking as SweepExpiredOIDCFlows.
+DELETE FROM oidc_pending_logins WHERE handle_hash IN (
+  SELECT handle_hash FROM oidc_pending_logins WHERE expires_at <= sqlc.arg(cutoff)::timestamptz
+  ORDER BY handle_hash LIMIT 1000
+);
+
 -- name: FindOIDCCredential :one
 SELECT password_hash FROM local_credentials WHERE user_id=$1;
 

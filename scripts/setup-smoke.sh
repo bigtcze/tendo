@@ -568,6 +568,7 @@ st,_,listed,_=xreq('GET',invite_base+'?limit=10',INV,headers=cookie_header)
 assert st==200 and any(item['id']==invitation_id and item['status']=='pending' for item in listed['items']) and all('token' not in item for item in listed['items']),('pending invitation list',st,listed)
 st,_,accepted,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':invitation_token,'login':'member_smoke','password':'a sufficiently long member passphrase'},{'Origin':origin})
 assert st==201 and accepted['login']=='member_smoke' and accepted['role']=='member',('new account accept',st,accepted)
+assert psql(f"SELECT count(*) FROM household_invitations WHERE id='{invitation_id}' AND accepted_at IS NOT NULL AND token_hash IS NULL")=='1','accepted invitation kept its token digest (ADR 0024)'
 member_login={'login':'member_smoke','password':'a sufficiently long member passphrase'}
 st,mh,member_session,_=req('POST',member_login,{'Origin':origin})
 assert st==201 and member_session['login']=='member_smoke','new member login failed'

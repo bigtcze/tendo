@@ -57,7 +57,7 @@ func (q *Queries) RevokeMemberResetsInHousehold(ctx context.Context, arg RevokeM
 }
 
 const revokePendingInvitationsCreatedBy = `-- name: RevokePendingInvitationsCreatedBy :exec
-UPDATE household_invitations SET revoked_at=$3
+UPDATE household_invitations SET revoked_at=$3, token_hash=NULL
 WHERE household_id=$1 AND created_by_user_id=$2
   AND accepted_at IS NULL AND revoked_at IS NULL
 `
@@ -69,7 +69,7 @@ type RevokePendingInvitationsCreatedByParams struct {
 }
 
 // A removed member must not keep a usable invitation into the household. The
-// rows stay as audit history with the secret-bearing token no longer usable.
+// rows stay as redacted history; the token digest is cleared (ADR 0024).
 func (q *Queries) RevokePendingInvitationsCreatedBy(ctx context.Context, arg RevokePendingInvitationsCreatedByParams) error {
 	_, err := q.db.Exec(ctx, revokePendingInvitationsCreatedBy, arg.HouseholdID, arg.CreatedByUserID, arg.RevokedAt)
 	return err

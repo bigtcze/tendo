@@ -101,7 +101,7 @@ func (o *oidcInvitationTx) AcceptInvitation(ctx context.Context, invitationValue
 	if err != nil {
 		return identity.ErrInvalidInvitation
 	}
-	tag, err := o.tx.Exec(ctx, `UPDATE household_invitations SET accepted_at=$2
+	tag, err := o.tx.Exec(ctx, `UPDATE household_invitations SET accepted_at=$2, token_hash=NULL
 		WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>$2`, id, timestamptz(now))
 	if err != nil {
 		return err

@@ -174,7 +174,7 @@ func (f *removalFixture) addInvitation(householdID, createdBy, creationKey strin
 
 func (f *removalFixture) acceptInvitation(invitationID string) {
 	f.t.Helper()
-	if _, err := f.admin.Exec(f.ctx, `UPDATE household_invitations SET accepted_at=now() WHERE id=$1::uuid`, invitationID); err != nil {
+	if _, err := f.admin.Exec(f.ctx, `UPDATE household_invitations SET accepted_at=now(), token_hash=NULL WHERE id=$1::uuid`, invitationID); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -279,7 +279,7 @@ func (f *removalFixture) subject(subjectID string) (string, int64, bool) {
 func (f *removalFixture) invitationRevoked(invitationID string) bool {
 	f.t.Helper()
 	var revoked bool
-	if err := f.admin.QueryRow(f.ctx, `SELECT revoked_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, invitationID).Scan(&revoked); err != nil {
+	if err := f.admin.QueryRow(f.ctx, `SELECT revoked_at IS NOT NULL AND token_hash IS NULL FROM household_invitations WHERE id=$1::uuid`, invitationID).Scan(&revoked); err != nil {
 		f.t.Fatal(err)
 	}
 	return revoked

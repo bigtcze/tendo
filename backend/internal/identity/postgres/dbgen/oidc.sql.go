@@ -152,3 +152,40 @@ func (q *Queries) PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.T
 	_, err := q.db.Exec(ctx, pruneOIDCPendingLogins, expiresAt)
 	return err
 }
+
+const sweepExpiredOIDCFlows = `-- name: SweepExpiredOIDCFlows :execrows
+DELETE FROM oidc_flows WHERE state_hash IN (
+  SELECT state_hash FROM oidc_flows WHERE expires_at <= $1::timestamptz
+  ORDER BY state_hash LIMIT 1000
+)
+`
+
+// One bounded batch for the invitation retention sweep (ADR 0024). An expired
+// flow can never be consumed, and it may carry an invitation digest. No row
+// lock in the subquery: the runtime role has no UPDATE on these tables, live
+// flows are never expired, and lock_timeout bounds any wait.
+func (q *Queries) SweepExpiredOIDCFlows(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepExpiredOIDCFlows, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepExpiredOIDCPendingLogins = `-- name: SweepExpiredOIDCPendingLogins :execrows
+DELETE FROM oidc_pending_logins WHERE handle_hash IN (
+  SELECT handle_hash FROM oidc_pending_logins WHERE expires_at <= $1::timestamptz
+  ORDER BY handle_hash LIMIT 1000
+)
+`
+
+// One bounded batch for the invitation retention sweep (ADR 0024). An expired
+// pending sign-in can never be completed, and it may carry an invitation digest.
+// Same locking as SweepExpiredOIDCFlows.
+func (q *Queries) SweepExpiredOIDCPendingLogins(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepExpiredOIDCPendingLogins, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

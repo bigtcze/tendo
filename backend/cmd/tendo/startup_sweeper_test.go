@@ -49,6 +49,15 @@ func TestServeStartsSweeperAndStopsItBeforePoolClose(t *testing.T) {
 		order.add("sweep-stopped")
 		return identityapp.MCPSweepReport{}, ctx.Err()
 	}
+	invitationStarted := make(chan struct{})
+	var invitationOnce sync.Once
+	invitationSweep := func(ctx context.Context) (identityapp.InvitationSweepReport, error) {
+		invitationOnce.Do(func() { close(invitationStarted) })
+		order.add("invitation-sweep-start")
+		<-ctx.Done()
+		order.add("invitation-sweep-stopped")
+		return identityapp.InvitationSweepReport{}, ctx.Err()
+	}
 
 	pool, err := pgxpool.New(t.Context(), "postgres://tendo@127.0.0.1:1/tendo?connect_timeout=1")
 	if err != nil {
@@ -65,8 +74,9 @@ func TestServeStartsSweeperAndStopsItBeforePoolClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	steps := startupSteps{
-		listen:   func(string) (net.Listener, error) { return listener, nil },
-		mcpSweep: sweep,
+		listen:          func(string) (net.Listener, error) { return listener, nil },
+		mcpSweep:        sweep,
+		invitationSweep: invitationSweep,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -78,6 +88,11 @@ func TestServeStartsSweeperAndStopsItBeforePoolClose(t *testing.T) {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("production serve did not start the sweeper")
+	}
+	select {
+	case <-invitationStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("production serve did not start the invitation sweeper")
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -91,6 +106,10 @@ func TestServeStartsSweeperAndStopsItBeforePoolClose(t *testing.T) {
 	}
 	if indexOf(events, "sweep-start") < 0 || indexOf(events, "sweep-start") > stoppedAt {
 		t.Fatalf("sweep did not start before it stopped: events=%v", events)
+	}
+	invitationStoppedAt := indexOf(events, "invitation-sweep-stopped")
+	if invitationStoppedAt < 0 || indexOf(events, "invitation-sweep-start") > invitationStoppedAt {
+		t.Fatalf("invitation sweeper did not start and stop: events=%v", events)
 	}
 }
 
