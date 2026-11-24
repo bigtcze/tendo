@@ -267,6 +267,8 @@ def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=Non
         playwright(root, env, log, "design-capture", 3600)
     elif visual:
         env["TENDO_VISUAL_MODE"] = "1"
+        # The consent and Connected apps baselines need the MCP routes; the other opt-in modes keep MCP off.
+        env["TENDO_MCP_ENABLED"] = "true"
         env["TENDO_VISUAL_UPDATE"] = os.environ.get("TENDO_VISUAL_UPDATE", "0")
         env["FONTCONFIG_FILE"] = str(root / "frontend/e2e/visual/fonts/fonts.conf")
         env["FC_CONFIG_DIR"] = str(root / "frontend/e2e/visual/fonts")
@@ -299,6 +301,8 @@ def run_seeded_suite(root, app_path, provider_path, inherited, log, artifact_dir
         "TENDO_TEST_CLOCK_NOW": "2026-01-15T22:59:59Z", "TENDO_OIDC_ISSUER": issuer,
         "TENDO_OIDC_CLIENT_ID": client, "TENDO_OIDC_CLIENT_SECRET": secret,
         "TENDO_OIDC_DISPLAY_NAME": "OIDC Smoke Provider", "TENDO_OIDC_CLIENT_SECRET_FILE": "",
+        # Journey 17 (n32) needs the MCP routes; a loopback HTTP origin is allowed with MCP on.
+        "TENDO_MCP_ENABLED": "true",
         "E2E_OIDC_ISSUER": issuer, "E2E_BASE_URL": app_origin,
         "E2E_APP_BINARY": str(app_path), "E2E_APP_PORT": str(host_port),
         "E2E_OIDC_PROVIDER_BINARY": str(provider_path), "E2E_OIDC_LISTEN_ADDR": f"127.0.0.1:{issuer_port}",

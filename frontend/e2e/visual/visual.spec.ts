@@ -1,11 +1,12 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
-import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinHouseholdCreatedDates, pinInvitationDates, seed, type Fixture } from './fixtures';
+import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
 import { assertArchiveSettled, assertHistoryPage, openMoreSheet, seedPagedHistory } from './archiveHistory';
 import { captureLargeDataset } from './largeData';
 import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
@@ -27,6 +28,7 @@ async function authenticated(browser: Browser): Promise<{ context: BrowserContex
   const context = await browser.newContext({ ...CONTEXT, storageState: statePath, viewport: { width: 390, height: 844 } });
   await pinInvitationDates(context);
   await pinHouseholdCreatedDates(context);
+  await pinMcpGrantDates(context);
   const page = await context.newPage();
   await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   return { context, page };
@@ -183,6 +185,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
   const context = await browser.newContext({ ...CONTEXT, ...(storageState ? { storageState } : {}), viewport: { width: 390, height: 900 } });
   await pinInvitationDates(context);
   await pinHouseholdCreatedDates(context);
+  await pinMcpGrantDates(context);
   const page = await context.newPage();
   await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   for (const width of [390, 1440]) {
@@ -1130,4 +1133,111 @@ test('Archive and paged item history', async ({ browser }) => {
   await capture(page, 'history-dark-page-1-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
   await context.close();
+});
+
+// Appended last: the one connected app it creates is disconnected again before it ends, so no baseline sees it.
+test('MCP consent and Connected apps', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const clientName = 'Notes Assistant';
+  const redirect = 'http://127.0.0.1:43123/callback';
+  const { context, page } = await authenticated(browser);
+  await pinMcpRequestExpiry(context);
+  const registered = await api(page, 'post', '/oauth/register', { redirect_uris: [redirect], client_name: clientName });
+  expect(registered.status(), 'register the visual client').toBe(201);
+  const clientId = (await registered.json() as { client_id: string }).client_id;
+  const verifier = randomBytes(32).toString('base64url');
+  const query = new URLSearchParams({
+    response_type: 'code', client_id: clientId, redirect_uri: redirect,
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+    state: randomBytes(12).toString('base64url'), resource: `${BASE_URL}/mcp`,
+  });
+
+  // One request serves every consent capture. The page clock is paused before it loads, so Allow stays in its
+  // waiting state until the clock is moved on; the request's expiry is pinned like the other server timestamps.
+  await page.clock.pauseAt(new Date('2026-05-14T08:01:00Z'));
+  const authorized = page.waitForResponse((response) => new URL(response.url()).pathname === '/oauth/authorize');
+  await page.goto(`/oauth/authorize?${query}`);
+  const location = (await authorized).headers()['location'] ?? '';
+  expect(location).toMatch(/^\/connect#request=[A-Za-z0-9_-]{43}$/);
+  const handle = location.slice('/connect#request='.length);
+  const allow = (catalog: Record<keyof typeof en, string>) => page.getByRole('main').getByRole('button', { name: catalog['connect.allow'], exact: true });
+  const settled = async (catalog: Record<keyof typeof en, string>) => {
+    await expect(page.getByRole('heading', { level: 1, name: catalog['connect.heading'].replace('{client}', clientName) })).toBeVisible();
+    await expect(page.getByRole('main').getByText(catalog['connect.allowHint'], { exact: true })).toBeVisible();
+    await expect(allow(catalog)).toBeDisabled();
+  };
+  await settled(en);
+  await captureScreen(page, 'consent', true);
+  await page.clock.runFor(1_000);
+  await expect(allow(en)).toBeEnabled();
+  await expect(page.getByRole('main').getByText(en['connect.allowHint'], { exact: true })).toHaveCount(0);
+  await capture(page, 'consent-allow-390', 390, 900, true);
+  // The same request after a reload: the handle survives in session storage, and Allow waits again.
+  await page.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await settled(en);
+  await captureScreen(page, 'consent-dark', true);
+  await page.evaluate(() => { localStorage.setItem('tendo.theme', 'light'); localStorage.setItem('tendo.locale', 'cs'); });
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.reload();
+  await settled(cs);
+  await capture(page, 'consent-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await page.clock.resume();
+
+  // A carried authorization error is its own page: no request, just the reason and the way home.
+  const problem = await context.newPage();
+  await problem.goto('/connect#error=invalid_client');
+  await expect(problem.getByRole('heading', { level: 1, name: en['connect.problem.title'] })).toBeVisible();
+  await expect(problem.getByRole('main').getByText(en['connect.problem.invalid_client'], { exact: true })).toBeVisible();
+  await captureScreen(problem, 'consent-error', true);
+  await problem.close();
+
+  // The connected app comes from approving that same request through the API and exchanging its code.
+  const decided = await api(page, 'post', `/api/v1/mcp/authorization-requests/${handle}/decision`, { decision: 'approve' });
+  expect(decided.status(), 'approve the visual request').toBe(200);
+  const code = new URL((await decided.json() as { redirectTo: string }).redirectTo).searchParams.get('code') ?? '';
+  const exchanged = await page.request.post('/oauth/token', { form: {
+    grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: verifier,
+  } });
+  expect(exchanged.status(), 'exchange the visual code').toBe(200);
+  const grants = await api(page, 'get', '/api/v1/mcp/grants');
+  expect(grants.status()).toBe(200);
+  const [grant] = (await grants.json() as { items: Array<{ id: string; clientName: string }> }).items;
+  expect(grant?.clientName).toBe(clientName);
+  await context.close();
+
+  const apps = await authenticated(browser);
+  await apps.page.goto('/account');
+  await assertAccountSettled(apps.page, 'en', 'en');
+  const row = apps.page.locator('main li[data-grant-id]');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(clientName);
+  await expect(row).toContainText(en['connectedApps.connected'].replace('{date}', 'May 14, 2026'));
+  await expect(row).toContainText(en['connectedApps.expires'].replace('{date}', 'Aug 12, 2026'));
+  await captureScreen(apps.page, 'account-apps', true);
+  await apps.page.setViewportSize({ width: 390, height: 900 });
+  await apps.page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await apps.page.reload();
+  await assertAccountSettled(apps.page, 'cs', 'cs');
+  await expect(row).toHaveCount(1);
+  await capture(apps.page, 'account-apps-cs-390', 390, 900, true);
+  // Dark is captured full page in the same context: the section sits below the fold of a 900 px viewport.
+  await apps.page.evaluate(() => { localStorage.setItem('tendo.locale', 'en'); localStorage.setItem('tendo.theme', 'dark'); });
+  for (const width of [390, 1440]) {
+    await apps.page.setViewportSize({ width, height: 900 });
+    await apps.page.reload();
+    await expect(apps.page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(apps.page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    await expect(row).toHaveCount(1);
+    await capture(apps.page, `account-apps-dark-${width}`, width, 900, true);
+  }
+  await apps.page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
+  await apps.context.close();
+
+  const cleanup = await browser.newContext({ ...CONTEXT, storageState: statePath });
+  const removed = await cleanup.request.delete(`/api/v1/mcp/grants/${grant!.id}`, { headers: { Origin: BASE_URL! } });
+  expect(removed.status(), 'disconnect the visual app').toBe(204);
+  await cleanup.close();
 });
