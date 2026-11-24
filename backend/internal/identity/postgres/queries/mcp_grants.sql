@@ -156,14 +156,31 @@ DELETE FROM mcp_access_tokens WHERE grant_id = $1;
 DELETE FROM mcp_refresh_tokens WHERE grant_id = $1;
 
 -- name: FindActiveMCPAccessToken :one
--- Verification re-reads the grant and the account on every request, so a
--- revocation or deletion takes effect on the next request.
-SELECT g.id, g.user_id, g.client_id, g.scopes, g.resource
+-- Verification re-reads the grant, the account and the MCP policy (#457) on
+-- every request, so a revocation, deletion or policy change takes effect on the
+-- next request. A missing policy row comes back as NULL columns and evaluates
+-- as inactive.
+SELECT g.id, g.user_id, g.client_id, g.scopes, g.resource,
+  i.enabled AS installation_enabled, i.default_account_enabled, i.default_max_scopes,
+  p.user_id AS policy_user_id, p.admin_enabled, p.admin_max_scopes, p.user_enabled, p.user_scopes
 FROM mcp_access_tokens a
 JOIN mcp_grants g ON g.id = a.grant_id
 JOIN user_accounts u ON u.id = g.user_id
+LEFT JOIN mcp_installation_policy i ON i.singleton
+LEFT JOIN mcp_account_policies p ON p.user_id = g.user_id
 WHERE a.token_hash = $1 AND a.expires_at > $2
   AND g.revoked_at IS NULL AND g.expires_at > $2 AND u.deleted_at IS NULL;
+
+-- name: ReadMCPPolicy :one
+-- The installation and account policy (#457) as stored. Issuance reads it after
+-- the account lock and takes no policy lock: a change that commits meanwhile is
+-- enforced by the next verification and refresh, which re-read it. A missing
+-- row comes back as NULL columns and evaluates as inactive.
+SELECT i.enabled AS installation_enabled, i.default_account_enabled, i.default_max_scopes,
+  p.user_id AS policy_user_id, p.admin_enabled, p.admin_max_scopes, p.user_enabled, p.user_scopes
+FROM (SELECT sqlc.arg(user_id)::uuid AS user_id) a
+LEFT JOIN mcp_installation_policy i ON i.singleton
+LEFT JOIN mcp_account_policies p ON p.user_id = a.user_id;
 
 -- name: CreateMCPClientWithinCap :execrows
 -- One statement: the grantless-client count and the insert are not separate

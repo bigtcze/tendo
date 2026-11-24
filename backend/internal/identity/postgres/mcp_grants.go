@@ -223,19 +223,47 @@ func (r *MCPRepository) WithMCPTransaction(ctx context.Context, work func(identi
 	return tx.Commit(ctx)
 }
 
-func (r *MCPRepository) FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (identity.MCPGrantRecord, error) {
+func (r *MCPRepository) FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (identity.MCPActiveAccess, error) {
 	row, err := identitydb.New(r.pool).FindActiveMCPAccessToken(ctx, identitydb.FindActiveMCPAccessTokenParams{
 		TokenHash: tokenHash, ExpiresAt: ts(now.UTC()),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return identity.MCPGrantRecord{}, identity.ErrNotFound
+		return identity.MCPActiveAccess{}, identity.ErrNotFound
 	}
 	if err != nil {
-		return identity.MCPGrantRecord{}, err
+		return identity.MCPActiveAccess{}, err
 	}
-	return identity.MCPGrantRecord{
-		ID: row.ID.String(), UserID: row.UserID.String(), ClientID: row.ClientID, Scopes: row.Scopes, Resource: row.Resource,
+	return identity.MCPActiveAccess{
+		Grant: identity.MCPGrantRecord{
+			ID: row.ID.String(), UserID: row.UserID.String(), ClientID: row.ClientID, Scopes: row.Scopes, Resource: row.Resource,
+		},
+		Policy: mcpPolicyRecord(identitydb.ReadMCPPolicyRow{
+			InstallationEnabled: row.InstallationEnabled, DefaultAccountEnabled: row.DefaultAccountEnabled,
+			DefaultMaxScopes: row.DefaultMaxScopes, PolicyUserID: row.PolicyUserID, AdminEnabled: row.AdminEnabled,
+			AdminMaxScopes: row.AdminMaxScopes, UserEnabled: row.UserEnabled, UserScopes: row.UserScopes,
+		}),
 	}, nil
+}
+
+// mcpPolicyRecord maps the LEFT JOINed policy columns. A NULL installation
+// column means the singleton row is missing; a NULL policy user means the
+// account row is missing. Both evaluate as inactive.
+func mcpPolicyRecord(row identitydb.ReadMCPPolicyRow) identity.MCPPolicyRecord {
+	policy := identity.MCPPolicyRecord{
+		InstallationFound:     row.InstallationEnabled.Valid && row.DefaultAccountEnabled.Valid,
+		InstallationEnabled:   row.InstallationEnabled.Bool,
+		DefaultAccountEnabled: row.DefaultAccountEnabled.Bool,
+		DefaultMaxScopes:      row.DefaultMaxScopes,
+		AccountFound:          row.PolicyUserID.Valid && row.UserEnabled.Valid,
+		AdminMaxScopes:        row.AdminMaxScopes,
+		UserEnabled:           row.UserEnabled.Bool,
+		UserScopes:            row.UserScopes,
+	}
+	if row.AdminEnabled.Valid {
+		enabled := row.AdminEnabled.Bool
+		policy.AdminEnabled = &enabled
+	}
+	return policy
 }
 
 // ListLiveGrants reads one keyset page of the account's live connected apps as
@@ -285,6 +313,18 @@ func scanUUID(value string) (pgtype.UUID, error) {
 		return pgtype.UUID{}, identity.ErrNotFound
 	}
 	return id, nil
+}
+
+func (t *mcpTx) ReadPolicy(ctx context.Context, userID string) (identity.MCPPolicyRecord, error) {
+	user, err := scanUUID(userID)
+	if err != nil {
+		return identity.MCPPolicyRecord{}, err
+	}
+	row, err := t.q.ReadMCPPolicy(ctx, user)
+	if err != nil {
+		return identity.MCPPolicyRecord{}, err
+	}
+	return mcpPolicyRecord(row), nil
 }
 
 func (t *mcpTx) LockLiveAccount(ctx context.Context, userID string) error {

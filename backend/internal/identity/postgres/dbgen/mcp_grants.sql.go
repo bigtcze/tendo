@@ -241,10 +241,14 @@ func (q *Queries) DeleteMCPGrantRefreshTokens(ctx context.Context, grantID pgtyp
 }
 
 const findActiveMCPAccessToken = `-- name: FindActiveMCPAccessToken :one
-SELECT g.id, g.user_id, g.client_id, g.scopes, g.resource
+SELECT g.id, g.user_id, g.client_id, g.scopes, g.resource,
+  i.enabled AS installation_enabled, i.default_account_enabled, i.default_max_scopes,
+  p.user_id AS policy_user_id, p.admin_enabled, p.admin_max_scopes, p.user_enabled, p.user_scopes
 FROM mcp_access_tokens a
 JOIN mcp_grants g ON g.id = a.grant_id
 JOIN user_accounts u ON u.id = g.user_id
+LEFT JOIN mcp_installation_policy i ON i.singleton
+LEFT JOIN mcp_account_policies p ON p.user_id = g.user_id
 WHERE a.token_hash = $1 AND a.expires_at > $2
   AND g.revoked_at IS NULL AND g.expires_at > $2 AND u.deleted_at IS NULL
 `
@@ -255,15 +259,25 @@ type FindActiveMCPAccessTokenParams struct {
 }
 
 type FindActiveMCPAccessTokenRow struct {
-	ID       pgtype.UUID
-	UserID   pgtype.UUID
-	ClientID string
-	Scopes   []string
-	Resource string
+	ID                    pgtype.UUID
+	UserID                pgtype.UUID
+	ClientID              string
+	Scopes                []string
+	Resource              string
+	InstallationEnabled   pgtype.Bool
+	DefaultAccountEnabled pgtype.Bool
+	DefaultMaxScopes      []string
+	PolicyUserID          pgtype.UUID
+	AdminEnabled          pgtype.Bool
+	AdminMaxScopes        []string
+	UserEnabled           pgtype.Bool
+	UserScopes            []string
 }
 
-// Verification re-reads the grant and the account on every request, so a
-// revocation or deletion takes effect on the next request.
+// Verification re-reads the grant, the account and the MCP policy (#457) on
+// every request, so a revocation, deletion or policy change takes effect on the
+// next request. A missing policy row comes back as NULL columns and evaluates
+// as inactive.
 func (q *Queries) FindActiveMCPAccessToken(ctx context.Context, arg FindActiveMCPAccessTokenParams) (FindActiveMCPAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, findActiveMCPAccessToken, arg.TokenHash, arg.ExpiresAt)
 	var i FindActiveMCPAccessTokenRow
@@ -273,6 +287,14 @@ func (q *Queries) FindActiveMCPAccessToken(ctx context.Context, arg FindActiveMC
 		&i.ClientID,
 		&i.Scopes,
 		&i.Resource,
+		&i.InstallationEnabled,
+		&i.DefaultAccountEnabled,
+		&i.DefaultMaxScopes,
+		&i.PolicyUserID,
+		&i.AdminEnabled,
+		&i.AdminMaxScopes,
+		&i.UserEnabled,
+		&i.UserScopes,
 	)
 	return i, err
 }
@@ -534,6 +556,45 @@ func (q *Queries) MarkMCPAuthorizationCodeUsed(ctx context.Context, arg MarkMCPA
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const readMCPPolicy = `-- name: ReadMCPPolicy :one
+SELECT i.enabled AS installation_enabled, i.default_account_enabled, i.default_max_scopes,
+  p.user_id AS policy_user_id, p.admin_enabled, p.admin_max_scopes, p.user_enabled, p.user_scopes
+FROM (SELECT $1::uuid AS user_id) a
+LEFT JOIN mcp_installation_policy i ON i.singleton
+LEFT JOIN mcp_account_policies p ON p.user_id = a.user_id
+`
+
+type ReadMCPPolicyRow struct {
+	InstallationEnabled   pgtype.Bool
+	DefaultAccountEnabled pgtype.Bool
+	DefaultMaxScopes      []string
+	PolicyUserID          pgtype.UUID
+	AdminEnabled          pgtype.Bool
+	AdminMaxScopes        []string
+	UserEnabled           pgtype.Bool
+	UserScopes            []string
+}
+
+// The installation and account policy (#457) as stored. Issuance reads it after
+// the account lock and takes no policy lock: a change that commits meanwhile is
+// enforced by the next verification and refresh, which re-read it. A missing
+// row comes back as NULL columns and evaluates as inactive.
+func (q *Queries) ReadMCPPolicy(ctx context.Context, userID pgtype.UUID) (ReadMCPPolicyRow, error) {
+	row := q.db.QueryRow(ctx, readMCPPolicy, userID)
+	var i ReadMCPPolicyRow
+	err := row.Scan(
+		&i.InstallationEnabled,
+		&i.DefaultAccountEnabled,
+		&i.DefaultMaxScopes,
+		&i.PolicyUserID,
+		&i.AdminEnabled,
+		&i.AdminMaxScopes,
+		&i.UserEnabled,
+		&i.UserScopes,
+	)
+	return i, err
 }
 
 const recordMCPGrantCreated = `-- name: RecordMCPGrantCreated :exec

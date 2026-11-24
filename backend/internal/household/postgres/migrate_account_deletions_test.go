@@ -26,7 +26,7 @@ func TestMigrationTwentySevenUpAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
 			t.Fatalf("%s missing after migrate to 31", relation)
@@ -168,7 +168,7 @@ func TestMigrationTwentySevenRevertAndReapply(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 027: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
 			t.Fatalf("%s missing after re-apply", relation)
@@ -201,7 +201,7 @@ func TestMigrationTwentySevenDownRefusesAfterDeletion(t *testing.T) {
 	if _, err := admin.Exec(ctx, testpostgres.RevertVersion27SQL); err == nil || !strings.Contains(err.Error(), "cannot be reversed") {
 		t.Fatalf("Down after deletion err=%v want cannot be reversed", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, relation := range []string{"account_deletions", "instance_admin_revocations"} {
 		if !migrationRelationExists(t, ctx, admin, relation) {
 			t.Fatalf("%s removed by the refused Down", relation)

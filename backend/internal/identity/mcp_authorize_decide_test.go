@@ -94,7 +94,7 @@ func TestMCPDecideApproveIssuesRedeemableCode(t *testing.T) {
 		t.Fatalf("DecideAuthorization: %v", err)
 	}
 	want := []string{"WithMCPTransaction", "LockLiveAccount", "ActiveSessionExists", "FindAuthorizationRequest",
-		"FindClient", "ConsumeAuthorizationRequest", "CreateAuthorizationCode"}
+		"FindClient", "ConsumeAuthorizationRequest", "ReadPolicy", "CreateAuthorizationCode"}
 	if !slices.Equal(fx.f.calls, want) {
 		t.Fatalf("calls = %v, want %v", fx.f.calls, want)
 	}

@@ -20,8 +20,8 @@ func (f *registerFake) WithMCPTransaction(context.Context, func(MCPTransaction) 
 	return errors.New("registration must not open an issuance transaction")
 }
 
-func (f *registerFake) FindActiveAccessToken(context.Context, []byte, time.Time) (MCPGrantRecord, error) {
-	return MCPGrantRecord{}, ErrNotFound
+func (f *registerFake) FindActiveAccessToken(context.Context, []byte, time.Time) (MCPActiveAccess, error) {
+	return MCPActiveAccess{}, ErrNotFound
 }
 
 func (f *registerFake) CreateClientWithinCap(_ context.Context, client MCPClient, _ time.Time, cap int) (bool, error) {
@@ -81,9 +81,9 @@ func (b *bareMCPRepository) WithMCPTransaction(context.Context, func(MCPTransact
 	return errors.New("no transaction expected")
 }
 
-func (b *bareMCPRepository) FindActiveAccessToken(context.Context, []byte, time.Time) (MCPGrantRecord, error) {
+func (b *bareMCPRepository) FindActiveAccessToken(context.Context, []byte, time.Time) (MCPActiveAccess, error) {
 	b.called = true
-	return MCPGrantRecord{}, ErrNotFound
+	return MCPActiveAccess{}, ErrNotFound
 }
 
 // TestServiceWithoutStoresFailsClosed proves a repository lacking the client

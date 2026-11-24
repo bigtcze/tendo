@@ -69,7 +69,7 @@ func TestMigrationThirtyOneClearsV4DigestsAndKeepsHistory(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("migrate 30 to 31: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	if got := migrationString(t, ctx, admin, historyQuery); got != history {
 		t.Fatalf("invitation history changed by 031:\nbefore=%s\nafter=%s", history, got)
 	}
@@ -111,7 +111,7 @@ func TestMigrationThirtyOneClearsV4DigestsAndKeepsHistory(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 031: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	if got := migrationInt(t, ctx, admin, `SELECT count(token_hash) FROM household_invitations`); got != 1 {
 		t.Fatalf("digests after re-apply=%d want 1", got)
 	}

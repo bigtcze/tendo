@@ -27,7 +27,8 @@ type MCPCodeExchange struct {
 type MCPRefresh struct {
 	RefreshToken, ClientID, Resource string
 	// Scopes is the space-split scope parameter; nil or empty means absent. A
-	// present set must equal the grant's scopes as a set (no narrowing), else
+	// present set must equal, as a set, the grant's consented scopes or the
+	// effective scopes the policy allows now (the last response's scope), else
 	// ErrMCPInvalidScope.
 	Scopes []string
 }
@@ -93,6 +94,12 @@ func (s *MCPService) exchangeLocked(ctx context.Context, tx MCPTransaction, in M
 	if !code.redeemableBy(in, now) {
 		return MCPTokens{}, ErrMCPInvalidGrant, nil
 	}
+	// A paused account or user cannot redeem: the code is left unused and
+	// expires on its own.
+	effective, outcome, err := effectiveScopesLocked(ctx, tx, code.UserID, code.Scopes)
+	if outcome != nil || err != nil {
+		return MCPTokens{}, outcome, err
+	}
 	grantID, err := tx.CreateGrant(ctx, MCPGrantRecord{
 		UserID: code.UserID, ClientID: code.ClientID, Resource: code.Resource, Scopes: code.Scopes,
 		CreatedAt: now, ExpiresAt: now.Add(MCPGrantLifetime),
@@ -103,7 +110,9 @@ func (s *MCPService) exchangeLocked(ctx context.Context, tx MCPTransaction, in M
 	if err = tx.MarkAuthorizationCodeUsed(ctx, codeHash, grantID, now); err != nil {
 		return MCPTokens{}, nil, err
 	}
-	tokens, err := issueMCPTokens(ctx, tx, grantID, code.Scopes, now, now.Add(MCPGrantLifetime))
+	// The grant keeps the consented scopes; the response names the ones the
+	// policy allows now.
+	tokens, err := issueMCPTokens(ctx, tx, grantID, effective, now, now.Add(MCPGrantLifetime))
 	return tokens, nil, err
 }
 
@@ -167,6 +176,26 @@ func refreshScopeSet(requested []string) ([]string, error) {
 	return scopes, nil
 }
 
+// effectiveScopesLocked applies the policy to a token request after the account
+// lock. It returns the scopes the policy allows now, or the request outcome:
+// ErrMCPDisabled while the installation is off, ErrMCPInvalidGrant while the
+// account or user is off or no consented scope is allowed. Neither outcome
+// writes anything.
+func effectiveScopesLocked(ctx context.Context, tx MCPTransaction, userID string, consented []string) ([]string, error, error) {
+	allowed, err := allowedScopesLocked(ctx, tx, userID)
+	if errors.Is(err, ErrMCPDisabled) {
+		return nil, ErrMCPDisabled, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	effective := intersectMCPScopes(consented, allowed)
+	if len(effective) == 0 {
+		return nil, ErrMCPInvalidGrant, nil
+	}
+	return effective, nil, nil
+}
+
 // refreshScopesMatch reports whether a requested scope set may refresh a grant.
 // nil means the parameter was absent, which keeps the grant's scopes.
 func refreshScopesMatch(requested, granted []string) bool {
@@ -205,14 +234,30 @@ func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MC
 	if !refresh.ExpiresAt.After(now) || !grant.refreshableBy(in, now) {
 		return MCPTokens{}, ErrMCPInvalidGrant, nil
 	}
-	// Narrowing and widening are both refused; the token is not consumed.
-	if !refreshScopesMatch(requested, grant.Scopes) {
+	return rotateRefreshLocked(ctx, tx, owner, grantID, grant, requested, refreshHash, now)
+}
+
+// rotateRefreshLocked finishes a refresh that passed replay detection: the
+// policy, the scope check, then consumption and the new pair. The policy is
+// checked after replay detection, so a replay still revokes, and before the
+// token is consumed, so a paused grant refreshes again once it is re-enabled.
+// It is also checked before the scope parameter, so an installation switched
+// off answers the disabled 404 whatever scope the client sent.
+func rotateRefreshLocked(ctx context.Context, tx MCPTransaction, owner, grantID string, grant MCPGrantRecord, requested []string, refreshHash []byte, now time.Time) (MCPTokens, error, error) {
+	effective, outcome, err := effectiveScopesLocked(ctx, tx, owner, grant.Scopes)
+	if outcome != nil || err != nil {
+		return MCPTokens{}, outcome, err
+	}
+	// Any other narrowing and any widening are refused; the token is not
+	// consumed. The effective set is accepted because the previous token
+	// response named it as the granted scope (RFC 6749 section 6).
+	if !refreshScopesMatch(requested, grant.Scopes) && !refreshScopesMatch(requested, effective) {
 		return MCPTokens{}, ErrMCPInvalidScope, nil
 	}
 	if err = tx.ConsumeRefreshToken(ctx, refreshHash, now); err != nil {
 		return MCPTokens{}, nil, err
 	}
-	tokens, err := issueMCPTokens(ctx, tx, grantID, grant.Scopes, now, grant.ExpiresAt)
+	tokens, err := issueMCPTokens(ctx, tx, grantID, effective, now, grant.ExpiresAt)
 	return tokens, nil, err
 }
 
