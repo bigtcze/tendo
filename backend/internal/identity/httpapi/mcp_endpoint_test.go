@@ -30,9 +30,20 @@ type fakeMCPVerifier struct {
 	enabled bool
 	access  map[string]identity.MCPAccess
 	err     error
+	// installationOff and availErr model the B1b2 installation switch.
+	installationOff bool
+	availErr        error
 }
 
 func (f *fakeMCPVerifier) Enabled() bool { return f.enabled }
+
+// Available is TENDO_MCP_ENABLED and the installation switch (B1b2).
+func (f *fakeMCPVerifier) Available(context.Context) (bool, error) {
+	if f.availErr != nil {
+		return false, f.availErr
+	}
+	return f.enabled && !f.installationOff, nil
+}
 func (f *fakeMCPVerifier) VerifyAccessToken(_ context.Context, token string) (identity.MCPAccess, error) {
 	if f.err != nil {
 		return identity.MCPAccess{}, f.err

@@ -19,7 +19,7 @@ func TestMCPRequestLogsCarryNoBearerToken(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	const token = "BEARERSECRETAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	target := cfg.PublicURL + "/mcp"
 	serveMCPRequest(app, http.MethodPost, target, "", cfg.PublicURL, "Bearer "+token, mcpBodyPing)

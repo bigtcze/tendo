@@ -13,8 +13,10 @@ import (
 
 // The connected-apps routes (ADR 0023, slice A4b). They are signed-in browser
 // operations: the session cookie only, never an MCP bearer token. They work
-// whether or not TENDO_MCP_ENABLED is set, so the handler deliberately does not
-// see the service's Enabled() flag and never uses MCPHandler.guarded.
+// whether or not TENDO_MCP_ENABLED is set and whether or not the installation
+// switch is on (ADR 0023, slice B1b2). They use the installation and
+// TENDO_MCP_ENABLED gate only for the MCP surface they manage, and never
+// MCPHandler.guarded, so the handler does not consult that gate.
 const (
 	mcpGrantsPath         = "/api/v1/mcp/grants"
 	mcpGrantPath          = "/api/v1/mcp/grants/{grantId}"

@@ -49,8 +49,44 @@ UPDATE mcp_account_policies SET
 WHERE user_id = sqlc.arg(user_id)::uuid AND version = sqlc.arg(version)::bigint - 1;
 
 -- name: AppendMCPPolicyEvent :exec
--- Append-only. Account and user events only; the installation level arrives
--- with slice B1b2.
-INSERT INTO mcp_policy_events(actor_user_id, target_user_id, policy, enabled, scopes, occurred_at)
-VALUES (sqlc.arg(actor_user_id)::uuid, sqlc.arg(target_user_id)::uuid, sqlc.arg(policy)::text,
-  sqlc.narg(enabled)::boolean, sqlc.narg(scopes)::text[], sqlc.arg(occurred_at)::timestamptz);
+-- Append-only. The target is NULL for the installation level, which also sets
+-- default_account_enabled; the table checks keep the two shapes apart.
+INSERT INTO mcp_policy_events(actor_user_id, target_user_id, policy, enabled, default_account_enabled, scopes, occurred_at)
+VALUES (sqlc.arg(actor_user_id)::uuid, sqlc.narg(target_user_id)::uuid, sqlc.arg(policy)::text,
+  sqlc.narg(enabled)::boolean, sqlc.narg(default_account_enabled)::boolean, sqlc.narg(scopes)::text[],
+  sqlc.arg(occurred_at)::timestamptz);
+
+-- name: ReadMCPInstallationPolicy :one
+-- The installation row without a lock. No row is a missing installation, which
+-- the caller refuses rather than defaulting.
+SELECT enabled, default_account_enabled, default_max_scopes, version
+FROM mcp_installation_policy WHERE singleton;
+
+-- name: ReadMCPInstallationSwitch :one
+-- The installation switch alone, read unlocked on every MCP route.
+SELECT enabled FROM mcp_installation_policy WHERE singleton;
+
+-- name: LockMCPInstallationPolicy :one
+-- The installation row FOR UPDATE, after the instance-admin FOR SHARE lock.
+SELECT enabled, default_account_enabled, default_max_scopes, version
+FROM mcp_installation_policy WHERE singleton FOR UPDATE;
+
+-- name: UpdateMCPInstallationPolicy :execrows
+-- The caller holds the row FOR UPDATE. The version guard turns a lost lock into
+-- a zero-row update, which the caller refuses.
+UPDATE mcp_installation_policy SET
+  enabled = sqlc.arg(enabled)::boolean,
+  default_account_enabled = sqlc.arg(default_account_enabled)::boolean,
+  default_max_scopes = sqlc.arg(default_max_scopes)::text[],
+  version = sqlc.arg(version)::bigint,
+  updated_at = sqlc.arg(updated_at)::timestamptz
+WHERE singleton AND version = sqlc.arg(version)::bigint - 1;
+
+-- name: ListMCPPolicyEvents :many
+-- The audit list across all levels, newest first by uuidv7 id. A null after_id
+-- is the first page.
+SELECT id, policy, actor_user_id, target_user_id, enabled, default_account_enabled, scopes, occurred_at
+FROM mcp_policy_events
+WHERE (sqlc.narg(after_id)::uuid IS NULL OR id < sqlc.narg(after_id)::uuid)
+ORDER BY id DESC
+LIMIT sqlc.arg(page_limit)::int;

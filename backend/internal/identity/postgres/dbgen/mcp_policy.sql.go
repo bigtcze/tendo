@@ -12,28 +12,31 @@ import (
 )
 
 const appendMCPPolicyEvent = `-- name: AppendMCPPolicyEvent :exec
-INSERT INTO mcp_policy_events(actor_user_id, target_user_id, policy, enabled, scopes, occurred_at)
+INSERT INTO mcp_policy_events(actor_user_id, target_user_id, policy, enabled, default_account_enabled, scopes, occurred_at)
 VALUES ($1::uuid, $2::uuid, $3::text,
-  $4::boolean, $5::text[], $6::timestamptz)
+  $4::boolean, $5::boolean, $6::text[],
+  $7::timestamptz)
 `
 
 type AppendMCPPolicyEventParams struct {
-	ActorUserID  pgtype.UUID
-	TargetUserID pgtype.UUID
-	Policy       string
-	Enabled      pgtype.Bool
-	Scopes       []string
-	OccurredAt   pgtype.Timestamptz
+	ActorUserID           pgtype.UUID
+	TargetUserID          pgtype.UUID
+	Policy                string
+	Enabled               pgtype.Bool
+	DefaultAccountEnabled pgtype.Bool
+	Scopes                []string
+	OccurredAt            pgtype.Timestamptz
 }
 
-// Append-only. Account and user events only; the installation level arrives
-// with slice B1b2.
+// Append-only. The target is NULL for the installation level, which also sets
+// default_account_enabled; the table checks keep the two shapes apart.
 func (q *Queries) AppendMCPPolicyEvent(ctx context.Context, arg AppendMCPPolicyEventParams) error {
 	_, err := q.db.Exec(ctx, appendMCPPolicyEvent,
 		arg.ActorUserID,
 		arg.TargetUserID,
 		arg.Policy,
 		arg.Enabled,
+		arg.DefaultAccountEnabled,
 		arg.Scopes,
 		arg.OccurredAt,
 	)
@@ -70,6 +73,61 @@ func (q *Queries) IsMCPPolicyInstanceAdmin(ctx context.Context, userID pgtype.UU
 	return granted, err
 }
 
+const listMCPPolicyEvents = `-- name: ListMCPPolicyEvents :many
+SELECT id, policy, actor_user_id, target_user_id, enabled, default_account_enabled, scopes, occurred_at
+FROM mcp_policy_events
+WHERE ($1::uuid IS NULL OR id < $1::uuid)
+ORDER BY id DESC
+LIMIT $2::int
+`
+
+type ListMCPPolicyEventsParams struct {
+	AfterID   pgtype.UUID
+	PageLimit int32
+}
+
+type ListMCPPolicyEventsRow struct {
+	ID                    pgtype.UUID
+	Policy                string
+	ActorUserID           pgtype.UUID
+	TargetUserID          pgtype.UUID
+	Enabled               pgtype.Bool
+	DefaultAccountEnabled pgtype.Bool
+	Scopes                []string
+	OccurredAt            pgtype.Timestamptz
+}
+
+// The audit list across all levels, newest first by uuidv7 id. A null after_id
+// is the first page.
+func (q *Queries) ListMCPPolicyEvents(ctx context.Context, arg ListMCPPolicyEventsParams) ([]ListMCPPolicyEventsRow, error) {
+	rows, err := q.db.Query(ctx, listMCPPolicyEvents, arg.AfterID, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMCPPolicyEventsRow{}
+	for rows.Next() {
+		var i ListMCPPolicyEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Policy,
+			&i.ActorUserID,
+			&i.TargetUserID,
+			&i.Enabled,
+			&i.DefaultAccountEnabled,
+			&i.Scopes,
+			&i.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockMCPAccountPolicy = `-- name: LockMCPAccountPolicy :one
 SELECT admin_enabled, admin_max_scopes, user_enabled, user_scopes, version
 FROM mcp_account_policies WHERE user_id = $1 FOR UPDATE
@@ -93,6 +151,31 @@ func (q *Queries) LockMCPAccountPolicy(ctx context.Context, userID pgtype.UUID) 
 		&i.AdminMaxScopes,
 		&i.UserEnabled,
 		&i.UserScopes,
+		&i.Version,
+	)
+	return i, err
+}
+
+const lockMCPInstallationPolicy = `-- name: LockMCPInstallationPolicy :one
+SELECT enabled, default_account_enabled, default_max_scopes, version
+FROM mcp_installation_policy WHERE singleton FOR UPDATE
+`
+
+type LockMCPInstallationPolicyRow struct {
+	Enabled               bool
+	DefaultAccountEnabled bool
+	DefaultMaxScopes      []string
+	Version               int64
+}
+
+// The installation row FOR UPDATE, after the instance-admin FOR SHARE lock.
+func (q *Queries) LockMCPInstallationPolicy(ctx context.Context) (LockMCPInstallationPolicyRow, error) {
+	row := q.db.QueryRow(ctx, lockMCPInstallationPolicy)
+	var i LockMCPInstallationPolicyRow
+	err := row.Scan(
+		&i.Enabled,
+		&i.DefaultAccountEnabled,
+		&i.DefaultMaxScopes,
 		&i.Version,
 	)
 	return i, err
@@ -141,6 +224,44 @@ func (q *Queries) ReadLiveMCPAccountPolicy(ctx context.Context, id pgtype.UUID) 
 	return i, err
 }
 
+const readMCPInstallationPolicy = `-- name: ReadMCPInstallationPolicy :one
+SELECT enabled, default_account_enabled, default_max_scopes, version
+FROM mcp_installation_policy WHERE singleton
+`
+
+type ReadMCPInstallationPolicyRow struct {
+	Enabled               bool
+	DefaultAccountEnabled bool
+	DefaultMaxScopes      []string
+	Version               int64
+}
+
+// The installation row without a lock. No row is a missing installation, which
+// the caller refuses rather than defaulting.
+func (q *Queries) ReadMCPInstallationPolicy(ctx context.Context) (ReadMCPInstallationPolicyRow, error) {
+	row := q.db.QueryRow(ctx, readMCPInstallationPolicy)
+	var i ReadMCPInstallationPolicyRow
+	err := row.Scan(
+		&i.Enabled,
+		&i.DefaultAccountEnabled,
+		&i.DefaultMaxScopes,
+		&i.Version,
+	)
+	return i, err
+}
+
+const readMCPInstallationSwitch = `-- name: ReadMCPInstallationSwitch :one
+SELECT enabled FROM mcp_installation_policy WHERE singleton
+`
+
+// The installation switch alone, read unlocked on every MCP route.
+func (q *Queries) ReadMCPInstallationSwitch(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, readMCPInstallationSwitch)
+	var enabled bool
+	err := row.Scan(&enabled)
+	return enabled, err
+}
+
 const shareInstallationForMCPPolicy = `-- name: ShareInstallationForMCPPolicy :one
 SELECT setup_required FROM installation_state WHERE singleton = true FOR SHARE
 `
@@ -187,6 +308,40 @@ func (q *Queries) UpdateMCPAccountPolicy(ctx context.Context, arg UpdateMCPAccou
 		arg.Version,
 		arg.UpdatedAt,
 		arg.UserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateMCPInstallationPolicy = `-- name: UpdateMCPInstallationPolicy :execrows
+UPDATE mcp_installation_policy SET
+  enabled = $1::boolean,
+  default_account_enabled = $2::boolean,
+  default_max_scopes = $3::text[],
+  version = $4::bigint,
+  updated_at = $5::timestamptz
+WHERE singleton AND version = $4::bigint - 1
+`
+
+type UpdateMCPInstallationPolicyParams struct {
+	Enabled               bool
+	DefaultAccountEnabled bool
+	DefaultMaxScopes      []string
+	Version               int64
+	UpdatedAt             pgtype.Timestamptz
+}
+
+// The caller holds the row FOR UPDATE. The version guard turns a lost lock into
+// a zero-row update, which the caller refuses.
+func (q *Queries) UpdateMCPInstallationPolicy(ctx context.Context, arg UpdateMCPInstallationPolicyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateMCPInstallationPolicy,
+		arg.Enabled,
+		arg.DefaultAccountEnabled,
+		arg.DefaultMaxScopes,
+		arg.Version,
+		arg.UpdatedAt,
 	)
 	if err != nil {
 		return 0, err

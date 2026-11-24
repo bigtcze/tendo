@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +35,8 @@ type policyRepo struct {
 	events   []MCPPolicyEvent
 	// base holds the installation switch and the default terms.
 	base MCPPolicyRecord
+	// inst is the installation row (B1b2). Nil models a missing row.
+	inst *MCPInstallationRow
 }
 
 func newPolicyRepo() *policyRepo {
@@ -45,7 +48,14 @@ func newPolicyRepo() *policyRepo {
 			InstallationFound: true, InstallationEnabled: true,
 			DefaultAccountEnabled: true, DefaultMaxScopes: slices.Clone(mcpBoth),
 		},
+		inst: &MCPInstallationRow{Enabled: true, DefaultAccountEnabled: true, DefaultMaxScopes: slices.Clone(mcpBoth), Version: 1},
 	}
+}
+
+// policyEventID is a uuidv7-shaped id that grows with insertion, as the
+// database's uuidv7() does within one process.
+func policyEventID(n int) string {
+	return fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012x", n)
 }
 
 // policyRow builds a stored row. Nil administrator terms follow the default.
@@ -112,8 +122,56 @@ func (r *policyRepo) AppendPolicyEvent(_ context.Context, event MCPPolicyEvent) 
 	if err := r.step("event"); err != nil {
 		return err
 	}
+	event.ID = policyEventID(len(r.events) + 1)
 	r.events = append(r.events, event)
 	return nil
+}
+
+func (r *policyRepo) LockInstallationPolicy(_ context.Context) (MCPInstallationRow, error) {
+	if err := r.step("lockInstallation"); err != nil {
+		return MCPInstallationRow{}, err
+	}
+	if r.inst == nil {
+		return MCPInstallationRow{}, ErrMCPInstallationMissing
+	}
+	return *r.inst, nil
+}
+
+func (r *policyRepo) ReadInstallationPolicy(_ context.Context) (MCPInstallationRow, error) {
+	if err := r.step("readInstallation"); err != nil {
+		return MCPInstallationRow{}, err
+	}
+	if r.inst == nil {
+		return MCPInstallationRow{}, ErrMCPInstallationMissing
+	}
+	return *r.inst, nil
+}
+
+func (r *policyRepo) UpdateInstallationPolicy(_ context.Context, row MCPInstallationRow, _ time.Time) error {
+	if err := r.step("update"); err != nil {
+		return err
+	}
+	if r.inst == nil {
+		return ErrMCPInstallationMissing
+	}
+	stored := row
+	r.inst = &stored
+	return nil
+}
+
+// ListPolicyEvents returns events with id below afterID (when set), newest
+// first, at most limit of them.
+func (r *policyRepo) ListPolicyEvents(_ context.Context, afterID string, limit int) ([]MCPPolicyEvent, error) {
+	if err := r.step("listEvents"); err != nil {
+		return nil, err
+	}
+	var out []MCPPolicyEvent
+	for i := len(r.events) - 1; i >= 0 && len(out) < limit; i-- {
+		if afterID == "" || r.events[i].ID < afterID {
+			out = append(out, r.events[i])
+		}
+	}
+	return out, nil
 }
 
 func (r *policyRepo) ReadLiveAccountPolicy(_ context.Context, userID string) (MCPPolicyRecord, int64, error) {

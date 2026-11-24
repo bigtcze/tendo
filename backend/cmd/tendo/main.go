@@ -99,7 +99,7 @@ func migrate() error {
 // registerAPI composes every /api/v1 route with its authentication middleware.
 // It performs no database I/O, so tests can verify the composed security
 // boundary against the OpenAPI contract without PostgreSQL.
-func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error {
+func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, overrides compositionOverrides) error {
 	memberPersonFactory := func(tx householddb.DBTX) identityapp.MemberPersonProvisioner {
 		return subjectpostgres.NewMemberPersonProvisioner(tx)
 	}
@@ -174,14 +174,24 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	}
 	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemMembers(membershipService.GetMembership), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
-	return registerMCP(routes, cfg, pool, sessionHandler, householdService)
+	return registerMCP(routes, cfg, pool, sessionHandler, householdService, overrides)
+}
+
+// compositionOverrides carries test-only seams into the production composition.
+// Production passes the zero value, so every field stays nil and the real
+// database-backed implementation is used. It is passed explicitly, never held
+// in a package-level variable.
+type compositionOverrides struct {
+	// installationSwitch, when set, answers the MCP installation switch in place
+	// of the database read.
+	installationSwitch identityapp.MCPInstallationStore
 }
 
 // registerMCP mounts the MCP OAuth endpoints and the Streamable HTTP endpoint.
-// While TENDO_MCP_ENABLED is false the service answers Enabled() == false and
-// every MCP route answers the unknown-path 404.
-func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler, households householdmcp.Lister) error {
-	mcpService, err := newMCPService(cfg, pool)
+// While TENDO_MCP_ENABLED is false, or the installation switch is off, every
+// gated MCP route answers the unknown-path 404 (ADR 0023, slice B1b2).
+func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler, households householdmcp.Lister, overrides compositionOverrides) error {
+	mcpService, err := newMCPService(cfg, pool, overrides)
 	if err != nil {
 		return err
 	}
@@ -208,10 +218,12 @@ func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessi
 
 // newMCPService builds the installation's MCP service. The TENDO_MCP_ENABLED
 // kill switch decides whether issuance and verification are on.
-func newMCPService(cfg config.Config, pool *pgxpool.Pool) (*identityapp.MCPService, error) {
+func newMCPService(cfg config.Config, pool *pgxpool.Pool, overrides compositionOverrides) (*identityapp.MCPService, error) {
 	return identityapp.NewMCPService(identitypostgres.NewMCPRepository(pool), identityapp.MCPOptions{
-		Enabled:  cfg.MCPEnabled,
-		Resource: cfg.PublicURL + "/mcp",
+		Enabled:            cfg.MCPEnabled,
+		Resource:           cfg.PublicURL + "/mcp",
+		DBTimeout:          cfg.DBTimeout,
+		InstallationSwitch: overrides.installationSwitch,
 	}, time.Now)
 }
 

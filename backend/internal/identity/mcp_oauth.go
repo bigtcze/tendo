@@ -56,6 +56,13 @@ var (
 type MCPOptions struct {
 	Enabled  bool
 	Resource string
+	// DBTimeout bounds the per-request installation switch read (B1b2). Zero
+	// leaves the caller's context as the only bound.
+	DBTimeout time.Duration
+	// InstallationSwitch replaces the repository's installation switch reader
+	// when set. Production leaves it nil, so the gate reads the database; tests
+	// use it to model an installation that is on or off without a database.
+	InstallationSwitch MCPInstallationStore
 }
 
 // MCPClient is a registered OAuth public client.
@@ -159,6 +166,11 @@ type MCPService struct {
 	// grantStore reads the signed-in account's connected apps. Nil fails the
 	// list closed.
 	grantStore MCPGrantStore
+	// installation reads the installation switch for the gate (B1b2). Nil fails
+	// an enabled gate closed.
+	installation MCPInstallationStore
+	// dbTimeout bounds the unlocked installation read; zero means no extra bound.
+	dbTimeout time.Duration
 }
 
 // MCPClientStore is the registration persistence (RFC 7591). It is outside the
@@ -194,9 +206,14 @@ func NewMCPService(repository MCPRepository, options MCPOptions, clock func() ti
 	store, _ := repository.(MCPClientStore)
 	sweeper, _ := repository.(MCPSweepStore)
 	grants, _ := repository.(MCPGrantStore)
+	installation, _ := repository.(MCPInstallationStore)
+	if options.InstallationSwitch != nil {
+		installation = options.InstallationSwitch
+	}
 	return &MCPService{
 		repository: repository, clock: clock, enabled: options.Enabled, resource: options.Resource,
 		publicHost: publicHost, clientStore: store, sweeper: sweeper, grantStore: grants,
+		installation: installation, dbTimeout: options.DBTimeout,
 	}, nil
 }
 

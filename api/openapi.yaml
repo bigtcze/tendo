@@ -1975,6 +1975,108 @@ paths:
                 invalidReference: { value: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_reference, field: userId } }
                 mismatch: { value: { type: 'about:blank', title: Validation Failed, status: 422, code: mismatch, field: confirmLogin } }
         '503': { description: 'Persistence or identity lookup unavailable, or the account kept joining households while the deletion locked them.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/mcp-policy:
+    get:
+      operationId: getMcpInstallationPolicy
+      summary: Read the installation MCP policy
+      description: >-
+        Instance administrator only (ADR 0023, slice B1b2). Returns the installation switch, the installation defaults and the read-only operatorEnabled (TENDO_MCP_ENABLED). Works whether or not TENDO_MCP_ENABLED is set or the installation switch is off, so the switch can always be turned back on. Session cookie only; an MCP bearer token is never accepted. The instance-administrator grant is checked before any body or If-Match handling. A missing installation row is a 503 unavailable; no defaults are invented.
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+      responses:
+        '200':
+          description: The installation MCP policy.
+          headers:
+            ETag: { schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Strong installation policy version entity tag. }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpInstallationPolicy' }
+              example: { enabled: true, operatorEnabled: true, defaultAccountEnabled: true, defaultMaxScopes: [tendo:read, tendo:write] }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'The signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
+        '503': { description: 'The installation policy is unreadable or its row is missing. Recorded as a fault, never defaulted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    put:
+      operationId: updateMcpInstallationPolicy
+      summary: Replace the installation MCP policy
+      description: >-
+        Instance administrator only (ADR 0023, slice B1b2). Full replacement of enabled, defaultAccountEnabled and defaultMaxScopes. operatorEnabled is not accepted; sending it is a 400. A change bumps the version and appends one installation row to the policy audit (mcp_policy_events) with the administrator as actor. A PUT that changes nothing keeps the version and appends nothing. Requires the canonical Origin and a strong If-Match. Works regardless of TENDO_MCP_ENABLED or the installation switch.
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - name: Origin
+          in: header
+          required: true
+          description: Must match the configured canonical public origin.
+          schema: { type: string, format: uri }
+          example: https://tendo.example
+        - name: If-Match
+          in: header
+          required: true
+          description: Strong installation policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          example: '"1"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/McpInstallationPolicyUpdate' }
+            example: { enabled: true, defaultAccountEnabled: true, defaultMaxScopes: [tendo:read] }
+      responses:
+        '200':
+          description: The updated installation policy, or the current one for a PUT that changes nothing.
+          headers:
+            ETag: { schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, description: Strong installation policy version entity tag. }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpInstallationPolicy' }
+              example: { enabled: true, operatorEnabled: true, defaultAccountEnabled: true, defaultMaxScopes: [tendo:read] }
+        '400': { description: 'Malformed body, an unknown field such as operatorEnabled, or an invalid scope list.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Foreign Origin, or the signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
+        '412': { description: 'The If-Match version is stale or malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
+        '428': { description: 'If-Match is missing.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
+        '503': { description: 'The installation policy is unreadable or its row is missing. Recorded as a fault, never defaulted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/mcp-policy-events:
+    get:
+      operationId: listMcpPolicyEvents
+      summary: List the MCP policy audit
+      description: >-
+        Instance administrator only (ADR 0023, slice B1b2). One newest-first page of the policy audit across the installation, account and user levels, ordered by the uuidv7 id. limit defaults to 50 and is capped at 100. cursor is opaque and versioned; a malformed cursor is a 400 invalid_query on cursor and reads nothing. Session cookie only. Reads need no Origin header.
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - name: limit
+          in: query
+          required: false
+          description: Page size, 1 to 100. Defaults to 50.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor from nextCursor. Omit for the first page.
+          schema: { type: string }
+      responses:
+        '200':
+          description: One page of the MCP policy audit.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpPolicyEventList' }
+              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, policy: installation, actorUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, targetUserId: null, enabled: true, defaultAccountEnabled: true, scopes: [tendo:read], occurredAt: '2026-11-24T10:00:00Z' }] }
+        '400': { description: 'Malformed limit or cursor.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'The signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
+        '503': { description: 'The audit list is unreadable. Recorded as a fault.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/admin/accounts/{userId}/mcp-policy:
     get:
       operationId: getAdminAccountMcpPolicy
@@ -2751,7 +2853,7 @@ paths:
       summary: Register an MCP public client (RFC 7591)
       description: >-
         Dynamic client registration for MCP public clients (ADR 0023). Unauthenticated; rate limited per client IP and globally.
-        While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials
+        While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials
         (Access-Control-Allow-Origin: *, Access-Control-Expose-Headers: Retry-After); the browser preflight is an OPTIONS request
         answered by the server and is not a contract operation. Request and response fields use the RFC-defined snake_case wire
         names, an RFC-defined exception to the camelCase convention of API.md. Errors use the RFC 7591 shape
@@ -2794,7 +2896,7 @@ paths:
               schema: { $ref: '#/components/schemas/OAuthError' }
               example: { error: invalid_redirect_uri, error_description: A redirect URI is not permitted. }
         '404':
-          description: MCP disabled. Answered exactly as an unknown reserved path, as problem+json.
+          description: MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -2847,7 +2949,7 @@ paths:
       summary: Read the MCP protected resource metadata (RFC 9728)
       description: >-
         Describes the Tendo MCP resource and its authorization server. Only the suffixed document exists; the root
-        protected-resource document is not served. While MCP is disabled the operation answers the unknown-path 404 problem.
+        protected-resource document is not served. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem.
         CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
       tags: [Mcp]
       security: []
@@ -2869,7 +2971,7 @@ paths:
                 bearer_methods_supported: [header]
                 resource_name: Tendo
         '404':
-          description: MCP disabled. Answered exactly as an unknown reserved path, as problem+json.
+          description: MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -2877,13 +2979,22 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Not Found, status: 404 }
+        '503':
+          description: The installation switch cannot be read. Recorded as a fault and answered fail-closed; no driver text.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
   /.well-known/oauth-authorization-server:
     get:
       operationId: getMcpAuthorizationServerMetadata
       summary: Read the authorization server metadata (RFC 8414)
       description: >-
         Advertises the MCP authorization server whose issuer is the canonical public origin. Advertised endpoints
-        are implemented by later MCP slices. While MCP is disabled the operation answers the unknown-path 404 problem.
+        are implemented by later MCP slices. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem.
         CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
       tags: [Mcp]
       security: []
@@ -2913,7 +3024,7 @@ paths:
                 code_challenge_methods_supported: [S256]
                 authorization_response_iss_parameter_supported: true
         '404':
-          description: MCP disabled. Answered exactly as an unknown reserved path, as problem+json.
+          description: MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -2921,6 +3032,15 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Not Found, status: 404 }
+        '503':
+          description: The installation switch cannot be read. Recorded as a fault and answered fail-closed; no driver text.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
   /oauth/authorize:
     get:
       operationId: authorizeMcpClient
@@ -2932,7 +3052,7 @@ paths:
         fragment (#error=). The client redirect happens only after a signed-in person approves the consent. The response
         sets a binding cookie scoped to the handle and reads no session cookie. Unknown parameters are ignored; a repeated
         recognized parameter is invalid_request, and a repeated resource is invalid_target. A refused client redirect URI
-        is never echoed. While MCP is disabled the operation answers the unknown-path 404 problem. Rate limited per client
+        is never echoed. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. If the installation switch cannot be read the operation fails closed with a server_error redirect. Rate limited per client
         IP (20 per minute) and globally (120 per minute).
       tags: [Mcp]
       security: []
@@ -2985,7 +3105,7 @@ paths:
               schema: { type: string, pattern: '^/connect#(request=[A-Za-z0-9_-]{43}|error=[a-z_]+)$' }
             Set-Cookie: { $ref: '#/components/headers/SetMcpConsentCookie' }
         '404':
-          description: MCP disabled. Answered exactly as an unknown reserved path, as problem+json.
+          description: MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -3351,8 +3471,8 @@ paths:
                 scope: 'tendo:read tendo:write'
         '400': { description: 'invalid_request (wrong media type, oversize body, missing or repeated parameter), unsupported_grant_type, invalid_grant (unknown, expired, reused or mismatched code or token, or unknown client), invalid_scope, or invalid_target (resource is not the configured resource).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: invalid_grant, error_description: The grant is invalid or expired. } } } }
         '429': { description: 'Per-client (60 per minute per client IP and client_id) or global (600 per minute) token limit reached.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { description: Seconds to wait before retrying., schema: { type: string, const: '60' } } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Too many token requests. Retry later. } } } }
-        '404': { description: 'MCP disabled. Answered exactly as an unknown reserved path, as problem+json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } } } }
-        '503': { description: 'Token service fault. Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Token service is temporarily unavailable. } } } }
+        '404': { description: 'MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } } } }
+        '503': { description: 'Token service fault, or the installation switch cannot be read (fail-closed). Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Token service is temporarily unavailable. } } } }
   /oauth/revoke:
     post:
       operationId: revokeMcpToken
@@ -3361,7 +3481,7 @@ paths:
         Revokes the whole grant of an access or refresh token presented by the client that holds it. Form-encoded body
         only; the same CORS, cookie and media rules as the token endpoint. A malformed, unknown, foreign or already revoked
         token is a silent success. token_type_hint is accepted and ignored. Rate limited per client IP (30 per minute).
-        While MCP is disabled the operation answers the unknown-path 404 problem.
+        While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem.
       tags: [Mcp]
       security: []
       parameters:
@@ -3379,9 +3499,9 @@ paths:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
         '400': { description: 'token or client_id is missing, or a parameter is repeated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: invalid_request, error_description: token and client_id are required. } } } }
-        '404': { description: 'MCP disabled. Answered exactly as an unknown reserved path, as problem+json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } } } }
+        '404': { description: 'MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } } } }
         '429': { description: 'Per-client-IP limit (30 per minute) reached.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { description: Seconds to wait before retrying., schema: { type: string, const: '60' } } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Too many revocation requests. Retry later. } } } }
-        '503': { description: 'Revocation fault. Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Revocation is temporarily unavailable. } } } }
+        '503': { description: 'Revocation fault, or the installation switch cannot be read (fail-closed). Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Revocation is temporarily unavailable. } } } }
   /mcp:
     post:
       operationId: callMcp
@@ -3400,7 +3520,7 @@ paths:
         text/plain 400 (malformed payload, unsupported protocol version, missing Accept value, an unhandled method under
         2025-11-25 or 2025-06-18), text/plain 415, 202 for a notification-only body, a JSON-RPC 404 (-32601) for an
         unhandled method under 2026-07-28, and a finite text/event-stream answer where the SDK frames one (for example
-        subscriptions/listen). While MCP is disabled every method answers the unknown-path 404 problem. Every response
+        subscriptions/listen). While MCP is disabled or the installation switch is off every method answers the unknown-path 404 problem. Every response
         is Cache-Control no-store, including SDK responses.
       tags: [Mcp]
       security:
@@ -3429,12 +3549,12 @@ paths:
         '400': { description: 'A JSON-RPC batch or a non-initialize message without MCP-Protocol-Version (JSON-RPC -32600 as application/json), or an SDK refusal as text/plain: malformed payload, unsupported protocol version, an Accept header lacking application/json and text/event-stream, or an unhandled method under 2025-11-25 or 2025-06-18. A body that cannot be read is problem+json invalid_request.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/McpJsonRpcMessage' }, example: { jsonrpc: '2.0', id: null, error: { code: -32600, message: batch requests are not supported } } }, application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } }, text/plain: { schema: { $ref: '#/components/schemas/McpPlainTextError' }, example: 'Bad Request: Unsupported protocol version (supported versions: 2026-07-28,2025-11-25,2025-06-18)' } } }
         '401': { description: 'No bearer token, or a malformed, duplicated, unknown, expired, revoked or foreign-resource token. A malformed or duplicated Authorization header is invalid_token rather than RFC 6750 invalid_request (declared deviation). WWW-Authenticate carries resource_metadata and scope; error="invalid_token" is present unless no credential was sent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, WWW-Authenticate: { description: RFC 6750 and RFC 9728 bearer challenge., schema: { type: string }, example: 'Bearer error="invalid_token", resource_metadata="https://tendo.example/.well-known/oauth-protected-resource/mcp", scope="tendo:read tendo:write"' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: invalid_token, error_description: 'The access token is missing, malformed, expired or revoked.' } } } }
         '403': { description: 'The token holds no scope any tool requires (insufficient_scope with a WWW-Authenticate challenge), or a present Origin is not the public origin (problem+json from the origin check).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, WWW-Authenticate: { description: Sent only for insufficient_scope., schema: { type: string }, example: 'Bearer error="insufficient_scope", scope="tendo:read", resource_metadata="https://tendo.example/.well-known/oauth-protected-resource/mcp"' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: insufficient_scope, error_description: The token does not grant a scope this endpoint requires. } }, application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
-        '404': { description: 'MCP disabled: answered exactly as an unknown reserved path, as problem+json. With MCP enabled and protocol 2026-07-28, an unhandled JSON-RPC method is a JSON-RPC -32601 error as application/json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } }, application/json: { schema: { $ref: '#/components/schemas/McpJsonRpcMessage' }, example: { jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'JSON RPC not handled: "nope/nope" unsupported' } } } } }
+        '404': { description: 'MCP disabled or the installation switch off: answered exactly as an unknown reserved path, as problem+json. With MCP enabled and protocol 2026-07-28, an unhandled JSON-RPC method is a JSON-RPC -32601 error as application/json.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404 } }, application/json: { schema: { $ref: '#/components/schemas/McpJsonRpcMessage' }, example: { jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'JSON RPC not handled: "nope/nope" unsupported' } } } } }
         '413': { description: 'The body exceeds 64 KiB. Only an authenticated request body is read.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: payload_too_large } } } }
         '415': { description: 'Content-Type is not application/json. Plain-text SDK refusal.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { text/plain: { schema: { $ref: '#/components/schemas/McpPlainTextError' }, example: "Content-Type must be 'application/json'" } } }
         '429': { description: 'Per-IP (300 per minute), per-grant (120 per minute) or per-user (240 per minute) limit reached.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { description: Seconds to wait before retrying., schema: { type: string, const: '60' } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited } } } }
         '500': { description: 'SDK internal fault: the stateless server connection could not start. Not expected in normal operation; retry.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { text/plain: { schema: { $ref: '#/components/schemas/McpPlainTextError' }, example: failed connection } } }
-        '503': { description: 'Token verification fault. Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Token service is temporarily unavailable. } } } }
+        '503': { description: 'Token verification fault, or the installation switch cannot be read (fail-closed). Retry later.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' }, example: { error: temporarily_unavailable, error_description: Token service is temporarily unavailable. } } } }
 components:
   securitySchemes:
     SessionCookie:
@@ -3752,6 +3872,52 @@ components:
         enabled: { type: [boolean, 'null'] }
         maxScopes:
           oneOf: [{ $ref: '#/components/schemas/McpScopeList' }, { type: 'null' }]
+    McpInstallationPolicy:
+      type: object
+      description: 'The installation MCP terms. operatorEnabled is TENDO_MCP_ENABLED and is read-only here. Shares one policy version (ETag) with the other MCP policy writes.'
+      additionalProperties: false
+      required: [enabled, operatorEnabled, defaultAccountEnabled, defaultMaxScopes]
+      properties:
+        enabled: { type: boolean, description: 'The installation switch. Off answers every MCP route as the unknown-path 404, except the connected apps, settings, policy and audit routes.' }
+        operatorEnabled: { type: boolean, description: TENDO_MCP_ENABLED. Read-only. }
+        defaultAccountEnabled: { type: boolean, description: The default for accounts whose administrator override is null. }
+        defaultMaxScopes: { $ref: '#/components/schemas/McpScopeList', description: The default scope maximum for accounts whose administrator maximum is null. }
+    McpInstallationPolicyUpdate:
+      type: object
+      description: Full replacement of the installation terms. operatorEnabled is not accepted.
+      additionalProperties: false
+      required: [enabled, defaultAccountEnabled, defaultMaxScopes]
+      properties:
+        enabled: { type: boolean }
+        defaultAccountEnabled: { type: boolean }
+        defaultMaxScopes: { $ref: '#/components/schemas/McpScopeList' }
+    McpPolicyEvent:
+      type: object
+      description: One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse.
+      additionalProperties: false
+      required: [id, policy, actorUserId, targetUserId, enabled, defaultAccountEnabled, scopes, occurredAt]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        policy: { type: string, enum: [installation, account, user] }
+        actorUserId: { type: string, format: uuid, x-go-type: string }
+        targetUserId:
+          type: [string, 'null']
+          format: uuid
+          x-go-type: string
+          description: The account the change applies to. null for the installation level.
+        enabled: { type: [boolean, 'null'] }
+        defaultAccountEnabled: { type: [boolean, 'null'], description: Set only for the installation level. }
+        scopes:
+          oneOf: [{ $ref: '#/components/schemas/McpScopeList' }, { type: 'null' }]
+        occurredAt: { type: string, format: date-time }
+    McpPolicyEventList:
+      type: object
+      description: One newest-first page of the MCP policy audit list.
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/McpPolicyEvent' } }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page. Absent or null on the last page. }
     McpSettings:
       type: object
       description: The signed-in account's own MCP settings.

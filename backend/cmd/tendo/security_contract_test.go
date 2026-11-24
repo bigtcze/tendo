@@ -144,7 +144,7 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		OIDCDisplayName:  "Contract IdP",
 	}
 	routes := chi.NewRouter()
-	if err := registerAPI(routes, cfg, pool); err != nil {
+	if err := registerAPI(routes, cfg, pool, compositionOverrides{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -365,7 +365,7 @@ func TestContractUnsafeOperationsRequireOriginBeforeAuthentication(t *testing.T)
 	}
 	var registerErr error
 	app := httpx.NewAppWithRoutes(pool, time.Second, make(chan struct{}), httpx.OriginPolicy{PublicURL: cfg.PublicURL}, func(r chi.Router) {
-		registerErr = registerAPI(r, cfg, pool)
+		registerErr = registerAPI(r, cfg, pool, compositionOverrides{})
 	})
 	if registerErr != nil {
 		t.Fatal(registerErr)

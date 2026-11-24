@@ -87,8 +87,15 @@ func (s startupSteps) run() error {
 // routes, the origin policy with the MCP cross-origin exemptions, and the UI
 // fallback. Tests exercise this same value.
 func productionApp(cfg config.Config, pool *pgxpool.Pool, ui http.Handler, draining <-chan struct{}) (http.Handler, error) {
+	return productionAppWith(cfg, pool, ui, draining, compositionOverrides{})
+}
+
+// productionAppWith is productionApp with explicit composition overrides. Only
+// tests pass a non-zero value; production always uses the zero value through
+// productionApp.
+func productionAppWith(cfg config.Config, pool *pgxpool.Pool, ui http.Handler, draining <-chan struct{}, overrides compositionOverrides) (http.Handler, error) {
 	routes := chi.NewRouter()
-	if err := registerAPI(routes, cfg, pool); err != nil {
+	if err := registerAPI(routes, cfg, pool, overrides); err != nil {
 		return nil, err
 	}
 	policy := httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, CrossOrigin: identityhttp.MCPCrossOriginRoutes()}
@@ -129,7 +136,7 @@ func (s startupSteps) serve(ctx context.Context, cfg config.Config, pool *pgxpoo
 // sweep runs whether or not TENDO_MCP_ENABLED is set, so expired secrets are
 // still cleared after the kill switch is turned off.
 func defaultMCPSweep(cfg config.Config, pool *pgxpool.Pool) func(context.Context) (identityapp.MCPSweepReport, error) {
-	service, err := newMCPService(cfg, pool)
+	service, err := newMCPService(cfg, pool, compositionOverrides{})
 	if err != nil {
 		return func(context.Context) (identityapp.MCPSweepReport, error) {
 			return identityapp.MCPSweepReport{}, identityapp.ErrMCPSweepFailed

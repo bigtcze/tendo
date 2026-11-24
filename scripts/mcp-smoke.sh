@@ -79,6 +79,9 @@ drive() {
 "${compose[@]}" up -d --build --wait --wait-timeout 180
 wait_ready
 drive enabled
+# The installation switch (ADR 0023, B1b2) is a database row, so it pauses MCP
+# on the enabled app without a recreate. Runs before the env-off phase.
+drive installation
 recreate_app false
 drive disabled
 recreate_app true

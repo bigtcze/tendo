@@ -26,10 +26,10 @@ const (
 	mcpPreflightMaxAge           = "600"
 )
 
-// mcpRegistrar is the MCP service surface the adapter needs. A disabled service
-// answers Enabled() == false and every endpoint then answers the router 404.
+// mcpRegistrar is the MCP service surface the adapter needs. While Available
+// reports false every gated endpoint answers the router 404 (slice B1b2).
 type mcpRegistrar interface {
-	Enabled() bool
+	Available(ctx context.Context) (bool, error)
 	RegisterClient(ctx context.Context, reg identity.MCPClientRegistration) (identity.MCPRegisteredClient, error)
 	BeginAuthorization(ctx context.Context, in identity.MCPAuthorizationParams) (identity.MCPPendingAuthorization, error)
 	GetAuthorizationRequest(ctx context.Context, handle, browserBinding string) (identity.MCPAuthorizationRequestView, error)
@@ -120,12 +120,48 @@ func (h *MCPHandler) Register(r chi.Router) {
 	r.Options(mcpRevokePath, h.preflight(http.MethodPost))
 }
 
+// gate runs the installation gate (ADR 0023, slice B1b2) before anything else
+// on a gated route. It reports whether the route continues. Otherwise it has
+// answered: the router 404 while the switch is off, or the route's own
+// fail-closed answer when the switch cannot be read. The fault class is
+// recorded, never the driver text.
+func (h *MCPHandler) gate(w http.ResponseWriter, r *http.Request, fault func(http.ResponseWriter, *http.Request)) bool {
+	on, err := h.service.Available(r.Context())
+	if err != nil {
+		httpx.RecordFault(r, "mcp_gate")
+		fault(w, r)
+		return false
+	}
+	if !on {
+		httpx.WriteNotFound(w)
+		return false
+	}
+	return true
+}
+
+// gateOAuthUnavailable is the OAuth 503 for the token, registration, revocation
+// and Streamable HTTP routes.
+func gateOAuthUnavailable(w http.ResponseWriter, _ *http.Request) {
+	writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "The MCP service is temporarily unavailable.")
+}
+
+// gateProblemUnavailable is the problem 503 for the discovery documents,
+// preflights and consent routes.
+func gateProblemUnavailable(w http.ResponseWriter, _ *http.Request) {
+	problem(w, http.StatusServiceUnavailable, "unavailable")
+}
+
+// gateAuthorizeServerError is the browser entry point's fail-closed answer: the
+// same redirect as any other server fault on /oauth/authorize.
+func gateAuthorizeServerError(w http.ResponseWriter, _ *http.Request) {
+	redirectConnectError(w, "server_error")
+}
+
 // preflight answers a CORS preflight. A disabled service answers the router
 // 404, exactly as an unknown reserved path does.
 func (h *MCPHandler) preflight(method string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !h.service.Enabled() {
-			httpx.WriteNotFound(w)
+		if !h.gate(w, r, gateProblemUnavailable) {
 			return
 		}
 		setMCPCORS(w)
@@ -144,8 +180,7 @@ func setMCPCORS(w http.ResponseWriter) {
 }
 
 func (h *MCPHandler) protectedResource(w http.ResponseWriter, r *http.Request) {
-	if !h.service.Enabled() {
-		httpx.WriteNotFound(w)
+	if !h.gate(w, r, gateProblemUnavailable) {
 		return
 	}
 	setMCPCORS(w)
@@ -159,8 +194,7 @@ func (h *MCPHandler) protectedResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MCPHandler) authorizationServer(w http.ResponseWriter, r *http.Request) {
-	if !h.service.Enabled() {
-		httpx.WriteNotFound(w)
+	if !h.gate(w, r, gateProblemUnavailable) {
 		return
 	}
 	setMCPCORS(w)
@@ -195,8 +229,7 @@ type registrationResponse struct {
 }
 
 func (h *MCPHandler) register(w http.ResponseWriter, r *http.Request) {
-	if !h.service.Enabled() {
-		httpx.WriteNotFound(w)
+	if !h.gate(w, r, gateOAuthUnavailable) {
 		return
 	}
 	setMCPCORS(w)

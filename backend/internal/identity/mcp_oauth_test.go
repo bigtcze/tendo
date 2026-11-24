@@ -41,6 +41,10 @@ type mcpFake struct {
 	// failOn names an operation that returns errMCPInjected.
 	failOn        string
 	findActiveErr error
+	// switchErr is returned by the unlocked installation switch read (B1b2);
+	// switchReads counts those reads.
+	switchErr   error
+	switchReads int
 
 	accounts      map[string]bool
 	sessionActive bool
@@ -161,6 +165,15 @@ func (t *mcpTx) LockLiveAccount(ctx context.Context, userID string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ReadInstallationSwitch is the unlocked installation read the gate uses (B1b2).
+func (f *mcpFake) ReadInstallationSwitch(context.Context) (bool, error) {
+	f.switchReads++
+	if f.switchErr != nil {
+		return false, f.switchErr
+	}
+	return f.policy.InstallationActive(), nil
 }
 
 func (t *mcpTx) ReadPolicy(ctx context.Context, userID string) (MCPPolicyRecord, error) {

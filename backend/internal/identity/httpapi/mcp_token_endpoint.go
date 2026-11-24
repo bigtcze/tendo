@@ -80,8 +80,7 @@ func (h *MCPHandler) tokenRateLimited(w http.ResponseWriter, r *http.Request, cl
 }
 
 func (h *MCPHandler) token(w http.ResponseWriter, r *http.Request) {
-	if !h.service.Enabled() {
-		httpx.WriteNotFound(w)
+	if !h.gate(w, r, gateOAuthUnavailable) {
 		return
 	}
 	setMCPCORS(w)
@@ -173,8 +172,7 @@ func (h *MCPHandler) writeTokenResult(w http.ResponseWriter, r *http.Request, fa
 }
 
 func (h *MCPHandler) revoke(w http.ResponseWriter, r *http.Request) {
-	if !h.service.Enabled() {
-		httpx.WriteNotFound(w)
+	if !h.gate(w, r, gateOAuthUnavailable) {
 		return
 	}
 	setMCPCORS(w)

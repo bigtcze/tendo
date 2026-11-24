@@ -26,6 +26,7 @@ COVERAGE_SCOPE = ','.join((
     'revokeHouseholdAccountPasswordReset', 'redeemPasswordReset',
     'listMcpGrants', 'revokeMcpGrant',
     'getAdminAccountMcpPolicy', 'updateAdminAccountMcpPolicy', 'getMcpSettings', 'updateMcpSettings',
+    'getMcpInstallationPolicy', 'updateMcpInstallationPolicy', 'listMcpPolicyEvents',
 ))
 
 

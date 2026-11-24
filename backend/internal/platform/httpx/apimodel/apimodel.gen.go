@@ -744,6 +744,27 @@ func (e McpJsonRpcMessageJsonrpc) Valid() bool {
 	}
 }
 
+// Defines values for McpPolicyEventPolicy.
+const (
+	McpPolicyEventPolicyAccount      McpPolicyEventPolicy = "account"
+	McpPolicyEventPolicyInstallation McpPolicyEventPolicy = "installation"
+	McpPolicyEventPolicyUser         McpPolicyEventPolicy = "user"
+)
+
+// Valid indicates whether the value is a known member of the McpPolicyEventPolicy enum.
+func (e McpPolicyEventPolicy) Valid() bool {
+	switch e {
+	case McpPolicyEventPolicyAccount:
+		return true
+	case McpPolicyEventPolicyInstallation:
+		return true
+	case McpPolicyEventPolicyUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpPolicyValidationProblemCode.
 const (
 	McpPolicyValidationProblemCodeInvalidValue McpPolicyValidationProblemCode = "invalid_value"
@@ -2187,6 +2208,28 @@ type McpGrantList struct {
 	NextCursor *string `json:"nextCursor"`
 }
 
+// McpInstallationPolicy The installation MCP terms. operatorEnabled is TENDO_MCP_ENABLED and is read-only here. Shares one policy version (ETag) with the other MCP policy writes.
+type McpInstallationPolicy struct {
+	// DefaultAccountEnabled The default for accounts whose administrator override is null.
+	DefaultAccountEnabled bool `json:"defaultAccountEnabled"`
+
+	// DefaultMaxScopes The default scope maximum for accounts whose administrator maximum is null.
+	DefaultMaxScopes McpScopeList `json:"defaultMaxScopes"`
+
+	// Enabled The installation switch. Off answers every MCP route as the unknown-path 404, except the connected apps, settings, policy and audit routes.
+	Enabled bool `json:"enabled"`
+
+	// OperatorEnabled TENDO_MCP_ENABLED. Read-only.
+	OperatorEnabled bool `json:"operatorEnabled"`
+}
+
+// McpInstallationPolicyUpdate Full replacement of the installation terms. operatorEnabled is not accepted.
+type McpInstallationPolicyUpdate struct {
+	DefaultAccountEnabled bool         `json:"defaultAccountEnabled"`
+	DefaultMaxScopes      McpScopeList `json:"defaultMaxScopes"`
+	Enabled               bool         `json:"enabled"`
+}
+
 // McpJsonRpcMessage One JSON-RPC 2.0 message as defined by the MCP specification. The MCP SDK validates the message; this schema only fixes the envelope.
 type McpJsonRpcMessage struct {
 	Jsonrpc              McpJsonRpcMessageJsonrpc `json:"jsonrpc"`
@@ -2198,6 +2241,33 @@ type McpJsonRpcMessageJsonrpc string
 
 // McpPlainTextError A plain-text refusal written by the MCP SDK transport layer.
 type McpPlainTextError = string
+
+// McpPolicyEvent One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse.
+type McpPolicyEvent struct {
+	ActorUserId string `json:"actorUserId"`
+
+	// DefaultAccountEnabled Set only for the installation level.
+	DefaultAccountEnabled *bool                `json:"defaultAccountEnabled"`
+	Enabled               *bool                `json:"enabled"`
+	Id                    string               `json:"id"`
+	OccurredAt            time.Time            `json:"occurredAt"`
+	Policy                McpPolicyEventPolicy `json:"policy"`
+	Scopes                *McpScopeList        `json:"scopes"`
+
+	// TargetUserId The account the change applies to. null for the installation level.
+	TargetUserId *string `json:"targetUserId"`
+}
+
+// McpPolicyEventPolicy defines model for McpPolicyEvent.Policy.
+type McpPolicyEventPolicy string
+
+// McpPolicyEventList One newest-first page of the MCP policy audit list.
+type McpPolicyEventList struct {
+	Items []McpPolicyEvent `json:"items"`
+
+	// NextCursor Opaque cursor for the next page. Absent or null on the last page.
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
 
 // McpPolicyValidationProblem defines model for McpPolicyValidationProblem.
 type McpPolicyValidationProblem struct {
@@ -2896,6 +2966,36 @@ type AssignAdminHouseholdAccountParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// GetMcpInstallationPolicyParams defines parameters for GetMcpInstallationPolicy.
+type GetMcpInstallationPolicyParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateMcpInstallationPolicyParams defines parameters for UpdateMcpInstallationPolicy.
+type UpdateMcpInstallationPolicyParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+
+	// IfMatch Strong installation policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+	IfMatch string `json:"If-Match"`
+}
+
+// ListMcpPolicyEventsParams defines parameters for ListMcpPolicyEvents.
+type ListMcpPolicyEventsParams struct {
+	// Limit Page size, 1 to 100. Defaults to 50.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from nextCursor. Omit for the first page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // AcceptInvitationWithNewAccountParams defines parameters for AcceptInvitationWithNewAccount.
 type AcceptInvitationWithNewAccountParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
@@ -3468,6 +3568,9 @@ type UpdateAdminHouseholdAccountRoleJSONRequestBody = UpdateAccountRoleRequest
 
 // AssignAdminHouseholdAccountJSONRequestBody defines body for AssignAdminHouseholdAccount for application/json ContentType.
 type AssignAdminHouseholdAccountJSONRequestBody = UpdateAccountRoleRequest
+
+// UpdateMcpInstallationPolicyJSONRequestBody defines body for UpdateMcpInstallationPolicy for application/json ContentType.
+type UpdateMcpInstallationPolicyJSONRequestBody = McpInstallationPolicyUpdate
 
 // AcceptInvitationWithNewAccountJSONRequestBody defines body for AcceptInvitationWithNewAccount for application/json ContentType.
 type AcceptInvitationWithNewAccountJSONRequestBody = AcceptInvitationNewAccountRequest

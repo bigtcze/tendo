@@ -82,6 +82,23 @@ func (f *fakeMCPPolicyService) UpdateSettings(_ context.Context, _ string, chang
 	return f.setUpdOut, f.setUpdErr
 }
 
+// InstallationPolicy, UpdateInstallationPolicy and PolicyEvents (B1b2) count
+// into the same total, so a refused caller is shown to reach no command.
+func (f *fakeMCPPolicyService) InstallationPolicy(context.Context, string) (identity.MCPInstallationView, error) {
+	f.readCalls++
+	return identity.MCPInstallationView{}, nil
+}
+
+func (f *fakeMCPPolicyService) UpdateInstallationPolicy(context.Context, string, identity.MCPInstallationChange, int64) (identity.MCPInstallationView, error) {
+	f.updCalls++
+	return identity.MCPInstallationView{}, nil
+}
+
+func (f *fakeMCPPolicyService) PolicyEvents(context.Context, string, int, string) (identity.MCPPolicyEventList, error) {
+	f.readCalls++
+	return identity.MCPPolicyEventList{}, nil
+}
+
 // policySessions authenticates each token to its own principal, so one test can
 // sign in two accounts at once.
 type policySessions struct {
