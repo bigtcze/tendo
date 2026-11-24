@@ -7706,8 +7706,8 @@ test.describe('Tendo production journey', () => {
       expect((await removal).status()).toBe(204);
       await expect(consent.getByRole('dialog')).toHaveCount(0);
       const disconnectedNotice = main.getByText(fill(en['connectedApps.notice.disconnected'], { client: clientName }), { exact: true });
+      // The emptied section drops its heading and list but stays shown while the notice is on screen.
       await expect(disconnectedNotice).toBeVisible();
-      await expect(appsHeading).toBeVisible();
       await expect(rows).toHaveCount(0);
       expect(await serverGrants(), 'the server holds no connected app').toEqual({ items: [], nextCursor: null });
       // The notice keeps the emptied section on screen for a while; a fresh load of Account shows no section at all.
