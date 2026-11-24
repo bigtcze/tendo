@@ -155,7 +155,7 @@ func TestInvitationRetentionSweepClearsOnlyExpiredDigests(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err := identity.SweepInvitationDigests(ctx, NewInvitationRepository(app, nil), now)
-	if err != nil || report.Locked || report.Cleared != expired+1 {
+	if err != nil || len(report.Locked) != 0 || report.Swept[identity.InvitationSweepExpiredDigests] != expired+1 {
 		t.Fatalf("sweep report=%+v err=%v want cleared=%d", report, err, expired+1)
 	}
 	var after, held int
@@ -170,7 +170,7 @@ func TestInvitationRetentionSweepClearsOnlyExpiredDigests(t *testing.T) {
 		t.Fatalf("list changed by sweep: before=%v after=%v err=%v", listBefore, listAfter, err)
 	}
 	again, err := identity.SweepInvitationDigests(ctx, NewInvitationRepository(app, nil), now)
-	if err != nil || again.Cleared != 0 {
+	if err != nil || again.Swept[identity.InvitationSweepExpiredDigests] != 0 {
 		t.Fatalf("second sweep=%+v err=%v", again, err)
 	}
 	if _, err := svc.AcceptInvitationNewAccount(ctx, pending.Token, "sweep_member", "a sufficiently long password"); err != nil {
@@ -201,7 +201,7 @@ func TestInvitationRetentionSweepYieldsToLockedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err := identity.SweepInvitationDigests(ctx, NewInvitationRepository(app, nil), now)
-	if err != nil || report.Cleared != 1 {
+	if err != nil || report.Swept[identity.InvitationSweepExpiredDigests] != 1 {
 		t.Fatalf("sweep with a held row=%+v err=%v", report, err)
 	}
 	if !invitationDigest(t, ctx, admin, held) || invitationDigest(t, ctx, admin, free) {
@@ -211,24 +211,39 @@ func TestInvitationRetentionSweepYieldsToLockedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err = identity.SweepInvitationDigests(ctx, NewInvitationRepository(app, nil), now)
-	if err != nil || report.Cleared != 1 || invitationDigest(t, ctx, admin, held) {
+	if err != nil || report.Swept[identity.InvitationSweepExpiredDigests] != 1 || invitationDigest(t, ctx, admin, held) {
 		t.Fatalf("follow-up sweep=%+v err=%v", report, err)
 	}
 }
 
-// TestInvitationRetentionAcceptRevokeAndSweepRace runs acceptance, revocation
-// and the sweep against the same just-expiring and still-valid invitations.
-// Exactly one terminal state wins, no terminal row keeps a digest, and the
-// sweep never fails or clears a usable invitation.
+// TestInvitationRetentionAcceptRevokeAndSweepRace races acceptance, revocation
+// and the sweep on the same invitation. Even rounds sweep at the real time, so
+// the sweep must leave the still-valid invitation alone; odd rounds sweep with a
+// cutoff past expiry, so the sweep competes for the row itself and must skip it
+// while an acceptance or revocation holds it. Every round ends with exactly one
+// winner among the three, no terminal row holding a digest, and no failure.
 func TestInvitationRetentionAcceptRevokeAndSweepRace(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	sweeper := NewInvitationRepository(app, nil)
-	for n := 0; n < 15; n++ {
+	for n := 0; n < 20; n++ {
 		inv, err := svc.CreateInvitation(ctx, owner, house, fmt.Sprintf("triple-race-%d", n))
 		if err != nil {
 			t.Fatal(err)
+		}
+		cutoff := time.Now()
+		pastExpiry := n%2 == 1
+		if pastExpiry {
+			cutoff = inv.Invitation.ExpiresAt.Add(time.Second)
+		} else {
+			// A sweep at real time on its own must leave the valid digest.
+			if _, err := identity.SweepInvitationDigests(ctx, sweeper, cutoff); err != nil {
+				t.Fatal(err)
+			}
+			if !invitationDigest(t, ctx, admin, inv.Invitation.ID) {
+				t.Fatalf("round=%d sweep at real time cleared a still-valid digest", n)
+			}
 		}
 		start := make(chan struct{})
 		var wg sync.WaitGroup
@@ -247,25 +262,101 @@ func TestInvitationRetentionAcceptRevokeAndSweepRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			// Sweep as if the invitation had already expired; a concurrent
-			// accept or revoke holding the row must be skipped, not waited on.
-			_, sweepErr = identity.SweepInvitationDigests(ctx, sweeper, inv.Invitation.ExpiresAt.Add(time.Second))
+			_, sweepErr = identity.SweepInvitationDigests(ctx, sweeper, cutoff)
 		}()
 		close(start)
 		wg.Wait()
 		if revokeErr != nil || sweepErr != nil {
-			t.Fatalf("iteration=%d revoke=%v sweep=%v", n, revokeErr, sweepErr)
+			t.Fatalf("round=%d revoke=%v sweep=%v", n, revokeErr, sweepErr)
 		}
 		if acceptErr != nil && !errors.Is(acceptErr, identity.ErrInvalidInvitation) {
-			t.Fatalf("iteration=%d accept=%v", n, acceptErr)
+			t.Fatalf("round=%d accept=%v", n, acceptErr)
 		}
 		var a, r int
 		var digest bool
 		if err := admin.QueryRow(ctx, `SELECT (accepted_at IS NOT NULL)::int,(revoked_at IS NOT NULL)::int,token_hash IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, inv.Invitation.ID).Scan(&a, &r, &digest); err != nil {
 			t.Fatal(err)
 		}
-		if a+r != 1 || digest || (acceptErr == nil) != (a == 1) {
-			t.Fatalf("iteration=%d accepted=%d revoked=%d digest=%v acceptErr=%v", n, a, r, digest, acceptErr)
+		if digest || (acceptErr == nil) != (a == 1) {
+			t.Fatalf("round=%d accepted=%d revoked=%d digest=%v acceptErr=%v", n, a, r, digest, acceptErr)
 		}
+		// At real time the invitation is valid, so the sweep never wins (checked
+		// directly before the race above): accept or revoke does. Past expiry the sweep may win, leaving the row pending
+		// in its timestamps but without a digest, so nobody can use it.
+		if a+r > 1 || (!pastExpiry && a+r != 1) {
+			t.Fatalf("round=%d accepted=%d revoked=%d pastExpiry=%v", n, a, r, pastExpiry)
+		}
+	}
+}
+
+// TestInvitationRetentionSweepYieldsOnLockTimeout proves that a statement
+// waiting on a table lock gives up after lock_timeout and reports the step as
+// locked without failing the run, against PostgreSQL rather than a fake.
+func TestInvitationRetentionSweepYieldsOnLockTimeout(t *testing.T) {
+	ctx, admin, app, _ := invitationPools(t)
+	tx, err := admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, `LOCK TABLE household_invitations IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	report, err := identity.SweepInvitationDigests(ctx, NewInvitationRepository(app, nil), time.Now())
+	if err != nil {
+		t.Fatalf("locked sweep err=%v", err)
+	}
+	if len(report.Locked) != 1 || report.Locked[0] != identity.InvitationSweepExpiredDigests {
+		t.Fatalf("locked steps=%v", report.Locked)
+	}
+	if _, ok := report.Swept[identity.InvitationSweepOIDCPendingLoginsExpired]; !ok {
+		t.Fatalf("later steps did not run after the lock yield: %+v", report)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("sweep waited %v on the lock", elapsed)
+	}
+}
+
+// TestInvitationRetentionSweepDeletesExpiredOIDCCopies proves the sweep also
+// deletes expired OIDC flows and pending sign-ins, which may carry a copy of an
+// invitation digest, and keeps the ones still in progress.
+func TestInvitationRetentionSweepDeletesExpiredOIDCCopies(t *testing.T) {
+	ctx, admin, app, _ := invitationPools(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	// Start from empty tables (oidc_pending_logins has no foreign key the
+	// fixtures truncate through) and leave them empty for later tests.
+	clear := func() error {
+		_, err := admin.Exec(context.Background(), `DELETE FROM oidc_flows; DELETE FROM oidc_pending_logins`)
+		return err
+	}
+	if err := clear(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = clear() })
+	// Row 0 was created two hours ago and has expired; row 1 is in progress.
+	for i, created := range []time.Time{now.Add(-2 * time.Hour), now} {
+		if _, err := admin.Exec(ctx, `INSERT INTO oidc_flows(state_hash,browser_token_hash,issuer,client_id,nonce,pkce_verifier,purpose,created_at,expires_at,invite_token_hash)
+			VALUES (decode(repeat($1,32),'hex'),decode(repeat($2,32),'hex'),'i','c','n',repeat('A',43),'login',$3::timestamptz,$3::timestamptz+interval '5 minutes',decode(repeat('ee',32),'hex'))`,
+			fmt.Sprintf("%02x", 0x30+i), fmt.Sprintf("%02x", 0x40+i), created); err != nil {
+			t.Fatalf("flow %d: %v", i, err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO oidc_pending_logins(handle_hash,issuer,subject,email_verified,client_id,invite_token_hash,created_at,expires_at)
+			VALUES (decode(repeat($1,32),'hex'),'i',$2,false,'c',decode(repeat('ee',32),'hex'),$3::timestamptz,$3::timestamptz+interval '5 minutes')`,
+			fmt.Sprintf("%02x", 0x50+i), fmt.Sprintf("subject-%d", i), created); err != nil {
+			t.Fatalf("pending %d: %v", i, err)
+		}
+	}
+	report, err := identity.SweepInvitationDigests(ctx, NewInvitationRepository(app, nil), now)
+	if err != nil || report.Swept[identity.InvitationSweepOIDCFlowsExpired] != 1 || report.Swept[identity.InvitationSweepOIDCPendingLoginsExpired] != 1 {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	var flows, pending int
+	if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM oidc_flows WHERE state_hash=decode(repeat('31',32),'hex')),
+		(SELECT count(*) FROM oidc_pending_logins WHERE handle_hash=decode(repeat('51',32),'hex'))`).Scan(&flows, &pending); err != nil || flows != 1 || pending != 1 {
+		t.Fatalf("in-progress flow=%d pending=%d err=%v", flows, pending, err)
+	}
+	if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM oidc_flows) + (SELECT count(*) FROM oidc_pending_logins)`).Scan(&flows); err != nil || flows != 2 {
+		t.Fatalf("rows left=%d err=%v want only the two in progress", flows, err)
 	}
 }

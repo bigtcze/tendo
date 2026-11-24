@@ -50,19 +50,29 @@ references the account row that must keep its history.
   each run is bounded by `TENDO_DB_TIMEOUT`, works in batches of at most 1000
   rows that each commit on their own with `lock_timeout` 100 ms, and loops
   while a batch comes back full. A partial index on `expires_at` where a digest
-  is present keeps each batch cheap. Logs carry only the cleared count, a
-  `locked` flag and the fixed fault classes `timeout`, `canceled`,
+  is present keeps each batch cheap. The same run also deletes expired rows of
+  `oidc_flows` and `oidc_pending_logins`: an OIDC sign-in started from an
+  invitation carries a copy of the invitation digest there, and an abandoned
+  one was otherwise removed only when a later sign-in happened to prune it.
+  Each of the three steps yields on its own to a lock; the others still run.
+  Logs carry only one count per step (`expired_digests_cleared`,
+  `oidc_flows_expired`, `oidc_pending_logins_expired`), the number of steps
+  that yielded to a lock and the fixed fault classes `timeout`, `canceled`,
   `step_failed` and `unknown`, never driver text. The bounded retention for an
-  expired digest is therefore one sweep interval plus one run after expiry,
-  as long as the app is running; a stopped app clears the backlog at its next
-  start.
+  expired digest, or a copy of one, is therefore one sweep interval plus one
+  run after expiry, as long as the app is running; a stopped app clears the
+  backlog at its next start.
 - **Races.** The sweep selects rows `FOR UPDATE SKIP LOCKED`, so it never waits
   on, and never overrides, an acceptance or revocation that holds the row. The
   holder clears the digest itself when it commits a transition; if it rolls
   back, the row is still expired and the next batch clears it. Acceptance
   re-checks expiry under its row lock and refuses an expired invitation, so a
   sweep can never clear the digest of an invitation that is still usable. The
-  accept, revoke and sweep three-way race is tested against PostgreSQL.
+  accept, revoke and sweep three-way race is tested against PostgreSQL. The
+  two OIDC delete steps take no row lock first, because the runtime role has
+  no `UPDATE` on those tables. They match only expired rows, which no sign-in
+  can consume any more, and any wait on a row a request is deleting is bounded
+  by `lock_timeout`, after which the step yields to the next run.
 - **v4 migration.** Migration 031 clears the digest of every accepted, revoked
   or already expired invitation and keeps every row with its timestamps.
   Pending invitations keep their digest and stay usable after the upgrade. Down
@@ -80,10 +90,11 @@ references the account row that must keep its history.
 - A database or backup taken after this migration holds digests of pending
   invitations only. Restoring an older v4 backup runs migration 031 on startup
   and clears its stale digests the same way.
-- An OIDC sign-in that started from an invitation keeps the invitation digest
-  in `oidc_pending_logins` for at most its 10-minute lifetime. If the
-  invitation is revoked, accepted or swept meanwhile, the lookup finds no row
-  with that digest and the sign-in gets the same invalid-invitation refusal as
-  before.
+- An OIDC sign-in that started from an invitation keeps a copy of the
+  invitation digest in `oidc_flows` and then `oidc_pending_logins` until it is
+  completed or, if abandoned, until the first sweep after its 10-minute
+  lifetime ends. If the invitation is revoked, accepted or swept meanwhile, the
+  lookup finds no row with that digest and the sign-in gets the same
+  invalid-invitation refusal as before; this is tested.
 - Redacted invitation rows are kept as long as their household. A row-count
   retention policy for them is out of scope; they hold no secret.

@@ -243,6 +243,15 @@ type Querier interface {
 	// acceptance or revocation holds; that transaction clears the digest itself or
 	// the next batch does.
 	SweepExpiredInvitationDigests(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// One bounded batch for the invitation retention sweep (ADR 0024). An expired
+	// flow can never be consumed, and it may carry an invitation digest. No row
+	// lock in the subquery: the runtime role has no UPDATE on these tables, live
+	// flows are never expired, and lock_timeout bounds any wait.
+	SweepExpiredOIDCFlows(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// One bounded batch for the invitation retention sweep (ADR 0024). An expired
+	// pending sign-in can never be completed, and it may carry an invitation digest.
+	// Same locking as SweepExpiredOIDCFlows.
+	SweepExpiredOIDCPendingLogins(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	// One batch by primary key. The sweep loops while a batch comes back full.
 	SweepMCPAccessTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	// One batch by primary key. The sweep loops while a batch comes back full.

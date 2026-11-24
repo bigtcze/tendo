@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,7 +43,7 @@ func TestInvitationSweeperRunsAtStartupAndStops(t *testing.T) {
 }
 
 // TestInvitationSweeperLogsCountAndFixedFaultClassOnly pins that logs carry the
-// cleared count and a fixed class, never driver text or token material.
+// per-step counts and a fixed class, never driver text or token material.
 func TestInvitationSweeperLogsCountAndFixedFaultClassOnly(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
@@ -58,7 +59,7 @@ func TestInvitationSweeperLogsCountAndFixedFaultClassOnly(t *testing.T) {
 		buf.Reset()
 		invitationSweeper{
 			sweep: func(context.Context) (identityapp.InvitationSweepReport, error) {
-				return identityapp.InvitationSweepReport{Cleared: 2}, tc.err
+				return identityapp.InvitationSweepReport{Swept: map[identityapp.InvitationSweepStep]int{identityapp.InvitationSweepExpiredDigests: 2}}, tc.err
 			},
 			timeout: time.Second, logger: logger,
 		}.once(context.Background())
@@ -70,27 +71,61 @@ func TestInvitationSweeperLogsCountAndFixedFaultClassOnly(t *testing.T) {
 	buf.Reset()
 	invitationSweeper{
 		sweep: func(context.Context) (identityapp.InvitationSweepReport, error) {
-			return identityapp.InvitationSweepReport{Cleared: 5, Locked: true}, nil
+			return identityapp.InvitationSweepReport{
+				Swept:  map[identityapp.InvitationSweepStep]int{identityapp.InvitationSweepExpiredDigests: 5, identityapp.InvitationSweepOIDCFlowsExpired: 4, identityapp.InvitationSweepOIDCPendingLoginsExpired: 3},
+				Locked: []identityapp.InvitationSweepStep{identityapp.InvitationSweepOIDCFlowsExpired},
+			}, nil
 		},
 		timeout: time.Second, logger: logger,
 	}.once(context.Background())
-	if out := buf.String(); !strings.Contains(out, "expired_digests_cleared=5") || !strings.Contains(out, "locked=true") {
+	if out := buf.String(); !strings.Contains(out, "expired_digests_cleared=5") || !strings.Contains(out, "oidc_flows_expired=4") || !strings.Contains(out, "oidc_pending_logins_expired=3") || !strings.Contains(out, "locked_steps=1") {
 		t.Fatalf("success log: %s", out)
 	}
 }
 
-// TestStopAllWaitsForEverySweeper pins that the combined stop calls each stop
-// and reports false when any sweeper misses its timeout.
-func TestStopAllWaitsForEverySweeper(t *testing.T) {
-	var calls []int
-	ok := func(id int, result bool) func(time.Duration) bool {
-		return func(time.Duration) bool { calls = append(calls, id); return result }
+// TestStopAllCancelsTogetherWithinOneTimeout pins that the combined stop calls
+// every stop at once, so a slow sweeper cannot delay another one's cancellation
+// and the total wait stays within one timeout, and that it reports false when
+// any sweeper misses its timeout.
+func TestStopAllCancelsTogetherWithinOneTimeout(t *testing.T) {
+	// Each stop waits, bounded, until the other one has been called too. A
+	// sequential stopAll would make the first stop give up, which fails below
+	// instead of hanging the test.
+	var calls atomic.Int32
+	bothCalled := make(chan struct{})
+	var together atomic.Bool
+	together.Store(true)
+	barrier := func() {
+		if calls.Add(1) == 2 {
+			close(bothCalled)
+		}
+		select {
+		case <-bothCalled:
+		case <-time.After(2 * time.Second):
+			together.Store(false)
+		}
 	}
-	if !stopAll(ok(1, true), ok(2, true))(time.Second) || len(calls) != 2 {
-		t.Fatalf("all stopped: calls=%v", calls)
+	slow := func(timeout time.Duration) bool {
+		barrier()
+		time.Sleep(timeout)
+		return false
 	}
-	calls = nil
-	if stopAll(ok(1, false), ok(2, true))(time.Second) || len(calls) != 2 {
-		t.Fatalf("one missed: calls=%v", calls)
+	fast := func(time.Duration) bool {
+		barrier()
+		return true
+	}
+	started := time.Now()
+	if stopAll(slow, fast)(50 * time.Millisecond) {
+		t.Fatal("stopAll reported success although one sweeper missed its timeout")
+	}
+	if !together.Load() {
+		t.Fatal("stopAll did not call the stops concurrently")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("stopAll waited %v; the stops did not run together", elapsed)
+	}
+	done := func(time.Duration) bool { return true }
+	if !stopAll(done, done)(time.Second) {
+		t.Fatal("stopAll reported failure although every sweeper stopped")
 	}
 }

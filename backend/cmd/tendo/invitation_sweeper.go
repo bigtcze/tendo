@@ -41,11 +41,16 @@ func (s invitationSweeper) once(ctx context.Context) {
 	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	report, err := s.sweep(runCtx)
+	attrs := make([]any, 0, 2*len(identityapp.InvitationSweepSteps)+4)
+	for _, step := range identityapp.InvitationSweepSteps {
+		attrs = append(attrs, string(step), report.Swept[step])
+	}
+	attrs = append(attrs, "locked_steps", len(report.Locked))
 	if err != nil {
-		s.logger.Warn("invitation retention sweep failed", "class", sweepFaultClass(err), "expired_digests_cleared", report.Cleared)
+		s.logger.Warn("invitation retention sweep failed", append([]any{"class", sweepFaultClass(err)}, attrs...)...)
 		return
 	}
-	s.logger.Info("invitation retention sweep", "expired_digests_cleared", report.Cleared, "locked", report.Locked)
+	s.logger.Info("invitation retention sweep", attrs...)
 }
 
 // defaultInvitationSweep runs the production invitation retention pass. It needs
@@ -57,14 +62,18 @@ func defaultInvitationSweep(pool *pgxpool.Pool) func(context.Context) (identitya
 	}
 }
 
-// stopAll combines sweeper stop functions. Each gets the full timeout because
-// they were cancelled together and run concurrently. It reports whether every
-// sweeper exited in time.
+// stopAll combines sweeper stop functions. It calls them concurrently, so every
+// sweeper is cancelled at once and all of them share the one timeout instead of
+// waiting in turn. It reports whether every sweeper exited in time.
 func stopAll(stops ...func(time.Duration) bool) func(time.Duration) bool {
 	return func(timeout time.Duration) bool {
-		ok := true
+		results := make(chan bool, len(stops))
 		for _, stop := range stops {
-			if !stop(timeout) {
+			go func() { results <- stop(timeout) }()
+		}
+		ok := true
+		for range stops {
+			if !<-results {
 				ok = false
 			}
 		}

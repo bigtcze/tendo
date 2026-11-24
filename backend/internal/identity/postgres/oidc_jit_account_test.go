@@ -377,6 +377,42 @@ func TestOIDCJITInvitationCarryOver(t *testing.T) {
 			t.Fatalf("people=%d accepted=%d err=%v", people, accepted, err)
 		}
 	})
+	t.Run("invitation revoked mid sign-in degrades and is not accepted", func(t *testing.T) {
+		ctx, admin, app, _ := invitationPools(t)
+		owner, house := invitationFixture(t, ctx, admin)
+		repo := jitRepo(app)
+		svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
+		inv, err := svc.CreateInvitation(ctx, owner, house, "jit-revoked-mid-flow")
+		if err != nil {
+			t.Fatal(err)
+		}
+		inviteHash := sha256.Sum256([]byte(inv.Token))
+		now := time.Now().UTC().Truncate(time.Second)
+		_, handleHash := jitHandle(125)
+		if out := jitResolve(t, repo, identity.OIDCVerifiedIdentity{Issuer: jitIssuer, Subject: "subject-revoked-invite"}, handleHash, now, inviteHash[:]); out.Resolution != identity.OIDCLoginNeedsPending {
+			t.Fatalf("outcome=%+v", out)
+		}
+		// The owner revokes while the sign-in is pending: the digest is cleared,
+		// so the carried copy no longer finds any invitation.
+		if err := svc.RevokeInvitation(ctx, owner, house, inv.Invitation.ID); err != nil {
+			t.Fatal(err)
+		}
+		_, session := jitSession(126, now)
+		outcome, err := repo.CreatePendingAccount(ctx, identity.OIDCPendingAccountParams{
+			HandleHash: handleHash, Issuer: jitIssuer, ClientID: jitClient, Login: "member-revoked-mid-flow", Session: session, Now: now,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if outcome.Invitation != identity.OIDCInvitationInvalid || outcome.DefaultHouseholdID != "" {
+			t.Fatalf("outcome=%+v", outcome)
+		}
+		var memberships, accepted int
+		if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM household_memberships WHERE user_id=$1),
+			(SELECT count(*) FROM household_invitations WHERE id=$2::uuid AND accepted_at IS NOT NULL)`, outcome.UserID, inv.Invitation.ID).Scan(&memberships, &accepted); err != nil || memberships != 0 || accepted != 0 {
+			t.Fatalf("memberships=%d accepted=%d err=%v", memberships, accepted, err)
+		}
+	})
 	t.Run("expired invitation degrades but the account is created", func(t *testing.T) {
 		ctx, admin, app, _ := invitationPools(t)
 		_, house := invitationFixture(t, ctx, admin)
