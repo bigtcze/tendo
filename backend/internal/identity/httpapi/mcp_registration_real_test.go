@@ -35,8 +35,8 @@ func (m *memMCPStore) WithMCPTransaction(context.Context, func(identity.MCPTrans
 	return errors.New("registration tests must not open an issuance transaction")
 }
 
-func (m *memMCPStore) FindActiveAccessToken(context.Context, []byte, time.Time) (identity.MCPGrantRecord, error) {
-	return identity.MCPGrantRecord{}, identity.ErrNotFound
+func (m *memMCPStore) FindActiveAccessToken(context.Context, []byte, time.Time) (identity.MCPActiveAccess, error) {
+	return identity.MCPActiveAccess{}, identity.ErrNotFound
 }
 
 // realMCPRouter builds the production MCP service (enabled, resource on the

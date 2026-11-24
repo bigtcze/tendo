@@ -95,7 +95,7 @@ func TestMigrationTwentyEightUpAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, table := range mcpTables {
 		if !migrationRelationExists(t, ctx, admin, table) {
 			t.Fatalf("%s missing after migrate to 31", table)
@@ -310,7 +310,7 @@ func TestMigrationTwentyEightUpgradePreservesRows(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("upgrade to 028: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	if got := migrationInt(t, ctx, admin, `SELECT count(*) FROM households`); got != households {
 		t.Fatalf("households after upgrade=%d want %d", got, households)
 	}
@@ -373,7 +373,7 @@ func TestMigrationTwentyEightDownDropsGrantsAndReapplies(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 028: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, table := range mcpTables {
 		if !migrationRelationExists(t, ctx, admin, table) {
 			t.Fatalf("%s missing after re-apply", table)

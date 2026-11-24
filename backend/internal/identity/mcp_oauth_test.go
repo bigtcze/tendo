@@ -44,7 +44,10 @@ type mcpFake struct {
 
 	accounts      map[string]bool
 	sessionActive bool
-	clients       map[string]MCPClient
+	// policy is the stored MCP policy of every account (#457). The default is
+	// the migration default: everything on, read and write allowed.
+	policy  MCPPolicyRecord
+	clients map[string]MCPClient
 
 	state mcpState
 }
@@ -66,6 +69,7 @@ func newMCPFake(now time.Time) *mcpFake {
 		now:           now,
 		accounts:      map[string]bool{mcpTestUser: true},
 		sessionActive: true,
+		policy:        mcpDefaultPolicy(),
 		clients: map[string]MCPClient{
 			mcpTestClient: {ID: mcpTestClient, Name: "Test client", RedirectURIs: []string{mcpTestRedirect}},
 		},
@@ -107,22 +111,31 @@ func (f *mcpFake) WithMCPTransaction(ctx context.Context, work func(MCPTransacti
 	return nil
 }
 
-func (f *mcpFake) FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (MCPGrantRecord, error) {
+func (f *mcpFake) FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (MCPActiveAccess, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "FindActiveAccessToken")
 	if f.findActiveErr != nil {
-		return MCPGrantRecord{}, f.findActiveErr
+		return MCPActiveAccess{}, f.findActiveErr
 	}
 	row, ok := f.state.access[string(tokenHash)]
 	if !ok || !row.AccessExpiresAt.After(now) {
-		return MCPGrantRecord{}, ErrNotFound
+		return MCPActiveAccess{}, ErrNotFound
 	}
 	grant := f.state.grants[row.GrantID]
 	if grant.Revoked || !grant.ExpiresAt.After(now) || !f.accounts[grant.UserID] {
-		return MCPGrantRecord{}, ErrNotFound
+		return MCPActiveAccess{}, ErrNotFound
 	}
-	return grant, nil
+	return MCPActiveAccess{Grant: grant, Policy: f.policy}, nil
+}
+
+// mcpDefaultPolicy is the policy migration 032 stores for every account.
+func mcpDefaultPolicy() MCPPolicyRecord {
+	return MCPPolicyRecord{
+		InstallationFound: true, InstallationEnabled: true, DefaultAccountEnabled: true,
+		DefaultMaxScopes: []string{MCPScopeRead, MCPScopeWrite},
+		AccountFound:     true, UserEnabled: true, UserScopes: []string{MCPScopeRead, MCPScopeWrite},
+	}
 }
 
 // mcpTx works on a private copy of the state. Its methods do not lock: the
@@ -148,6 +161,13 @@ func (t *mcpTx) LockLiveAccount(ctx context.Context, userID string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (t *mcpTx) ReadPolicy(ctx context.Context, userID string) (MCPPolicyRecord, error) {
+	if err := t.op("ReadPolicy"); err != nil {
+		return MCPPolicyRecord{}, err
+	}
+	return t.f.policy, nil
 }
 
 func (t *mcpTx) ActiveSessionExists(ctx context.Context, userID string, tokenHash []byte, now time.Time) (bool, error) {
@@ -614,7 +634,7 @@ func TestMCPIssueAuthorizationCodeStoresDigestOnly(t *testing.T) {
 	if !rec.ExpiresAt.Equal(issued.ExpiresAt) || !rec.CreatedAt.Equal(mcpTestStart) {
 		t.Fatalf("stored times = %v..%v", rec.CreatedAt, rec.ExpiresAt)
 	}
-	want := []string{"WithMCPTransaction", "LockLiveAccount", "ActiveSessionExists", "FindClient", "CreateAuthorizationCode"}
+	want := []string{"WithMCPTransaction", "LockLiveAccount", "ActiveSessionExists", "FindClient", "ReadPolicy", "CreateAuthorizationCode"}
 	if !slices.Equal(fx.f.calls, want) {
 		t.Fatalf("calls = %v, want %v", fx.f.calls, want)
 	}
@@ -633,7 +653,7 @@ func TestMCPExchangeCodeCreatesGrantAndTokens(t *testing.T) {
 	}
 
 	want := []string{"WithMCPTransaction", "FindCodeOwner", "LockLiveAccount", "LockAuthorizationCode",
-		"CreateGrant", "MarkAuthorizationCodeUsed", "CreateTokens"}
+		"ReadPolicy", "CreateGrant", "MarkAuthorizationCodeUsed", "CreateTokens"}
 	if !slices.Equal(fx.f.calls, want) {
 		t.Fatalf("calls = %v, want %v", fx.f.calls, want)
 	}
@@ -821,7 +841,7 @@ func TestMCPRefreshRotatesAndReplayRevokesCommitted(t *testing.T) {
 		t.Fatalf("Refresh: %v", err)
 	}
 	want := []string{"WithMCPTransaction", "FindRefreshOwner", "LockLiveAccount", "LockGrant",
-		"LockRefreshToken", "ConsumeRefreshToken", "CreateTokens"}
+		"LockRefreshToken", "ReadPolicy", "ConsumeRefreshToken", "CreateTokens"}
 	if !slices.Equal(fx.f.calls, want) {
 		t.Fatalf("calls = %v, want %v", fx.f.calls, want)
 	}
@@ -1029,13 +1049,13 @@ func TestMCPPKCES256Matches(t *testing.T) {
 
 func TestMCPRevokeReasonValid(t *testing.T) {
 	accepted := []MCPRevokeReason{"user", "password_change", "admin_reset", "cli_reset",
-		"account_deletion", "replay", "code_reuse", "client"}
+		"account_deletion", "replay", "code_reuse", "client", "admin"}
 	for _, r := range accepted {
 		if !r.Valid() {
 			t.Errorf("%q rejected, want accepted", r)
 		}
 	}
-	for _, r := range []MCPRevokeReason{"", "User", "code-reuse", "expired", "revoked", " replay", "other"} {
+	for _, r := range []MCPRevokeReason{"", "User", "code-reuse", "expired", "revoked", " replay", "other", "Admin", "administrator"} {
 		if r.Valid() {
 			t.Errorf("%q accepted, want rejected", r)
 		}

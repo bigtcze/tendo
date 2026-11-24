@@ -381,6 +381,11 @@ func TestDecisionNotFoundAndUnauthenticatedOutcomes(t *testing.T) {
 	if w := mcpServe(h, http.MethodPost, decisionPath(), `{"decision":"approve"}`, decisionHeader(), "192.0.2.43:1"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status=%d", w.Code)
 	}
+	// The installation policy switched off after routing (#457): the disabled 404.
+	flow.decideErr = identity.ErrMCPDisabled
+	if w := mcpServe(h, http.MethodPost, decisionPath(), `{"decision":"approve"}`, decisionHeader(), "192.0.2.43:1"); w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "authorization_request_not_found") {
+		t.Fatalf("installation off status=%d body=%s", w.Code, w.Body)
+	}
 	flow.decideErr = errors.New("pq: secret driver text")
 	w = mcpServe(h, http.MethodPost, decisionPath(), `{"decision":"approve"}`, decisionHeader(), "192.0.2.43:1")
 	if w.Code != http.StatusServiceUnavailable || strings.Contains(w.Body.String(), "secret") {

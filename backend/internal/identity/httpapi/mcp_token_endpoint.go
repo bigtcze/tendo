@@ -142,6 +142,11 @@ func (h *MCPHandler) refreshToken(w http.ResponseWriter, r *http.Request, values
 // is invalid_grant (declared deviation: no client oracle).
 func (h *MCPHandler) writeTokenResult(w http.ResponseWriter, r *http.Request, fault string, tokens identity.MCPTokens, err error) {
 	switch {
+	case errors.Is(err, identity.ErrMCPDisabled):
+		// The installation policy switched MCP off after routing admitted the
+		// request: the same 404 as the operator switch.
+		httpx.WriteNotFound(w)
+		return
 	case errors.Is(err, identity.ErrMCPInvalidGrant):
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "The grant is invalid or expired.")
 		return

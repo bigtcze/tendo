@@ -30,7 +30,7 @@ func TestMigrationTwentyNineRetentionPrivilegesAndIndexes(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, name := range mcpRetentionIndexes {
 		if !migrationRelationExists(t, ctx, admin, name) {
 			t.Fatalf("index %s missing after migrate to 31", name)
@@ -92,7 +92,7 @@ func TestMigrationTwentyNineDownRevokesAndKeepsRows(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 029: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	for _, name := range mcpRetentionIndexes {
 		if !migrationRelationExists(t, ctx, admin, name) {
 			t.Fatalf("index %s missing after re-apply", name)

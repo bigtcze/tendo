@@ -343,8 +343,18 @@ func approveLocked(ctx context.Context, tx MCPTransaction, userID string, client
 	if !MCPRedirectURIMatches(client.RedirectURIs, rec.RedirectURI) {
 		return MCPDecisionResult{}, ErrMCPAuthorizationRequestNotFound
 	}
+	allowed, err := allowedScopesLocked(ctx, tx, userID)
+	if err != nil {
+		return MCPDecisionResult{}, err
+	}
+	// The code carries only the requested scopes the policy allows. When none
+	// is allowed the approval is answered like a denial: access_denied.
+	scopes := intersectMCPScopes(rec.Scopes, allowed)
+	if len(scopes) == 0 {
+		return MCPDecisionResult{RedirectURI: rec.RedirectURI, State: rec.State}, nil
+	}
 	code, record, err := newAuthorizationCode(userID, rec.ClientID, rec.RedirectURI,
-		rec.CodeChallenge, rec.Resource, rec.Scopes, now)
+		rec.CodeChallenge, rec.Resource, scopes, now)
 	if err != nil {
 		return MCPDecisionResult{}, err
 	}

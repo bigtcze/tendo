@@ -78,8 +78,10 @@ type Querier interface {
 	DeleteMCPGrantRefreshTokens(ctx context.Context, grantID pgtype.UUID) error
 	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
-	// Verification re-reads the grant and the account on every request, so a
-	// revocation or deletion takes effect on the next request.
+	// Verification re-reads the grant, the account and the MCP policy (#457) on
+	// every request, so a revocation, deletion or policy change takes effect on the
+	// next request. A missing policy row comes back as NULL columns and evaluates
+	// as inactive.
 	FindActiveMCPAccessToken(ctx context.Context, arg FindActiveMCPAccessTokenParams) (FindActiveMCPAccessTokenRow, error)
 	// A session of a deleted account is inert even if a racing insert survived.
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
@@ -195,6 +197,11 @@ type Querier interface {
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	ReadLocalCredential(ctx context.Context, userID pgtype.UUID) (ReadLocalCredentialRow, error)
+	// The installation and account policy (#457) as stored. Issuance reads it after
+	// the account lock and takes no policy lock: a change that commits meanwhile is
+	// enforced by the next verification and refresh, which re-read it. A missing
+	// row comes back as NULL columns and evaluates as inactive.
+	ReadMCPPolicy(ctx context.Context, userID pgtype.UUID) (ReadMCPPolicyRow, error)
 	// The account's default is a navigation hint guarded by the deferred composite
 	// foreign key user_default_membership_fk (ADR 0015). It must be moved off the
 	// removed household in the same transaction and before commit, otherwise the

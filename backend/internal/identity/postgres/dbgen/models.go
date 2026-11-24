@@ -122,6 +122,16 @@ type McpAccessToken struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
+type McpAccountPolicy struct {
+	UserID         pgtype.UUID
+	AdminEnabled   pgtype.Bool
+	AdminMaxScopes []string
+	UserEnabled    bool
+	UserScopes     []string
+	Version        int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type McpAuthorizationCode struct {
 	CodeHash      []byte
 	UserID        pgtype.UUID
@@ -179,6 +189,26 @@ type McpGrantEvent struct {
 	Reason      pgtype.Text
 	ActorUserID pgtype.UUID
 	OccurredAt  pgtype.Timestamptz
+}
+
+type McpInstallationPolicy struct {
+	Singleton             bool
+	Enabled               bool
+	DefaultAccountEnabled bool
+	DefaultMaxScopes      []string
+	Version               int64
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type McpPolicyEvent struct {
+	ID                    pgtype.UUID
+	ActorUserID           pgtype.UUID
+	TargetUserID          pgtype.UUID
+	Policy                string
+	Enabled               pgtype.Bool
+	DefaultAccountEnabled pgtype.Bool
+	Scopes                []string
+	OccurredAt            pgtype.Timestamptz
 }
 
 type McpRefreshToken struct {

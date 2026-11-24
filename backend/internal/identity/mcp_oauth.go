@@ -20,8 +20,8 @@ const (
 	MCPGrantLifetime       = 90 * 24 * time.Hour
 )
 
-// The MCP scopes. #457 intersects them with the admin, user and household
-// limits; this slice only stores and returns them.
+// The MCP scopes. A grant stores the consented set; every use intersects it
+// with the installation, account and user policy (#457, mcp_policy.go).
 const (
 	MCPScopeRead  = "tendo:read"
 	MCPScopeWrite = "tendo:write"
@@ -125,6 +125,9 @@ type MCPTransaction interface {
 	// RevokeGrant revokes a live grant with an audited cause and deletes its
 	// codes and tokens. Revoking an already revoked grant changes nothing.
 	RevokeGrant(ctx context.Context, grantID string, now time.Time, revocation MCPRevocation) error
+	// ReadPolicy reads the installation and account policy without a lock,
+	// after the account lock. Missing rows come back as not found flags.
+	ReadPolicy(ctx context.Context, userID string) (MCPPolicyRecord, error)
 	MCPAuthorizationTransaction
 }
 
@@ -133,8 +136,9 @@ type MCPTransaction interface {
 type MCPRepository interface {
 	WithMCPTransaction(ctx context.Context, work func(MCPTransaction) error) error
 	// FindActiveAccessToken returns the live grant of an unexpired access token
-	// whose grant is unrevoked and unexpired and whose account is not deleted.
-	FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (MCPGrantRecord, error)
+	// whose grant is unrevoked and unexpired and whose account is not deleted,
+	// with the account's policy read in the same statement.
+	FindActiveAccessToken(ctx context.Context, tokenHash []byte, now time.Time) (MCPActiveAccess, error)
 }
 
 // MCPService is the hand-written OAuth 2.1 authorization server core for MCP
@@ -258,6 +262,13 @@ func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthoriza
 		if !MCPRedirectURIMatches(client.RedirectURIs, in.RedirectURI) {
 			return ErrMCPInvalidRequest
 		}
+		allowed, e := allowedScopesLocked(ctx, tx, in.Principal.UserID)
+		if e != nil {
+			return e
+		}
+		if record.Scopes = intersectMCPScopes(record.Scopes, allowed); len(record.Scopes) == 0 {
+			return ErrMCPAccessDenied
+		}
 		return tx.CreateAuthorizationCode(ctx, record)
 	})
 	if err != nil {
@@ -316,15 +327,16 @@ func normalizeMCPScopes(requested []string) ([]string, error) {
 }
 
 // MCPAccess is what a verified access token authorizes. It is resolved from
-// the database on every request.
+// the database on every request; Scopes is never empty.
 type MCPAccess struct {
 	GrantID, UserID, ClientID string
 	Scopes                    []string
 }
 
 // VerifyAccessToken resolves a bearer token for the configured resource. The
-// grant, its expiry and the account are re-read on every call, so a revocation
-// or deletion takes effect on the next request.
+// grant, its expiry, the account and the policy are re-read on every call, so
+// a revocation, deletion or policy change takes effect on the next request.
+// Scopes is the effective set: the grant's scopes the policy still allows.
 func (s *MCPService) VerifyAccessToken(ctx context.Context, token string) (MCPAccess, error) {
 	if !s.enabled {
 		return MCPAccess{}, ErrMCPDisabled
@@ -332,17 +344,40 @@ func (s *MCPService) VerifyAccessToken(ctx context.Context, token string) (MCPAc
 	if !mcpSecretPattern.MatchString(token) {
 		return MCPAccess{}, ErrMCPInvalidToken
 	}
-	grant, err := s.repository.FindActiveAccessToken(ctx, tokenDigest(token), s.now())
+	active, err := s.repository.FindActiveAccessToken(ctx, tokenDigest(token), s.now())
 	if errors.Is(err, ErrNotFound) {
 		return MCPAccess{}, ErrMCPInvalidToken
 	}
 	if err != nil {
 		return MCPAccess{}, err
 	}
+	grant := active.Grant
 	if grant.Resource != s.resource {
 		return MCPAccess{}, ErrMCPInvalidToken
 	}
-	return MCPAccess{GrantID: grant.ID, UserID: grant.UserID, ClientID: grant.ClientID, Scopes: grant.Scopes}, nil
+	if !active.Policy.InstallationActive() {
+		return MCPAccess{}, ErrMCPDisabled
+	}
+	// A switched-off account or user pauses the grant without revoking it.
+	scopes := active.Policy.Effective(grant.Scopes)
+	if len(scopes) == 0 {
+		return MCPAccess{}, ErrMCPInvalidToken
+	}
+	return MCPAccess{GrantID: grant.ID, UserID: grant.UserID, ClientID: grant.ClientID, Scopes: scopes}, nil
+}
+
+// allowedScopesLocked reads the account's policy after the account lock and
+// returns the allowed scopes. An installation that is switched off is
+// ErrMCPDisabled, exactly as the operator switch.
+func allowedScopesLocked(ctx context.Context, tx MCPTransaction, userID string) ([]string, error) {
+	policy, err := tx.ReadPolicy(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !policy.InstallationActive() {
+		return nil, ErrMCPDisabled
+	}
+	return policy.Allowed(), nil
 }
 
 // newMCPSecret mints a 32-byte base64url secret and its SHA-256 digest. The

@@ -44,7 +44,7 @@ func TestMigrationThirtyUpAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	if !migrationRelationExists(t, ctx, admin, "mcp_authorization_requests") {
 		t.Fatal("mcp_authorization_requests missing after migrate to 31")
 	}
@@ -193,7 +193,7 @@ func TestMigrationThirtyDownMapsClientRevocationsAndReapplies(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 030: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 31)
+	requireSchemaVersion(t, ctx, admin, 32)
 	if !migrationRelationExists(t, ctx, admin, "mcp_authorization_requests") {
 		t.Fatal("mcp_authorization_requests missing after re-apply")
 	}

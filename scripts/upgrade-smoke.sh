@@ -420,6 +420,12 @@ printf 'Migration 022 granted instance administrator to the setup account only.\
 invitation_digests=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT string_agg(creation_key || ':' || (token_hash IS NOT NULL)::text, ',' ORDER BY creation_key) FROM household_invitations")
 [[ "$invitation_digests" == "upgrade-member:false,upgrade-pending:true,upgrade-revoked:false" ]] || { printf 'Migration 031 invitation digests unexpected: %s\n' "$invitation_digests" >&2; exit 1; }
 printf 'Migration 031 cleared the token digests of accepted and revoked invitations and kept the pending one.\n'
+# Migration 032 (ADR 0023 "Slice B1a"): the installation policy row holds the
+# permissive defaults and every account has exactly one default account row, so the
+# upgrade changes no account's effective MCP scopes.
+mcp_policy=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT (SELECT count(*) FROM mcp_installation_policy WHERE enabled AND default_account_enabled AND default_max_scopes @> ARRAY['tendo:read','tendo:write'])::text || ':' || (SELECT count(*) FROM user_accounts u WHERE (SELECT count(*) FROM mcp_account_policies p WHERE p.user_id=u.id AND p.admin_enabled IS NULL AND p.admin_max_scopes IS NULL AND p.user_enabled AND p.user_scopes @> ARRAY['tendo:read','tendo:write']) <> 1)::text || ':' || (SELECT count(*) FROM mcp_policy_events)::text")
+[[ "$mcp_policy" == "1:0:0" ]] || { printf 'Migration 032 MCP policy unexpected (installation:accounts-without-default-row:events): %s\n' "$mcp_policy" >&2; exit 1; }
+printf 'Migration 032 inserted the default installation policy and one default account policy per account.\n'
 subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM subjects")
 unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")
 memberships_without_single=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE (SELECT count(*) FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id AND s.type='person') <> 1")
@@ -445,7 +451,7 @@ for name, count in before.items():
     if name == 'subjects':
         continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'account_deletions', 'household_creations', 'instance_admin_revocations', 'household_member_assignments', 'household_member_removals', 'household_role_changes', 'instance_admins', 'mcp_access_tokens', 'mcp_authorization_codes', 'mcp_authorization_requests', 'mcp_clients', 'mcp_grant_events', 'mcp_grants', 'mcp_refresh_tokens', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
+unexpected = set(after) - set(before) - {'account_deletions', 'household_creations', 'instance_admin_revocations', 'household_member_assignments', 'household_member_removals', 'household_role_changes', 'instance_admins', 'mcp_access_tokens', 'mcp_authorization_codes', 'mcp_authorization_requests', 'mcp_clients', 'mcp_account_policies', 'mcp_grant_events', 'mcp_grants', 'mcp_installation_policy', 'mcp_policy_events', 'mcp_refresh_tokens', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 # Migration tables must exist afterwards. A source release that already shipped the
 # migration keeps its rows (the generic preservation check above); a source that

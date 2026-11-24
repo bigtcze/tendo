@@ -126,7 +126,21 @@ extends:
 Every MCP path reaches an MCP row only after its account lock, so the account
 and credential locks serialize issuance with deletion and with password
 replacement. Locks taken earlier in ADR 0019 (`installation_state`,
-`households`, advisory locks, invitations) are never taken by an MCP path.
+`households`, advisory locks, invitations) are never taken by an MCP issuance,
+verification or owner path.
+
+Amended by #457 (see "Slice B1a: access policy"):
+
+7. `mcp_installation_policy` and `mcp_account_policies`: issuance, exchange,
+   refresh and the consent decision read both rows without a lock, after the
+   account lock and before any MCP row is written. Verification reads them in
+   its single statement.
+8. An instance administrator's policy write or revocation of another account's
+   grant (slice B1b) is the one MCP path that starts earlier in the ADR 0019
+   order: `installation_state` `FOR SHARE`, the live instance-administrator
+   check, the target `user_accounts` row, then the policy row `FOR UPDATE` or
+   the grant (steps 4 onward). It never takes a lock an issuance path holds
+   before its account lock, so the two cannot deadlock.
 
 ## Consequences
 
@@ -797,3 +811,77 @@ responses; non-200 responses pass through unchanged.
 - User documentation covers connecting an app from the consent page and the
   consent page's messages; admin documentation covers the server address,
   discovery, lifetimes, the reverse proxy and troubleshooting.
+
+## Slice B1a: access policy
+
+Issue #457 (V5-13) adds administrator and user control over MCP access. The
+design was reviewed independently on #457 before coding. Slice B1a adds the
+storage and its enforcement; the HTTP API that changes it is slice B1b, the
+tools that use the scopes are B2 and B3, the screens are B4.
+
+### Effective rights
+
+```
+TENDO_MCP_ENABLED AND installation enabled AND account enabled AND user enabled
+AND (account maximum ∩ user scopes ∩ grant scopes)
+```
+
+- The account terms are the administrator's override when set and the
+  installation default otherwise. The user's own settings can only narrow:
+  every term is an intersection, so no setting elevates past another.
+- Household access is not a policy term. Every tool call goes through the
+  canonical services, which check live membership.
+- The policy is read from the database on every verification, exchange,
+  refresh and consent decision. Nothing is cached.
+- A missing installation row or account row evaluates as inactive, never as a
+  default. Unknown stored scope values are dropped, so a corrupted row can only
+  narrow access.
+
+### Storage (migration 032)
+
+- `mcp_installation_policy`: one row, inserted by the migration with MCP on,
+  accounts on by default and a read+write default maximum, so an upgrade keeps
+  every grant's effective scopes. `TENDO_MCP_ENABLED` stays the operator's
+  opt-in. The runtime role may only update it.
+- `mcp_account_policies`: one row per account. The migration backfills a row
+  for every existing account and an `AFTER INSERT` trigger on `user_accounts`
+  adds one for every new account, whichever path creates it. Administrator
+  columns are NULL while the account follows the installation default; the
+  user columns default to on with read+write. The runtime role may insert and
+  update, never delete or change `user_id`.
+- `mcp_policy_events`: append-only audit of policy changes (slice B1b writes
+  it). The actor is required; no secret or household content is stored.
+- Revoke reason `admin` is added to `mcp_grants` and `mcp_grant_events`: an
+  instance administrator's revocation of another account's grant, with the
+  administrator as actor. `mcp_grant_events` stays the only grant audit.
+- Down refuses once the policy was used: any `admin` revocation, any policy
+  event, or any row that differs from its default. An earlier release has no
+  policy, so a rollback would silently widen access or falsify an audited
+  cause. Restore a backup instead.
+
+### Enforcement
+
+- `/mcp`: an account or user switched off, or a policy that leaves the grant
+  no scope, is 401 `invalid_token`. Otherwise the request proceeds with the
+  effective scopes only. The installation switch off is the disabled 404.
+- Exchange: refused with `invalid_grant` while the account or user is off or
+  no consented scope is allowed. The code is left unused and expires on its
+  own. The response's `scope` names the effective scopes; the grant keeps the
+  consented set.
+- Refresh: checked after replay detection, so a replayed token still revokes
+  the grant as `replay`, and before the token is consumed, so a paused grant
+  refreshes again once re-enabled.
+- Consent: the code carries the requested scopes the policy allows. When none
+  is allowed the approval is answered like a denial (`access_denied`).
+- Switching off pauses; it never revokes. Revocation stays an explicit action.
+
+### Deviations and follow-ups (B1a)
+
+- In B1a the installation switch is enforced where the service reads the
+  policy: verification, exchange, refresh and consent, which answer the
+  disabled 404. Discovery, registration, authorization start, revocation and an
+  unauthenticated `/mcp` still follow `TENDO_MCP_ENABLED` alone. Nothing can
+  switch the installation policy off before slice B1b, which makes every MCP
+  route answer the disabled 404 while it is off.
+- The step-up 403 `insufficient_scope` that names a policy-allowed scope the
+  grant lacks ships with the write tools (B3).
