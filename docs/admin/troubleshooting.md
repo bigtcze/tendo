@@ -76,6 +76,15 @@ The app logs `database schema validation failed` when it cannot use the database
 
 For problems with **Sign in with …**, see the [OIDC troubleshooting table](oidc.md#troubleshooting).
 
+## An AI app cannot connect
+
+- **The app reports that the server was not found, or gets 404 from `/mcp`:** `TENDO_MCP_ENABLED` is not `true`. Set it in `.env` and recreate the app with `docker compose up -d --wait`; see [AI apps (MCP)](configuration.md#ai-apps-mcp).
+- **Tendo keeps restarting and logs `TENDO_MCP_ENABLED requires an HTTPS TENDO_PUBLIC_URL or a loopback HTTP origin`:** MCP sends access tokens, so it needs `TENDO_PUBLIC_URL` to be an `https://` address, or `http://localhost:…` for use on this machine only.
+- **The app gets 421 or cannot finish discovery:** the app must use exactly `TENDO_PUBLIC_URL` followed by `/mcp`. Another host name, IP address or port for the same server is refused.
+- **The browser shows "Can’t connect this app":** the sentence under the heading names the cause. "Too many connection attempts" clears after a minute. For a return address that does not match, remove Tendo from the app and add it again so the app registers afresh.
+- **The browser shows "This request is no longer valid":** the request lasted 5 minutes or was already answered. Start again in the app, and finish in the same browser.
+- **The app connected earlier and now gets 401:** its connection was disconnected under **Connected apps**, ended after 90 days or 30 days without use, or the account's password was changed or reset. Connect the app again from the app.
+
 ## Restore a forgotten password from the host
 
 When nobody can sign in, an operator with access to the server can set a new local password for one account. Run it inside the running app container from the directory that holds `compose.yaml`:
