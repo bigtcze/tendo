@@ -7596,8 +7596,8 @@ test.describe('Tendo production journey', () => {
 
       // 1. Signed out, the consent page asks for sign-in first and keeps the handle out of the address bar.
       const allowed = await begin();
-      await expect(consent.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
-      await expect(consent.getByText(en['connect.signIn.notice'], { exact: true })).toBeVisible();
+      await expect(consent.getByRole('heading', { level: 1, name: en['login.title'], exact: true })).toBeVisible();
+      await expect(consent.getByRole('main').getByText(en['connect.signIn.notice'], { exact: true })).toBeVisible();
       expect(new URL(consent.url()).pathname).toBe('/connect');
       expect(new URL(consent.url()).hash).toBe('');
       await expect(heading).toHaveCount(0);
@@ -7613,14 +7613,23 @@ test.describe('Tendo production journey', () => {
       await expect(main.getByText(en['connect.scope.read'], { exact: true })).toBeVisible();
       await expect(main.getByText(en['connect.scope.write'], { exact: true })).toBeVisible();
       await expect(main.getByText(fill(en['connect.signedInAs'], { login: ownerLogin }), { exact: true })).toBeVisible();
-      await expect(main.getByText(/^This request expires at .+\.$/)).toBeVisible();
+      const expiresLine = new RegExp(`^${en['connect.expires'].replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace('{time}', '.+')}$`);
+      await expect(main.getByText(expiresLine)).toBeVisible();
       await expect(deny).toBeEnabled();
 
       // 3. Allow waits a full second of visible, focused page time, and says why while it waits.
       await expect(allow).toBeDisabled();
       await expect(allow).toHaveAccessibleDescription(en['connect.allowHint']);
+      // The delay timer is armed in an effect after the render; one message-channel round trip, which the page clock
+      // does not hold, lets that effect run before the clock moves.
+      await consent.evaluate(() => new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => resolve(null);
+        channel.port2.postMessage(0);
+      }));
       await context.clock.runFor(999);
       await expect(allow).toBeDisabled();
+      await expect(allow).toHaveAccessibleDescription(en['connect.allowHint']);
       await expect(main.getByText(en['connect.allowHint'], { exact: true })).toBeVisible();
       await context.clock.runFor(1);
       await expect(allow).toBeEnabled();
@@ -7678,7 +7687,7 @@ test.describe('Tendo production journey', () => {
 
       // 6. Account lists the app; Disconnect asks first, then removes it on the server and ends its token.
       await consent.goto('/account');
-      await expect(main.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      await expect(main.getByRole('heading', { level: 1, name: en['account.title'], exact: true })).toBeVisible();
       const appsHeading = main.getByRole('heading', { level: 2, name: en['connectedApps.title'], exact: true });
       await expect(appsHeading).toBeVisible();
       const rows = main.locator('li[data-grant-id]');
@@ -7689,21 +7698,24 @@ test.describe('Tendo production journey', () => {
       expect(grant).toMatchObject({ clientName, scopes: ['tendo:read', 'tendo:write'] });
       await expect(rows.first()).toHaveAttribute('data-grant-id', grant!.id);
       await rows.first().getByRole('button', { name: fill(en['connectedApps.disconnectLabel'], { client: clientName }), exact: true }).click();
-      const dialog = consent.getByRole('dialog', { name: fill(en['connectedApps.dialog.title'], { client: clientName }) });
+      const dialog = consent.getByRole('dialog', { name: fill(en['connectedApps.dialog.title'], { client: clientName }), exact: true });
       await expect(dialog).toBeVisible();
       expect((await serverGrants()).items.map((item) => item.id), 'nothing is removed before the confirmation').toEqual([grant!.id]);
       const removal = consent.waitForResponse((response) => response.request().method() === 'DELETE' && new URL(response.url()).pathname === `/api/v1/mcp/grants/${grant!.id}`);
       await dialog.getByRole('button', { name: en['connectedApps.dialog.confirm'], exact: true }).click();
       expect((await removal).status()).toBe(204);
       await expect(consent.getByRole('dialog')).toHaveCount(0);
-      await expect(main.getByText(fill(en['connectedApps.notice.disconnected'], { client: clientName }), { exact: true })).toBeVisible();
+      const disconnectedNotice = main.getByText(fill(en['connectedApps.notice.disconnected'], { client: clientName }), { exact: true });
+      await expect(disconnectedNotice).toBeVisible();
+      await expect(appsHeading).toBeVisible();
       await expect(rows).toHaveCount(0);
       expect(await serverGrants(), 'the server holds no connected app').toEqual({ items: [], nextCursor: null });
       // The notice keeps the emptied section on screen for a while; a fresh load of Account shows no section at all.
       const reloadedList = consent.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/v1/mcp/grants');
       await consent.reload();
       expect((await reloadedList).status()).toBe(200);
-      await expect(main.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      await expect(main.getByRole('heading', { level: 1, name: en['account.title'], exact: true })).toBeVisible();
+      await expect(disconnectedNotice).toHaveCount(0);
       await expect(appsHeading).toHaveCount(0);
       await expect(rows).toHaveCount(0);
       const refused = await mcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
@@ -7732,9 +7744,12 @@ test.describe('Tendo production journey', () => {
       expect(await serverGrants(), 'a denial creates no connected app').toEqual({ items: [], nextCursor: null });
       expect(callbacks, 'no further redirect was followed').toHaveLength(2);
 
+      // The provider sign-in made an owner session; end it so no later run inherits it.
+      const signedOut = await consent.request.delete('/api/v1/session', { headers: { Origin: baseURL } });
+      expect(signedOut.status(), 'the consent browser signs out').toBe(204);
       // The consent browser's only failed response is the signed-out session probe; r. ledgers it once proved here.
       expect(failures).toEqual(['GET /api/v1/session 401']);
-      n32FailedResponses = failures;
+      n32FailedResponses = [...failures];
     } catch (error) { primaryFailure = error; }
     // A cleanup failure never hides the step's own failure.
     await context.close().catch((error: unknown) => { cleanupFailure ??= error; });

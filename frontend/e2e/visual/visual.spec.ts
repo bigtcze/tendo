@@ -1157,7 +1157,9 @@ test('MCP consent and Connected apps', async ({ browser }) => {
   await page.clock.pauseAt(new Date('2026-05-14T08:01:00Z'));
   const authorized = page.waitForResponse((response) => new URL(response.url()).pathname === '/oauth/authorize');
   await page.goto(`/oauth/authorize?${query}`);
-  const location = (await authorized).headers()['location'] ?? '';
+  const authorizeResponse = await authorized;
+  expect(authorizeResponse.status(), 'authorize redirects to the consent page').toBe(303);
+  const location = authorizeResponse.headers()['location'] ?? '';
   expect(location).toMatch(/^\/connect#request=[A-Za-z0-9_-]{43}$/);
   const handle = location.slice('/connect#request='.length);
   const allow = (catalog: Record<keyof typeof en, string>) => page.getByRole('main').getByRole('button', { name: catalog['connect.allow'], exact: true });
