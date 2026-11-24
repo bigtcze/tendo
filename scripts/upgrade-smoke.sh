@@ -11,16 +11,19 @@ temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-upgrade.XXXXXX")
 export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME TENDO_VERSION
 TENDO_OIDC_ISSUER= TENDO_OIDC_CLIENT_ID= TENDO_OIDC_CLIENT_SECRET= TENDO_OIDC_CLIENT_SECRET_FILE= TENDO_OIDC_DISPLAY_NAME= TENDO_TRUSTED_PROXY_CIDRS=
 TENDO_RESTART_POLICY=no TENDO_DB_TIMEOUT=2 TENDO_SHUTDOWN_TIMEOUT=10
+# Settings of a release that predates TENDO_HOST_IP: the upgrade must not widen the bind.
+unset TENDO_HOST_IP
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
 origin=$TENDO_PUBLIC_URL
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml")
-compose_build=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
+# --env-file /dev/null: a developer's $root/.env must not mask the unset-TENDO_HOST_IP upgrade.
+compose=(docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml")
+compose_build=(docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
 
 cleanup() {
   local result=$?
   trap - EXIT
-  if ! docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" down --volumes --remove-orphans --rmi local; then
+  if ! docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" down --volumes --remove-orphans --rmi local; then
     printf 'Compose cleanup failed for project %s\n' "$project" >&2
     (( result != 0 )) || result=1
   fi
@@ -373,6 +376,8 @@ while IFS=$'\t' read -r recurrence_name recurrence_id; do recurrence_item[$recur
 unset TENDO_VERSION
 "${compose_build[@]}" up -d --build --wait --wait-timeout 240 --remove-orphans
 wait_ready
+published=$("${compose_build[@]}" port app 8080)
+[[ "$published" == "127.0.0.1:${TENDO_HOST_PORT}" ]] || { printf 'Upgraded app is published on %s, expected 127.0.0.1:%s only\n' "$published" "$TENDO_HOST_PORT" >&2; exit 1; }
 ledger=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
 [[ "$ledger" == "$((10#$expected_current)):false" ]] || { printf 'Upgrade ledger unexpected: %s (expected %s)\n' "$ledger" "$((10#$expected_current)):false" >&2; exit 1; }
 # The stored role password was not changed by the upgrade: the restricted login still works.
