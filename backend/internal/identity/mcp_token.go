@@ -27,7 +27,8 @@ type MCPCodeExchange struct {
 type MCPRefresh struct {
 	RefreshToken, ClientID, Resource string
 	// Scopes is the space-split scope parameter; nil or empty means absent. A
-	// present set must equal the grant's scopes as a set (no narrowing), else
+	// present set must equal, as a set, the grant's consented scopes or the
+	// effective scopes the policy allows now (the last response's scope), else
 	// ErrMCPInvalidScope.
 	Scopes []string
 }
@@ -237,17 +238,21 @@ func (s *MCPService) refreshLocked(ctx context.Context, tx MCPTransaction, in MC
 }
 
 // rotateRefreshLocked finishes a refresh that passed replay detection: the
-// scope check, the policy, then consumption and the new pair. The policy is
+// policy, the scope check, then consumption and the new pair. The policy is
 // checked after replay detection, so a replay still revokes, and before the
 // token is consumed, so a paused grant refreshes again once it is re-enabled.
+// It is also checked before the scope parameter, so an installation switched
+// off answers the disabled 404 whatever scope the client sent.
 func rotateRefreshLocked(ctx context.Context, tx MCPTransaction, owner, grantID string, grant MCPGrantRecord, requested []string, refreshHash []byte, now time.Time) (MCPTokens, error, error) {
-	// Narrowing and widening are both refused; the token is not consumed.
-	if !refreshScopesMatch(requested, grant.Scopes) {
-		return MCPTokens{}, ErrMCPInvalidScope, nil
-	}
 	effective, outcome, err := effectiveScopesLocked(ctx, tx, owner, grant.Scopes)
 	if outcome != nil || err != nil {
 		return MCPTokens{}, outcome, err
+	}
+	// Any other narrowing and any widening are refused; the token is not
+	// consumed. The effective set is accepted because the previous token
+	// response named it as the granted scope (RFC 6749 section 6).
+	if !refreshScopesMatch(requested, grant.Scopes) && !refreshScopesMatch(requested, effective) {
+		return MCPTokens{}, ErrMCPInvalidScope, nil
 	}
 	if err = tx.ConsumeRefreshToken(ctx, refreshHash, now); err != nil {
 		return MCPTokens{}, nil, err

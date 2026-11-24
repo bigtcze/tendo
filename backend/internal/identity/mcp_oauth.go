@@ -225,7 +225,10 @@ type MCPIssuedCode struct {
 // IssueAuthorizationCode stores a single-use PKCE code for an approved
 // consent. The approving session must still exist under the account and
 // credential share locks, so a password replacement or deletion that already
-// signed the browser out cannot be followed by a fresh code.
+// signed the browser out cannot be followed by a fresh code. No HTTP route
+// calls it: production codes come only from the consent decision. It is kept
+// as the direct issuance seam the tests use, and applies the same policy,
+// answering ErrMCPAccessDenied where the decision redirects with access_denied.
 func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthorization) (MCPIssuedCode, error) {
 	if !s.enabled {
 		return MCPIssuedCode{}, ErrMCPDisabled

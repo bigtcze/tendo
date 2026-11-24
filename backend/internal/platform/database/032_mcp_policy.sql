@@ -122,6 +122,8 @@ BEGIN
  IF EXISTS (SELECT 1 FROM mcp_grants WHERE revoke_reason = 'admin')
    OR EXISTS (SELECT 1 FROM mcp_grant_events WHERE reason = 'admin')
    OR EXISTS (SELECT 1 FROM mcp_policy_events)
+   OR EXISTS (SELECT 1 FROM user_accounts u WHERE u.deleted_at IS NULL
+     AND NOT EXISTS (SELECT 1 FROM mcp_account_policies p WHERE p.user_id = u.id))
    OR EXISTS (SELECT 1 FROM mcp_account_policies
      WHERE admin_enabled IS NOT NULL OR admin_max_scopes IS NOT NULL OR NOT user_enabled
        OR NOT (user_scopes @> ARRAY['tendo:read','tendo:write']::text[]))

@@ -195,7 +195,7 @@ func TestMigrationTwentyFiveUpDownAndPrivileges(t *testing.T) {
 		t.Fatalf("ledger rows %d->%d after repeated Up", before, after)
 	}
 	if after := migrationInt(t, ctx, admin, `SELECT max(version) FROM tendo_schema_migrations`); after != beforeVersion || after != 32 {
-		t.Fatalf("ledger version=%d want 31", after)
+		t.Fatalf("ledger version=%d want 32", after)
 	}
 }
 

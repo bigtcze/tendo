@@ -278,6 +278,8 @@ func TestMigrationThirtyTwoDownRefusesOnceUsed(t *testing.T) {
 		{"admin maximum set", `UPDATE mcp_account_policies SET admin_max_scopes=ARRAY['tendo:read','tendo:write'] WHERE user_id=(SELECT user_id FROM mcp_grants WHERE id=$1::uuid)`, `UPDATE mcp_account_policies SET admin_max_scopes=NULL`},
 		{"user off", `UPDATE mcp_account_policies SET user_enabled=false WHERE user_id=(SELECT user_id FROM mcp_grants WHERE id=$1::uuid)`, `UPDATE mcp_account_policies SET user_enabled=true`},
 		{"user narrowed", `UPDATE mcp_account_policies SET user_scopes=ARRAY['tendo:write'] WHERE user_id=(SELECT user_id FROM mcp_grants WHERE id=$1::uuid)`, `UPDATE mcp_account_policies SET user_scopes=ARRAY['tendo:read','tendo:write']`},
+		{"account row missing", `DELETE FROM mcp_account_policies WHERE user_id=(SELECT user_id FROM mcp_grants WHERE id=$1::uuid)`,
+			`INSERT INTO mcp_account_policies(user_id) SELECT user_id FROM mcp_grants WHERE id=$1::uuid`},
 		{"installation row missing", `DELETE FROM mcp_installation_policy WHERE $1::uuid IS NOT NULL`, `INSERT INTO mcp_installation_policy(singleton) SELECT true WHERE $1::uuid IS NOT NULL`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

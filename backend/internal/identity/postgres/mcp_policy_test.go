@@ -38,13 +38,16 @@ func TestMCPPolicyEnforcedAgainstPostgres(t *testing.T) {
 		{name: "user off",
 			pause:  `UPDATE mcp_account_policies SET user_enabled=false WHERE user_id=$1::uuid`,
 			resume: `UPDATE mcp_account_policies SET user_enabled=true WHERE user_id=$1::uuid`},
+		{name: "installation row missing", disabled: true,
+			pause:  `DELETE FROM mcp_installation_policy WHERE $1::uuid IS NOT NULL`,
+			resume: `INSERT INTO mcp_installation_policy(singleton) SELECT true WHERE $1::uuid IS NOT NULL`},
 		{name: "account row missing",
 			pause:  `DELETE FROM mcp_account_policies WHERE user_id=$1::uuid`,
 			resume: `INSERT INTO mcp_account_policies(user_id) VALUES ($1::uuid)`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newMCPEnv(t)
-			defer env.admin.Exec(env.ctx, `UPDATE mcp_installation_policy SET enabled=true, default_account_enabled=true`) //nolint:errcheck // best-effort reset of the shared singleton
+			defer env.admin.Exec(env.ctx, `INSERT INTO mcp_installation_policy(singleton) VALUES (true) ON CONFLICT (singleton) DO UPDATE SET enabled=true, default_account_enabled=true`) //nolint:errcheck // best-effort reset of the shared singleton
 			user, session := env.newAccount(t, "mcp_policy_pause")
 			tokens, err := env.exchange(env.issue(t, user, session))
 			if err != nil {
@@ -165,5 +168,54 @@ func TestMCPAdminRevocationDeniesNextRequest(t *testing.T) {
 	}
 	if _, err := env.refresh(tokens.RefreshToken); !errors.Is(err, identity.ErrMCPInvalidGrant) {
 		t.Fatalf("refresh after admin revocation err=%v", err)
+	}
+}
+
+// TestMCPConsentDeniedWhenNothingAllowedAgainstPostgres: with no requested
+// scope allowed, an approval redirects with access_denied, consumes the pending
+// request and stores no code.
+func TestMCPConsentDeniedWhenNothingAllowedAgainstPostgres(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newAccount(t, "mcp_policy_consent")
+	env.setPolicy(t, `UPDATE mcp_account_policies SET user_enabled=false WHERE user_id=$1::uuid`, user)
+	pending := env.begin(t, mcpTestRedirectURI, "s1")
+	result, err := env.decide(user, session, pending, true)
+	if err != nil || result.Code != "" || result.RedirectURI != mcpTestRedirectURI || result.State != "s1" {
+		t.Fatalf("approval while off: %+v %v", result, err)
+	}
+	var codes, requests int
+	if err := env.admin.QueryRow(env.ctx, `SELECT
+		(SELECT count(*) FROM mcp_authorization_codes WHERE user_id=$1::uuid),
+		(SELECT count(*) FROM mcp_authorization_requests)`, user).Scan(&codes, &requests); err != nil {
+		t.Fatal(err)
+	}
+	if codes != 0 || requests != 0 {
+		t.Fatalf("codes=%d pending requests=%d want 0 and 0", codes, requests)
+	}
+	if _, err := env.decide(user, session, pending, true); !errors.Is(err, identity.ErrMCPAuthorizationRequestNotFound) {
+		t.Fatalf("second decision err=%v want the request consumed", err)
+	}
+}
+
+// TestMCPRefreshAcceptsTheAnsweredScopeAgainstPostgres: after the policy
+// narrows a grant, a refresh naming the scope the last response returned
+// succeeds; another subset is refused without consuming the token.
+func TestMCPRefreshAcceptsTheAnsweredScopeAgainstPostgres(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newAccount(t, "mcp_policy_refresh_scope")
+	tokens, err := env.exchange(env.issue(t, user, session))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.setPolicy(t, `UPDATE mcp_account_policies SET user_scopes=ARRAY['tendo:read'] WHERE user_id=$1::uuid`, user)
+	refreshWith := func(token string, scopes ...string) (identity.MCPTokens, error) {
+		return env.svc.Refresh(env.ctx, identity.MCPRefresh{RefreshToken: token, ClientID: mcpTestClientID, Resource: mcpTestResource, Scopes: scopes})
+	}
+	if _, err := refreshWith(tokens.RefreshToken, identity.MCPScopeWrite); !errors.Is(err, identity.ErrMCPInvalidScope) {
+		t.Fatalf("other subset err=%v want ErrMCPInvalidScope", err)
+	}
+	next, err := refreshWith(tokens.RefreshToken, identity.MCPScopeRead)
+	if err != nil || !slices.Equal(next.Scopes, []string{identity.MCPScopeRead}) {
+		t.Fatalf("answered scope: %v %v", next.Scopes, err)
 	}
 }

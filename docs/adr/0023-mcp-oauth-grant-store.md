@@ -855,7 +855,8 @@ AND (account maximum ∩ user scopes ∩ grant scopes)
   instance administrator's revocation of another account's grant, with the
   administrator as actor. `mcp_grant_events` stays the only grant audit.
 - Down refuses once the policy was used: any `admin` revocation, any policy
-  event, or any row that differs from its default. An earlier release has no
+  event, any row that differs from its default, or a live account without its
+  row (which reads as inactive). An earlier release has no
   policy, so a rollback would silently widen access or falsify an audited
   cause. Restore a backup instead.
 
@@ -870,7 +871,10 @@ AND (account maximum ∩ user scopes ∩ grant scopes)
   consented set.
 - Refresh: checked after replay detection, so a replayed token still revokes
   the grant as `replay`, and before the token is consumed, so a paused grant
-  refreshes again once re-enabled.
+  refreshes again once re-enabled. It is also checked before the `scope`
+  parameter, so an installation switched off answers the disabled 404. A
+  present `scope` may name the consented set or the effective set the last
+  response returned (RFC 6749 section 6); any other subset is `invalid_scope`.
 - Consent: the code carries the requested scopes the policy allows. When none
   is allowed the approval is answered like a denial (`access_denied`).
 - Switching off pauses; it never revokes. Revocation stays an explicit action.
@@ -885,3 +889,10 @@ AND (account maximum ∩ user scopes ∩ grant scopes)
   route answer the disabled 404 while it is off.
 - The step-up 403 `insufficient_scope` that names a policy-allowed scope the
   grant lacks ships with the write tools (B3).
+- The consent screen still lists the requested scopes; showing requested ∩
+  allowed (and a blocked state) is slice B4b.
+- `IssueAuthorizationCode` has no HTTP caller; it is the direct issuance seam
+  the tests use and answers `ErrMCPAccessDenied` where the decision redirects.
+- A `--data-only` restore of `user_accounts` into an existing schema fires
+  the policy trigger before the policy rows load; restore into an empty
+  database as documented.

@@ -458,7 +458,7 @@ assert not unexpected, ('unexpected new application tables during upgrade', sort
 # predates it must get an empty table. member_person_migration_unlinks may hold
 # deliberate non-canonical unlink rows, so only its existence is required here and its
 # count is asserted against the measured expectation below.
-for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020'), ('household_member_removals', '024'), ('household_member_assignments', '025'), ('household_creations', '026'), ('account_deletions', '027'), ('instance_admin_revocations', '027'), ('mcp_clients', '028'), ('mcp_grants', '028'), ('mcp_authorization_codes', '028'), ('mcp_access_tokens', '028'), ('mcp_refresh_tokens', '028'), ('mcp_grant_events', '028'), ('mcp_authorization_requests', '030')):
+for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020'), ('household_member_removals', '024'), ('household_member_assignments', '025'), ('household_creations', '026'), ('account_deletions', '027'), ('instance_admin_revocations', '027'), ('mcp_clients', '028'), ('mcp_grants', '028'), ('mcp_authorization_codes', '028'), ('mcp_access_tokens', '028'), ('mcp_refresh_tokens', '028'), ('mcp_grant_events', '028'), ('mcp_authorization_requests', '030'), ('mcp_policy_events', '032')):
     assert name in after, (f'migration {migration} table missing after upgrade', sorted(after))
     if name not in before:
         assert after[name] == '0', (f'migration {migration} must create {name} empty', name, after[name])
@@ -488,4 +488,7 @@ print(f'{len(before)} pre-existing migration ledger entries preserved; {len(afte
 PY
 api verify
 api exercise
+# Accounts created after the upgrade (exercise) get their default policy row from the trigger.
+mcp_policy_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM user_accounts u WHERE (SELECT count(*) FROM mcp_account_policies p WHERE p.user_id=u.id AND p.admin_enabled IS NULL AND p.admin_max_scopes IS NULL AND p.user_enabled AND p.user_scopes @> ARRAY['tendo:read','tendo:write']) <> 1")
+[[ "$mcp_policy_after" == "0" ]] || { printf 'Migration 032: %s accounts lack exactly one default MCP policy row after exercise\n' "$mcp_policy_after" >&2; exit 1; }
 printf 'Published %s in-place upgrade smoke passed.\n' "$source_version"

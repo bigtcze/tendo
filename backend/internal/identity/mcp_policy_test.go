@@ -359,3 +359,49 @@ func TestMCPDirectIssuanceAppliesPolicy(t *testing.T) {
 		t.Fatalf("installation off issuance err=%v", err)
 	}
 }
+
+// TestMCPRefreshAcceptsTheAnsweredScope: once the policy narrows a grant, the
+// client may send back the scope the last token response named; any other
+// subset is still refused without consuming the token.
+func TestMCPRefreshAcceptsTheAnsweredScope(t *testing.T) {
+	fx := newMCPFixture(t)
+	in := mcpValidAuthorization()
+	in.Scopes = mcpBoth
+	tokens, err := fx.svc.ExchangeCode(context.Background(), mcpValidExchange(fx.issueCode(in)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.setPolicy(func(p *MCPPolicyRecord) { p.UserScopes = mcpReadOnly })
+	wrong := mcpRefreshOf(tokens)
+	wrong.Scopes = mcpWriteOne
+	if _, err := fx.svc.Refresh(context.Background(), wrong); !errors.Is(err, ErrMCPInvalidScope) {
+		t.Fatalf("other subset err=%v want ErrMCPInvalidScope", err)
+	}
+	if fx.f.state.refresh[string(mcpDigest(tokens.RefreshToken))].Consumed {
+		t.Fatal("a refused scope consumed the token")
+	}
+	answered := mcpRefreshOf(tokens)
+	answered.Scopes = mcpReadOnly
+	next, err := fx.svc.Refresh(context.Background(), answered)
+	if err != nil || !slices.Equal(next.Scopes, mcpReadOnly) {
+		t.Fatalf("answered scope: %v %v", next.Scopes, err)
+	}
+	consented := mcpRefreshOf(next)
+	consented.Scopes = mcpBoth
+	if _, err := fx.svc.Refresh(context.Background(), consented); err != nil {
+		t.Fatalf("consented scope: %v", err)
+	}
+}
+
+// TestMCPRefreshInstallationOffBeforeScope: with the installation off, a
+// mismatched scope still answers disabled, never invalid_scope.
+func TestMCPRefreshInstallationOffBeforeScope(t *testing.T) {
+	fx := newMCPFixture(t)
+	_, tokens := fx.exchangeOK()
+	fx.setPolicy(func(p *MCPPolicyRecord) { p.InstallationEnabled = false })
+	req := mcpRefreshOf(tokens)
+	req.Scopes = mcpBoth
+	if _, err := fx.svc.Refresh(context.Background(), req); !errors.Is(err, ErrMCPDisabled) {
+		t.Fatalf("err=%v want ErrMCPDisabled", err)
+	}
+}
