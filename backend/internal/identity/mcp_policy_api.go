@@ -38,19 +38,24 @@ type MCPPolicyRow struct {
 type MCPPolicyEventKind string
 
 const (
-	MCPPolicyEventAccount MCPPolicyEventKind = "account"
-	MCPPolicyEventUser    MCPPolicyEventKind = "user"
+	MCPPolicyEventInstallation MCPPolicyEventKind = "installation"
+	MCPPolicyEventAccount      MCPPolicyEventKind = "account"
+	MCPPolicyEventUser         MCPPolicyEventKind = "user"
 )
 
 // MCPPolicyEvent is one append-only audit row: the policy as it stood after the
-// change and the human who made it.
+// change and the human who made it. ID is the uuidv7 that orders the list.
+// TargetUserID is empty for the installation level, and DefaultAccountEnabled
+// is set only for that level.
 type MCPPolicyEvent struct {
-	Kind         MCPPolicyEventKind
-	ActorUserID  string
-	TargetUserID string
-	Enabled      *bool
-	Scopes       []string
-	OccurredAt   time.Time
+	ID                    string
+	Kind                  MCPPolicyEventKind
+	ActorUserID           string
+	TargetUserID          string
+	Enabled               *bool
+	DefaultAccountEnabled *bool
+	Scopes                []string
+	OccurredAt            time.Time
 }
 
 // MCPPolicyTransaction is the transaction-scoped surface of the policy writes.
@@ -68,6 +73,18 @@ type MCPPolicyTransaction interface {
 	// its version.
 	UpdateAccountPolicy(ctx context.Context, userID string, row MCPPolicyRow, now time.Time) error
 	AppendPolicyEvent(ctx context.Context, event MCPPolicyEvent) error
+	// ReadInstallationPolicy reads the installation row without a lock. A
+	// missing row is ErrMCPInstallationMissing.
+	ReadInstallationPolicy(ctx context.Context) (MCPInstallationRow, error)
+	// LockInstallationPolicy takes the installation row FOR UPDATE. A missing
+	// row is ErrMCPInstallationMissing.
+	LockInstallationPolicy(ctx context.Context) (MCPInstallationRow, error)
+	// UpdateInstallationPolicy stores the row's terms and version. The caller
+	// holds the lock.
+	UpdateInstallationPolicy(ctx context.Context, row MCPInstallationRow, now time.Time) error
+	// ListPolicyEvents returns up to limit audit rows across all levels with an
+	// id below afterID (when set), newest first.
+	ListPolicyEvents(ctx context.Context, afterID string, limit int) ([]MCPPolicyEvent, error)
 	// ReadLiveAccountPolicy returns the stored policy and the row version of a
 	// live account without a lock. A deleted, unknown or malformed account is
 	// ErrNotFound. A missing account row is AccountFound false with version 0.

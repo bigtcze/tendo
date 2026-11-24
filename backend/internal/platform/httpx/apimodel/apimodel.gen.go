@@ -729,6 +729,36 @@ func (e McpGrantScopes) Valid() bool {
 	}
 }
 
+// Defines values for McpInstallationPolicyValidationProblemCode.
+const (
+	McpInstallationPolicyValidationProblemCodeInvalidValue McpInstallationPolicyValidationProblemCode = "invalid_value"
+)
+
+// Valid indicates whether the value is a known member of the McpInstallationPolicyValidationProblemCode enum.
+func (e McpInstallationPolicyValidationProblemCode) Valid() bool {
+	switch e {
+	case McpInstallationPolicyValidationProblemCodeInvalidValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpInstallationPolicyValidationProblemField.
+const (
+	DefaultMaxScopes McpInstallationPolicyValidationProblemField = "defaultMaxScopes"
+)
+
+// Valid indicates whether the value is a known member of the McpInstallationPolicyValidationProblemField enum.
+func (e McpInstallationPolicyValidationProblemField) Valid() bool {
+	switch e {
+	case DefaultMaxScopes:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpJsonRpcMessageJsonrpc.
 const (
 	N20 McpJsonRpcMessageJsonrpc = "2.0"
@@ -738,6 +768,27 @@ const (
 func (e McpJsonRpcMessageJsonrpc) Valid() bool {
 	switch e {
 	case N20:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpPolicyEventPolicy.
+const (
+	McpPolicyEventPolicyAccount      McpPolicyEventPolicy = "account"
+	McpPolicyEventPolicyInstallation McpPolicyEventPolicy = "installation"
+	McpPolicyEventPolicyUser         McpPolicyEventPolicy = "user"
+)
+
+// Valid indicates whether the value is a known member of the McpPolicyEventPolicy enum.
+func (e McpPolicyEventPolicy) Valid() bool {
+	switch e {
+	case McpPolicyEventPolicyAccount:
+		return true
+	case McpPolicyEventPolicyInstallation:
+		return true
+	case McpPolicyEventPolicyUser:
 		return true
 	default:
 		return false
@@ -2187,6 +2238,46 @@ type McpGrantList struct {
 	NextCursor *string `json:"nextCursor"`
 }
 
+// McpInstallationPolicy The installation MCP terms. operatorEnabled is TENDO_MCP_ENABLED and is read-only here. Shares one policy version (ETag) with the other MCP policy writes.
+type McpInstallationPolicy struct {
+	// DefaultAccountEnabled The default for accounts whose administrator override is null.
+	DefaultAccountEnabled bool `json:"defaultAccountEnabled"`
+
+	// DefaultMaxScopes The default scope maximum for accounts whose administrator maximum is null.
+	DefaultMaxScopes McpScopeList `json:"defaultMaxScopes"`
+
+	// Enabled The installation switch. Off answers every MCP route as the unknown-path 404, except the connected apps, settings, policy and audit routes.
+	Enabled bool `json:"enabled"`
+
+	// OperatorEnabled TENDO_MCP_ENABLED. Read-only.
+	OperatorEnabled bool `json:"operatorEnabled"`
+}
+
+// McpInstallationPolicyUpdate Full replacement of the installation terms. operatorEnabled is not accepted.
+type McpInstallationPolicyUpdate struct {
+	DefaultAccountEnabled bool         `json:"defaultAccountEnabled"`
+	DefaultMaxScopes      McpScopeList `json:"defaultMaxScopes"`
+	Enabled               bool         `json:"enabled"`
+}
+
+// McpInstallationPolicyValidationProblem defines model for McpInstallationPolicyValidationProblem.
+type McpInstallationPolicyValidationProblem struct {
+	Code                 McpInstallationPolicyValidationProblemCode  `json:"code"`
+	Detail               *string                                     `json:"detail,omitempty"`
+	Field                McpInstallationPolicyValidationProblemField `json:"field"`
+	Instance             *string                                     `json:"instance,omitempty"`
+	Status               int                                         `json:"status"`
+	Title                string                                      `json:"title"`
+	Type                 string                                      `json:"type"`
+	AdditionalProperties map[string]interface{}                      `json:"-"`
+}
+
+// McpInstallationPolicyValidationProblemCode defines model for McpInstallationPolicyValidationProblem.Code.
+type McpInstallationPolicyValidationProblemCode string
+
+// McpInstallationPolicyValidationProblemField defines model for McpInstallationPolicyValidationProblem.Field.
+type McpInstallationPolicyValidationProblemField string
+
 // McpJsonRpcMessage One JSON-RPC 2.0 message as defined by the MCP specification. The MCP SDK validates the message; this schema only fixes the envelope.
 type McpJsonRpcMessage struct {
 	Jsonrpc              McpJsonRpcMessageJsonrpc `json:"jsonrpc"`
@@ -2198,6 +2289,33 @@ type McpJsonRpcMessageJsonrpc string
 
 // McpPlainTextError A plain-text refusal written by the MCP SDK transport layer.
 type McpPlainTextError = string
+
+// McpPolicyEvent One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse.
+type McpPolicyEvent struct {
+	ActorUserId string `json:"actorUserId"`
+
+	// DefaultAccountEnabled Set only for the installation level.
+	DefaultAccountEnabled *bool                `json:"defaultAccountEnabled"`
+	Enabled               *bool                `json:"enabled"`
+	Id                    string               `json:"id"`
+	OccurredAt            time.Time            `json:"occurredAt"`
+	Policy                McpPolicyEventPolicy `json:"policy"`
+	Scopes                *McpScopeList        `json:"scopes"`
+
+	// TargetUserId The account the change applies to. null for the installation level.
+	TargetUserId *string `json:"targetUserId"`
+}
+
+// McpPolicyEventPolicy defines model for McpPolicyEvent.Policy.
+type McpPolicyEventPolicy string
+
+// McpPolicyEventList One newest-first page of the MCP policy audit list.
+type McpPolicyEventList struct {
+	Items []McpPolicyEvent `json:"items"`
+
+	// NextCursor Opaque cursor for the next page. Absent or null on the last page.
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
 
 // McpPolicyValidationProblem defines model for McpPolicyValidationProblem.
 type McpPolicyValidationProblem struct {
@@ -2896,6 +3014,36 @@ type AssignAdminHouseholdAccountParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// GetMcpInstallationPolicyParams defines parameters for GetMcpInstallationPolicy.
+type GetMcpInstallationPolicyParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateMcpInstallationPolicyParams defines parameters for UpdateMcpInstallationPolicy.
+type UpdateMcpInstallationPolicyParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+
+	// IfMatch Strong installation policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+	IfMatch string `json:"If-Match"`
+}
+
+// ListMcpPolicyEventsParams defines parameters for ListMcpPolicyEvents.
+type ListMcpPolicyEventsParams struct {
+	// Limit Page size, 1 to 100. Defaults to 50.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from nextCursor. Omit for the first page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // AcceptInvitationWithNewAccountParams defines parameters for AcceptInvitationWithNewAccount.
 type AcceptInvitationWithNewAccountParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
@@ -3468,6 +3616,9 @@ type UpdateAdminHouseholdAccountRoleJSONRequestBody = UpdateAccountRoleRequest
 
 // AssignAdminHouseholdAccountJSONRequestBody defines body for AssignAdminHouseholdAccount for application/json ContentType.
 type AssignAdminHouseholdAccountJSONRequestBody = UpdateAccountRoleRequest
+
+// UpdateMcpInstallationPolicyJSONRequestBody defines body for UpdateMcpInstallationPolicy for application/json ContentType.
+type UpdateMcpInstallationPolicyJSONRequestBody = McpInstallationPolicyUpdate
 
 // AcceptInvitationWithNewAccountJSONRequestBody defines body for AcceptInvitationWithNewAccount for application/json ContentType.
 type AcceptInvitationWithNewAccountJSONRequestBody = AcceptInvitationNewAccountRequest
@@ -4720,6 +4871,154 @@ func (a McpClientRegistrationRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'token_endpoint_auth_method': %w", err)
 		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpInstallationPolicyValidationProblem. Returns the specified
+// element and whether it was found
+func (a McpInstallationPolicyValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpInstallationPolicyValidationProblem
+func (a *McpInstallationPolicyValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpInstallationPolicyValidationProblem to handle AdditionalProperties
+func (a *McpInstallationPolicyValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpInstallationPolicyValidationProblem to handle AdditionalProperties
+func (a McpInstallationPolicyValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

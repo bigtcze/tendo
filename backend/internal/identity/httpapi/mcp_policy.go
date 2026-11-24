@@ -20,15 +20,22 @@ const (
 	mcpSettingsPath         = "/api/v1/mcp/settings"
 	mcpSettingsWritePerUser = 30
 	mcpPolicyBodyLimit      = 4096
+	// Slice B1b2: the installation policy and the audit list (ADR 0023).
+	mcpInstallationPolicyPath = "/api/v1/admin/mcp-policy"
+	mcpPolicyEventsPath       = "/api/v1/admin/mcp-policy-events"
 )
 
-// mcpPolicyService is the account policy surface the adapter needs.
+// mcpPolicyService is the account policy surface the adapter needs, with the
+// installation policy and the audit list (B1b2).
 type mcpPolicyService interface {
 	RequireInstanceAdmin(ctx context.Context, actorID string) error
 	AccountPolicy(ctx context.Context, actorID, userID string) (identity.MCPAccountPolicy, error)
 	UpdateAccountPolicy(ctx context.Context, actorID, userID string, change identity.MCPAccountPolicyChange, expected int64) (identity.MCPAccountPolicy, error)
 	Settings(ctx context.Context, userID string) (identity.MCPSettings, error)
 	UpdateSettings(ctx context.Context, userID string, change identity.MCPSettingsChange, expected int64) (identity.MCPSettings, error)
+	InstallationPolicy(ctx context.Context, actorID string) (identity.MCPInstallationView, error)
+	UpdateInstallationPolicy(ctx context.Context, actorID string, change identity.MCPInstallationChange, expected int64) (identity.MCPInstallationView, error)
+	PolicyEvents(ctx context.Context, actorID string, limit int, cursor string) (identity.MCPPolicyEventList, error)
 }
 
 // MCPPolicyHandler serves the administrator's account policy and the account
@@ -53,6 +60,9 @@ func (h *MCPPolicyHandler) Register(r chi.Router) {
 	}
 	r.Get(mcpAdminPolicyPath, admin(h.getAccountPolicy))
 	r.Put(mcpAdminPolicyPath, admin(h.updateAccountPolicy))
+	r.Get(mcpInstallationPolicyPath, admin(h.getInstallationPolicy))
+	r.Put(mcpInstallationPolicyPath, admin(h.updateInstallationPolicy))
+	r.Get(mcpPolicyEventsPath, admin(h.listPolicyEvents))
 	r.Get(mcpSettingsPath, h.sessions.RequireSession(http.HandlerFunc(h.getSettings)).ServeHTTP)
 	r.Put(mcpSettingsPath, h.sessions.RequireSession(http.HandlerFunc(h.updateSettings)).ServeHTTP)
 }

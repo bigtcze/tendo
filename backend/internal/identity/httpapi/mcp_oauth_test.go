@@ -21,9 +21,19 @@ type fakeMCPService struct {
 	err     error
 	calls   int
 	got     identity.MCPClientRegistration
+	// installationOff models the installation switch read as off (B1b2);
+	// availErr models a failed or missing switch read, which fails closed.
+	installationOff bool
+	availErr        error
 }
 
-func (f *fakeMCPService) Enabled() bool { return f.enabled }
+// Available is TENDO_MCP_ENABLED and the installation switch (B1b2).
+func (f *fakeMCPService) Available(context.Context) (bool, error) {
+	if f.availErr != nil {
+		return false, f.availErr
+	}
+	return f.enabled && !f.installationOff, nil
+}
 
 func (f *fakeMCPService) RegisterClient(_ context.Context, reg identity.MCPClientRegistration) (identity.MCPRegisteredClient, error) {
 	f.calls++

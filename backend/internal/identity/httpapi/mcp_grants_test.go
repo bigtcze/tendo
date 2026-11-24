@@ -267,7 +267,7 @@ func TestConnectedAppsLogCarriesNoGrantID(t *testing.T) {
 }
 
 // The handler's only service dependency is the narrow connected-apps surface,
-// which has no Enabled(). A disabled service still serves these routes.
+// which has no availability check. A disabled service still serves these routes.
 func TestConnectedAppsServeWhileServiceReportsNoMCP(t *testing.T) {
 	svc := &fakeGrantService{page: identity.MCPGrantPage{}}
 	h := grantRouter(svc, signedIn(), mcpPublicURL)

@@ -1,20 +1,32 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// fixedInstallationSwitch answers the installation switch with a fixed value, so
+// a composition test can model an installation that is on without a database.
+type fixedInstallationSwitch bool
+
+func (f fixedInstallationSwitch) ReadInstallationSwitch(context.Context) (bool, error) {
+	return bool(f), nil
+}
+
 // newEnabledMCPApp builds the production handler with TENDO_MCP_ENABLED on. The
 // database is unreachable, so any request that reaches token verification fails
-// closed with 503 and no driver text.
-func newEnabledMCPApp(t *testing.T) (http.Handler, config.Config) {
+// closed with 503 and no driver text. installation answers the installation
+// switch in place of that database; nil keeps the real database read.
+func newEnabledMCPApp(t *testing.T, installation identityapp.MCPInstallationStore) (http.Handler, config.Config) {
 	t.Helper()
+	overrides := compositionOverrides{installationSwitch: installation}
 	pool, err := pgxpool.New(t.Context(), "postgres://tendo@127.0.0.1:1/tendo?connect_timeout=1")
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +41,7 @@ func newEnabledMCPApp(t *testing.T) (http.Handler, config.Config) {
 		OIDCDisplayName:  "Contract IdP",
 		MCPEnabled:       true,
 	}
-	app, err := productionApp(cfg, pool, fakeSPA, make(chan struct{}))
+	app, err := productionAppWith(cfg, pool, fakeSPA, make(chan struct{}), overrides)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +73,7 @@ const mcpBodyPing = `{"jsonrpc":"2.0","id":1,"method":"ping"}`
 // request with no usable credential: no header, a cookie only, and a token in
 // the query string. None is ever read as a bearer token.
 func TestEnabledMCPEndpointChallengesWithoutAToken(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	const token = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	cases := map[string]*httptest.ResponseRecorder{
 		"no header": serveMCPRequest(app, http.MethodPost, cfg.PublicURL+"/mcp", "", cfg.PublicURL, "", mcpBodyPing),
@@ -91,7 +103,7 @@ func TestEnabledMCPEndpointChallengesWithoutAToken(t *testing.T) {
 // bearer token reaches verification, and that the unreachable database yields the
 // OAuth 503 with no driver text.
 func TestEnabledMCPEndpointVerifiesWithoutLeakingDriverText(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	const token = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	w := serveMCPRequest(app, http.MethodPost, cfg.PublicURL+"/mcp", "", cfg.PublicURL, "Bearer "+token, mcpBodyPing)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"error":"temporarily_unavailable"`) {
@@ -106,7 +118,7 @@ func TestEnabledMCPEndpointVerifiesWithoutLeakingDriverText(t *testing.T) {
 // for POST /mcp: an absent Origin passes, a foreign, null or duplicated Origin
 // is refused with 403, and a wrong Host is refused with 421 before routing.
 func TestEnabledMCPEndpointRefusesBrowserOriginsAndWrongHost(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	target := cfg.PublicURL + "/mcp"
 	for _, origin := range []string{"https://foreign.example", "null"} {
 		if w := serveMCPRequest(app, http.MethodPost, target, "", origin, "", mcpBodyPing); w.Code != http.StatusForbidden {
@@ -123,7 +135,7 @@ func TestEnabledMCPEndpointRefusesBrowserOriginsAndWrongHost(t *testing.T) {
 // 403. A single public Origin passes the origin check and reaches the auth
 // front (401 without a token).
 func TestEnabledMCPEndpointDuplicateOriginIsRefusedAndPublicOriginPasses(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	target := cfg.PublicURL + "/mcp"
 
 	dup := httptest.NewRequest(http.MethodPost, target, strings.NewReader(mcpBodyPing))
@@ -145,7 +157,7 @@ func TestEnabledMCPEndpointDuplicateOriginIsRefusedAndPublicOriginPasses(t *test
 // TestEnabledMCPEndpointNonPostIsNotAllowed pins GET and DELETE with the public
 // Origin: 405 with Allow: POST, never the SPA and never a 404.
 func TestEnabledMCPEndpointNonPostIsNotAllowed(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	for _, method := range []string{http.MethodGet, http.MethodDelete} {
 		w := serveMCPRequest(app, method, cfg.PublicURL+"/mcp", "", cfg.PublicURL, "", "")
 		if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != http.MethodPost {
@@ -162,7 +174,7 @@ func TestEnabledMCPEndpointNonPostIsNotAllowed(t *testing.T) {
 // by an authenticated request and never reveals the endpoint to an anonymous
 // caller.
 func TestEnabledMCPEndpointAuthenticatesBeforeBatchRefusal(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	w := serveMCPRequest(app, http.MethodPost, cfg.PublicURL+"/mcp", "", cfg.PublicURL, "", "[]")
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("batch without token: status=%d want 401 before batch refusal", w.Code)
@@ -173,7 +185,7 @@ func TestEnabledMCPEndpointAuthenticatesBeforeBatchRefusal(t *testing.T) {
 // state-changing method on /mcp without any Origin is refused by the browser
 // Origin check. Only POST /mcp is exempt for native clients that send no Origin.
 func TestEnabledMCPEndpointUnsafeMethodsWithoutOriginAreForbidden(t *testing.T) {
-	app, cfg := newEnabledMCPApp(t)
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(true))
 	for _, method := range []string{http.MethodDelete, http.MethodPut} {
 		if w := serveMCPRequest(app, method, cfg.PublicURL+"/mcp", "", "", "", ""); w.Code != http.StatusForbidden {
 			t.Fatalf("%s without Origin: status=%d want 403", method, w.Code)

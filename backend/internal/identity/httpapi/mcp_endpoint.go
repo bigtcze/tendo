@@ -39,7 +39,7 @@ const (
 
 // mcpTokenVerifier is the MCP service surface the endpoint needs.
 type mcpTokenVerifier interface {
-	Enabled() bool
+	Available(ctx context.Context) (bool, error)
 	VerifyAccessToken(ctx context.Context, token string) (identity.MCPAccess, error)
 }
 
@@ -125,7 +125,13 @@ func (e *MCPEndpoint) Register(r chi.Router) {
 // authentication, the per-grant and per-user limits, the scope admission, the
 // body checks, and finally the SDK.
 func (e *MCPEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !e.service.Enabled() {
+	on, err := e.service.Available(r.Context())
+	if err != nil {
+		httpx.RecordFault(r, "mcp_gate")
+		writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "The MCP service is temporarily unavailable.")
+		return
+	}
+	if !on {
 		httpx.WriteNotFound(w)
 		return
 	}

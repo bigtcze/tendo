@@ -962,3 +962,122 @@ by the expected previous version and must affect exactly one row.
 - The administrator directory does not show the policy yet; the screens are
   slice B4.
 - The installation switch and the audit list arrive with B1b2.
+
+## Slice B1b2: installation policy, installation switch and policy audit
+
+Slice B1b2 completes the policy API of B1b1 with the installation policy, the
+installation switch on every MCP route and the policy audit list. B1b3 (the
+administrator grant list and revocation) is still separate.
+
+### Routes
+
+- `GET`/`PUT /api/v1/admin/mcp-policy`: an instance administrator reads or
+  replaces the installation policy: `enabled`, `defaultAccountEnabled` and
+  `defaultMaxScopes`, all required and non-null on `PUT`. `operatorEnabled`
+  is read-only and mirrors `TENDO_MCP_ENABLED`; sending it is rejected as an
+  unknown field (400). The strong `ETag` is the row version, and both answers
+  carry `Cache-Control: no-store`.
+- `GET /api/v1/admin/mcp-policy-events`: the audit list across the
+  installation, account and user levels, newest first by `id`. `limit`
+  defaults to 50 and is capped at 100. The cursor is opaque and versioned with
+  the prefix `p1` (the grant list uses `g1`); a malformed cursor is refused
+  with `QueryProblemResponse` before any SQL runs. Items are
+  `McpPolicyEvent` and pages are `McpPolicyEventList {items, nextCursor?}`.
+- Both routes use the session cookie only, the instance administrator check
+  (403 `instance_admin_required` before `If-Match` or the body), and work
+  whether or not `TENDO_MCP_ENABLED` or the installation switch is set. The
+  audit list takes no Origin header; the installation writes need the
+  canonical Origin, a strong `If-Match` (428 missing, 412 stale or malformed)
+  and work the same way as the B1b1 writes.
+
+### Installation switch
+
+- While the installation switch is off, the gate answers the same route set
+  and the same body as `TENDO_MCP_ENABLED` off (`mcpDisabledPaths`): both
+  discovery documents, the preflights, `/oauth/register`, `/oauth/authorize`,
+  the consent GET and POST, `/oauth/token`, `/oauth/revoke` and `/mcp`,
+  including unauthenticated and non-POST requests. Each answers the unknown-path
+  404 the env-off surface gives.
+- The gate runs first on every such route, before CORS, rate limits, method
+  checks, session lookups and body reads. It reads the switch per request,
+  unlocked and bounded by `cfg.DBTimeout`, with no cache, so a change applies
+  to the next request. `MCPService.Available` replaces `Enabled()` in the
+  registrar and the token verifier and short-circuits on `TENDO_MCP_ENABLED`
+  before it reads the row.
+- A gate database fault fails closed per route and is recorded with
+  `httpx.RecordFault` without driver text: OAuth 503 `temporarily_unavailable`
+  for register, token, revoke and `/mcp`; problem 503 `unavailable` for the
+  consent routes, the discovery documents and the preflights; and a
+  `server_error` redirect for `/oauth/authorize`. A missing installation row
+  is a fault too, never defaulted.
+- Exempt while the installation switch is off: `/api/v1/mcp/grants*`,
+  `/api/v1/mcp/settings`, the administrator account policy, the installation
+  policy and the policy audit list. These are signed-in browser operations and
+  keep their B1b1 and A4b behaviour, so the administrator can always read and
+  restore the switch. The connected-apps handler never uses
+  `MCPHandler.guarded`.
+
+### Version, audit and lock order
+
+- A change to the installation row bumps its version and appends exactly one
+  `mcp_policy_events` row: policy `installation`, the administrator as actor,
+  the target NULL, and the stored `enabled`, `default_account_enabled` and
+  `scopes` after the change. A no-op writes no row and keeps the version.
+- The installation write takes `installation_state` `FOR SHARE`, then the live
+  instance-administrator check, then `mcp_installation_policy` `FOR UPDATE`
+  with a version compare. The version compare uses the row that
+  `LockInstallationPolicy` returned under that lock. The update is guarded by
+  the previous version (`WHERE version = new - 1`) and must affect exactly one
+  row; it does not re-read the row afterwards.
+- The audit table is append-only for the runtime role. The no-UPDATE and
+  no-DELETE grant is proven by
+  `household/postgres` `TestMigrationThirtyTwoUpAndPrivileges`; this slice
+  cites that test and does not duplicate it.
+
+### Composition seam
+
+- `identity.MCPOptions.InstallationSwitch` is an explicit, injectable
+  `MCPInstallationStore`. Production leaves it nil, and the repository's
+  store is used. When it is set it replaces the repository store in
+  `NewMCPService`.
+- `cmd/tendo` threads a `compositionOverrides` struct as an explicit parameter
+  through `registerAPI`, `registerMCP` and `newMCPService`. There is no
+  package-level mutable variable. Production and `defaultMCPSweep` pass the
+  zero value.
+- Why not a real database in these composition tests: `backend/cmd/tendo`
+  runs in verify-local's unit stage without a database. Using a real database
+  would move the package to the integration stage, which is out of scope, and
+  skipping the tests would weaken them. The composition tests that exercise
+  the enabled surface set the switch to a fixed `true`. The production-wiring
+  test (`TestEnabledMCPGateReadsDatabaseSwitchWithoutOverride`) uses no
+  override, an unreachable database and MCP enabled, and proves anonymous
+  `POST /mcp` and a discovery or register route answer the gate's fail-closed
+  503 with no driver text.
+- The real-database behaviour of the switch is covered by
+  `identity/postgres` tests (`TestMCPInstallationAPI*`,
+  `TestMCPPolicyEventsPageAcrossAllLevels`) against the real schema.
+
+### Deviations and follow-ups (B1b2)
+
+- The OpenAPI 404 descriptions for MCP routes name the installation switch as
+  well as `TENDO_MCP_ENABLED`, including the consent read and decision. Each
+  JSON operation that the gate guards documents a 503 `unavailable` entry for
+  the gate fault: the registration, discovery documents, token, revoke, `/mcp`,
+  and the consent read and decision. `/oauth/authorize` has no 503 entry. Its
+  gate fault is a `303` redirect with `error=server_error`, carrying
+  `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and its contract
+  is the `/oauth/authorize` description. The CORS preflights have no separate
+  contract entry; their fault shape is in the `/oauth/register` description.
+- This closes the B1a follow-up: discovery, registration, authorization start,
+  revocation and an unauthenticated `/mcp` now follow the installation switch
+  as well as `TENDO_MCP_ENABLED`.
+- The #457 design says installation off is the same 404 "on every MCP route".
+  It is read as the route set and body of `TENDO_MCP_ENABLED` off, so the
+  exemptions above keep the A4b promise that owners can see and revoke paused
+  grants, and let the administrator switch the installation back on.
+- Smoke: `scripts/setup-smoke.sh` covers the three operations and restores the
+  migrated defaults. `scripts/mcp_smoke_driver.py` phase `installation`
+  switches the installation off through the API on a live enabled app, checks
+  the identical 404 on the gated routes and with a valid token, checks that
+  connected apps still answer, then switches it on and uses the same token
+  again.

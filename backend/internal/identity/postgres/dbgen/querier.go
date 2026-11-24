@@ -18,8 +18,8 @@ type Querier interface {
 	// unique index frees the old login. Email facts, the default household and
 	// every session are cleared; exactly one live row must change.
 	AnonymizeAccount(ctx context.Context, arg AnonymizeAccountParams) (int64, error)
-	// Append-only. Account and user events only; the installation level arrives
-	// with slice B1b2.
+	// Append-only. The target is NULL for the installation level, which also sets
+	// default_account_enabled; the table checks keep the two shapes apart.
 	AppendMCPPolicyEvent(ctx context.Context, arg AppendMCPPolicyEventParams) error
 	CompletePasswordReset(ctx context.Context, arg CompletePasswordResetParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
@@ -157,6 +157,9 @@ type Querier interface {
 	// expired. Keyset pagination on id (UUIDv7, creation order), newest first. A
 	// null after_id is the first page.
 	ListLiveMCPGrants(ctx context.Context, arg ListLiveMCPGrantsParams) ([]ListLiveMCPGrantsRow, error)
+	// The audit list across all levels, newest first by uuidv7 id. A null after_id
+	// is the first page.
+	ListMCPPolicyEvents(ctx context.Context, arg ListMCPPolicyEventsParams) ([]ListMCPPolicyEventsRow, error)
 	// Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
 	// assignment and an acceptance or removal of the same account serialize on the
 	// account row without conflicting with session foreign-key key shares. A
@@ -179,6 +182,8 @@ type Querier interface {
 	// The used codes that issued the grant, FOR UPDATE, before the grant row: the
 	// ADR 0023 order puts codes before grants, and revoking a grant deletes them.
 	LockMCPGrantCodes(ctx context.Context, issuedGrantID pgtype.UUID) error
+	// The installation row FOR UPDATE, after the instance-admin FOR SHARE lock.
+	LockMCPInstallationPolicy(ctx context.Context) (LockMCPInstallationPolicyRow, error)
 	LockMCPRefreshToken(ctx context.Context, tokenHash []byte) (LockMCPRefreshTokenRow, error)
 	// FOR NO KEY UPDATE serializes concurrent issuances for one target without
 	// conflicting with the foreign-key KEY SHARE that inserting a session takes on
@@ -214,6 +219,11 @@ type Querier interface {
 	// evaluate as inactive.
 	ReadLiveMCPAccountPolicy(ctx context.Context, id pgtype.UUID) (ReadLiveMCPAccountPolicyRow, error)
 	ReadLocalCredential(ctx context.Context, userID pgtype.UUID) (ReadLocalCredentialRow, error)
+	// The installation row without a lock. No row is a missing installation, which
+	// the caller refuses rather than defaulting.
+	ReadMCPInstallationPolicy(ctx context.Context) (ReadMCPInstallationPolicyRow, error)
+	// The installation switch alone, read unlocked on every MCP route.
+	ReadMCPInstallationSwitch(ctx context.Context) (bool, error)
 	// The installation and account policy (#457) as stored. Issuance reads it after
 	// the account lock and takes no policy lock: a change that commits meanwhile is
 	// enforced by the next verification and refresh, which re-read it. A missing
@@ -301,6 +311,9 @@ type Querier interface {
 	// The caller holds the row FOR UPDATE; the version guard makes a lost lock a
 	// zero-row update, which the caller refuses, instead of a silent overwrite.
 	UpdateMCPAccountPolicy(ctx context.Context, arg UpdateMCPAccountPolicyParams) (int64, error)
+	// The caller holds the row FOR UPDATE. The version guard turns a lost lock into
+	// a zero-row update, which the caller refuses.
+	UpdateMCPInstallationPolicy(ctx context.Context, arg UpdateMCPInstallationPolicyParams) (int64, error)
 	UserSessionActive(ctx context.Context, arg UserSessionActiveParams) (bool, error)
 }
 

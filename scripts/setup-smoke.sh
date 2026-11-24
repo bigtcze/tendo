@@ -806,6 +806,50 @@ assert st==403 and member_put['code']=='instance_admin_required',('member writes
 st,h,restored_policy=amcp_req('PUT',member_account_id,{**owner_mut,'If-Match':'"2"'},{'enabled':None,'maxScopes':None})
 assert st==200 and restored_policy['enabled'] is None and restored_policy['maxScopes'] is None and h['ETag']=='"3"' and h['Cache-Control']=='no-store',('admin restore mcp policy default',st,restored_policy,dict(h))
 assert psql(f"SELECT count(*) FROM mcp_policy_events WHERE policy='account' AND target_user_id='{member_account_id}'")=='2','admin mcp policy restore audit row'
+# Installation MCP policy and the policy audit list (ADR 0023, slice B1b2). The
+# owner is the instance administrator. These routes answer whether or not
+# TENDO_MCP_ENABLED is set, so they run here with MCP disabled. The installation
+# switch is restored to its migrated state before the block ends.
+ADM_INSTALLATION='/api/v1/admin/mcp-policy'
+ADM_EVENTS='/api/v1/admin/mcp-policy-events'
+def ainst_req(method,headers=None,body=None):
+ return call(method,ADM_INSTALLATION,template=ADM_INSTALLATION,body=body,headers=headers,sink=fixtures)[:3]
+st,h,inst=ainst_req('GET',cookie_header)
+assert st==200 and inst['enabled'] is True and inst['defaultAccountEnabled'] is True and inst['defaultMaxScopes']==['tendo:read','tendo:write'] and inst['operatorEnabled'] is False and h['ETag']=='"1"' and h['Cache-Control']=='no-store',('read installation mcp policy',st,inst,dict(h))
+st,_,inst_no_if_match=ainst_req('PUT',owner_mut,body={'enabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
+assert st==428 and inst_no_if_match['code']=='precondition_required',('installation mcp policy without If-Match',st,inst_no_if_match)
+st,_,inst_stale=ainst_req('PUT',{**owner_mut,'If-Match':'"9"'},body={'enabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
+assert st==412 and inst_stale['code']=='precondition_failed',('installation mcp policy stale If-Match',st,inst_stale)
+st,_,inst_operator=ainst_req('PUT',{**owner_mut,'If-Match':'"1"'},body={'enabled':True,'operatorEnabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
+assert st==400 and inst_operator['code']=='invalid_request',('installation mcp policy sends operatorEnabled',st,inst_operator)
+st,_,inst_bad_scope=ainst_req('PUT',{**owner_mut,'If-Match':'"1"'},body={'enabled':True,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:admin']})
+assert st==422 and inst_bad_scope['code']=='invalid_value' and inst_bad_scope['field']=='defaultMaxScopes',('installation mcp policy unknown scope',st,inst_bad_scope)
+st,h,inst_off=ainst_req('PUT',{**owner_mut,'If-Match':'"1"'},body={'enabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
+assert st==200 and inst_off['enabled'] is False and inst_off['defaultMaxScopes']==['tendo:read'] and h['ETag']=='"2"' and h['Cache-Control']=='no-store',('switch installation mcp off',st,inst_off,dict(h))
+assert psql("SELECT count(*)||'|'||COALESCE(min(policy),'')||'|'||COALESCE(min(enabled::text),'')||'|'||COALESCE(min(default_account_enabled::text),'')||'|'||COALESCE(min(array_to_string(scopes,',')),'') FROM mcp_policy_events WHERE policy='installation'")=='1|installation|false|true|tendo:read','installation mcp policy audit row'
+st,h,inst_noop=ainst_req('PUT',{**owner_mut,'If-Match':'"2"'},body={'enabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
+assert st==200 and inst_noop['enabled'] is False and h['ETag']=='"2"',('installation mcp no-op PUT',st,inst_noop,dict(h))
+assert psql("SELECT count(*) FROM mcp_policy_events WHERE policy='installation'")=='1','installation no-op PUT wrote an audit row'
+st,_,events=call('GET',ADM_EVENTS,template=ADM_EVENTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==200 and events['items'] and events['items'][0]['policy']=='installation' and events['items'][0]['actorUserId']==owner_account_id and events['items'][0]['targetUserId'] is None and events['items'][0]['defaultAccountEnabled'] is True,('installation mcp policy audit list',st,events)
+st,_,bad_cursor=call('GET',ADM_EVENTS+'?cursor=p1-not-a-cursor',template=ADM_EVENTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==400 and bad_cursor['code']=='invalid_query' and bad_cursor['parameter']=='cursor',('audit list malformed cursor',st,bad_cursor)
+st,_,member_events=call('GET',ADM_EVENTS,template=ADM_EVENTS,headers={'Cookie':member_token},sink=fixtures)[:3]
+assert st==403 and member_events['code']=='instance_admin_required',('member reads audit list',st,member_events)
+st,h,inst_restored=ainst_req('PUT',{**owner_mut,'If-Match':'"2"'},body={'enabled':True,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read','tendo:write']})
+assert st==200 and inst_restored['enabled'] is True and inst_restored['defaultMaxScopes']==['tendo:read','tendo:write'] and h['ETag']=='"3"',('restore installation mcp policy',st,inst_restored,dict(h))
+# Refusals for the documented 401 and 403 answers of the three B1b2 operations.
+st,_,anon_inst=call('GET',ADM_INSTALLATION,template=ADM_INSTALLATION,sink=fixtures)[:3]
+assert st==401 and anon_inst['code']=='unauthenticated',('installation mcp policy without cookie',st,anon_inst)
+st,_,anon_inst_put=call('PUT',ADM_INSTALLATION,template=ADM_INSTALLATION,headers={'Origin':origin,'If-Match':'"3"'},body={'enabled':True,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']},sink=fixtures)[:3]
+assert st==401 and anon_inst_put['code']=='unauthenticated',('installation mcp put without cookie',st,anon_inst_put)
+st,_,member_inst=call('GET',ADM_INSTALLATION,template=ADM_INSTALLATION,headers=member_cookie,sink=fixtures)[:3]
+assert st==403 and member_inst['code']=='instance_admin_required',('member reads installation mcp policy',st,member_inst)
+st,_,member_inst_put=call('PUT',ADM_INSTALLATION,template=ADM_INSTALLATION,headers={**member_cookie,'Origin':origin,'If-Match':'"3"'},body={'enabled':True,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']},sink=fixtures)[:3]
+assert st==403 and member_inst_put['code']=='instance_admin_required',('member writes installation mcp policy',st,member_inst_put)
+st,_,anon_events=call('GET',ADM_EVENTS,template=ADM_EVENTS,sink=fixtures)[:3]
+assert st==401 and anon_events['code']=='unauthenticated',('audit list without cookie',st,anon_events)
+assert psql("SELECT count(*) FROM mcp_policy_events WHERE policy='installation'")=='2','refusals must not write audit rows'
 # Instance-administrator household account center (ADR 0020). The owner is the
 # only instance administrator; other_id has one plain member and no admin, so a
 # plain-member assignment is refused and an admin assignment is audited with the

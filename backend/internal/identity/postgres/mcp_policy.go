@@ -12,7 +12,10 @@ import (
 )
 
 var (
-	_ identity.MCPPolicyRepository  = (*MCPRepository)(nil)
+	_ identity.MCPPolicyRepository = (*MCPRepository)(nil)
+	// The gate reads the installation switch from this repository. A missing
+	// method is a build error here, not a silent fail-closed in production.
+	_ identity.MCPInstallationStore = (*MCPRepository)(nil)
 	_ identity.MCPPolicyTransaction = (*mcpPolicyTx)(nil)
 )
 
@@ -127,19 +130,122 @@ func (t *mcpPolicyTx) UpdateAccountPolicy(ctx context.Context, userID string, ro
 	return err
 }
 
+// AppendPolicyEvent writes one audit row. An empty TargetUserID is the
+// installation level, stored as NULL.
 func (t *mcpPolicyTx) AppendPolicyEvent(ctx context.Context, event identity.MCPPolicyEvent) error {
 	actor, err := scanUUID(event.ActorUserID)
 	if err != nil {
 		return err
 	}
-	target, err := scanUUID(event.TargetUserID)
-	if err != nil {
-		return err
+	var target pgtype.UUID
+	if event.TargetUserID != "" {
+		if target, err = scanUUID(event.TargetUserID); err != nil {
+			return err
+		}
 	}
 	return t.q.AppendMCPPolicyEvent(ctx, identitydb.AppendMCPPolicyEventParams{
 		ActorUserID: actor, TargetUserID: target, Policy: string(event.Kind),
-		Enabled: optionalBool(event.Enabled), Scopes: event.Scopes, OccurredAt: ts(event.OccurredAt),
+		Enabled: optionalBool(event.Enabled), DefaultAccountEnabled: optionalBool(event.DefaultAccountEnabled),
+		Scopes: event.Scopes, OccurredAt: ts(event.OccurredAt),
 	})
+}
+
+// ReadInstallationPolicy reads the installation row without a lock. No row is
+// identity.ErrMCPInstallationMissing; nothing is defaulted.
+func (t *mcpPolicyTx) ReadInstallationPolicy(ctx context.Context) (identity.MCPInstallationRow, error) {
+	row, err := t.q.ReadMCPInstallationPolicy(ctx)
+	if err != nil {
+		return identity.MCPInstallationRow{}, installationMissing(err)
+	}
+	return identity.MCPInstallationRow{
+		Enabled: row.Enabled, DefaultAccountEnabled: row.DefaultAccountEnabled,
+		DefaultMaxScopes: row.DefaultMaxScopes, Version: row.Version,
+	}, nil
+}
+
+// LockInstallationPolicy takes the installation row FOR UPDATE. It runs after
+// RequireInstanceAdmin, so the ADR 0023 order holds.
+func (t *mcpPolicyTx) LockInstallationPolicy(ctx context.Context) (identity.MCPInstallationRow, error) {
+	row, err := t.q.LockMCPInstallationPolicy(ctx)
+	if err != nil {
+		return identity.MCPInstallationRow{}, installationMissing(err)
+	}
+	return identity.MCPInstallationRow{
+		Enabled: row.Enabled, DefaultAccountEnabled: row.DefaultAccountEnabled,
+		DefaultMaxScopes: row.DefaultMaxScopes, Version: row.Version,
+	}, nil
+}
+
+// UpdateInstallationPolicy stores the locked row's terms and version. A lost
+// lock is a zero-row update, which is refused.
+func (t *mcpPolicyTx) UpdateInstallationPolicy(ctx context.Context, row identity.MCPInstallationRow, now time.Time) error {
+	rows, err := t.q.UpdateMCPInstallationPolicy(ctx, identitydb.UpdateMCPInstallationPolicyParams{
+		Enabled: row.Enabled, DefaultAccountEnabled: row.DefaultAccountEnabled,
+		DefaultMaxScopes: row.DefaultMaxScopes, Version: row.Version, UpdatedAt: ts(now),
+	})
+	if err == nil && rows != 1 {
+		return errors.New("locked MCP installation policy was not updated")
+	}
+	return err
+}
+
+// ListPolicyEvents returns one page of the audit list, newest first, across all
+// three levels. afterID is empty for the first page.
+func (t *mcpPolicyTx) ListPolicyEvents(ctx context.Context, afterID string, limit int) ([]identity.MCPPolicyEvent, error) {
+	return listPolicyEvents(ctx, t.q, afterID, limit)
+}
+
+func listPolicyEvents(ctx context.Context, q *identitydb.Queries, afterID string, limit int) ([]identity.MCPPolicyEvent, error) {
+	var after pgtype.UUID
+	if afterID != "" {
+		var err error
+		if after, err = scanUUID(afterID); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := q.ListMCPPolicyEvents(ctx, identitydb.ListMCPPolicyEventsParams{AfterID: after, PageLimit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]identity.MCPPolicyEvent, 0, len(rows))
+	for _, row := range rows {
+		event := identity.MCPPolicyEvent{
+			ID: row.ID.String(), Kind: identity.MCPPolicyEventKind(row.Policy),
+			ActorUserID: row.ActorUserID.String(), Scopes: row.Scopes, OccurredAt: row.OccurredAt.Time,
+		}
+		if row.TargetUserID.Valid {
+			event.TargetUserID = row.TargetUserID.String()
+		}
+		if row.Enabled.Valid {
+			enabled := row.Enabled.Bool
+			event.Enabled = &enabled
+		}
+		if row.DefaultAccountEnabled.Valid {
+			defaultOn := row.DefaultAccountEnabled.Bool
+			event.DefaultAccountEnabled = &defaultOn
+		}
+		out = append(out, event)
+	}
+	return out, nil
+}
+
+// ReadInstallationSwitch is the unlocked installation switch the gate reads on
+// every MCP route. No row is identity.ErrMCPInstallationMissing.
+func (r *MCPRepository) ReadInstallationSwitch(ctx context.Context) (bool, error) {
+	enabled, err := identitydb.New(r.pool).ReadMCPInstallationSwitch(ctx)
+	if err != nil {
+		return false, installationMissing(err)
+	}
+	return enabled, nil
+}
+
+// installationMissing maps an absent installation row to its own error. Other
+// errors pass through; the caller records them as faults.
+func installationMissing(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.ErrMCPInstallationMissing
+	}
+	return err
 }
 
 func optionalBool(v *bool) pgtype.Bool {

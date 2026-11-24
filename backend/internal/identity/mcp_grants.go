@@ -15,7 +15,8 @@ import (
 // Slice A4b (ADR 0023, connected apps). A signed-in person lists and revokes
 // their own MCP grants. Both operations work whether or not TENDO_MCP_ENABLED
 // is set: while MCP is off the grants are paused, not removed, so a person can
-// still see and disconnect them. Neither operation checks Enabled().
+// still see and disconnect them. Neither operation consults Available(), the
+// installation switch or TENDO_MCP_ENABLED.
 
 const (
 	// MCPGrantListDefaultLimit is the page size when the caller names none.

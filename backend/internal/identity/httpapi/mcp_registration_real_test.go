@@ -39,6 +39,12 @@ func (m *memMCPStore) FindActiveAccessToken(context.Context, []byte, time.Time) 
 	return identity.MCPActiveAccess{}, identity.ErrNotFound
 }
 
+// ReadInstallationSwitch answers the installation as on (B1b2), the state these
+// registration tests exercise. Without it an enabled gate fails closed.
+func (m *memMCPStore) ReadInstallationSwitch(context.Context) (bool, error) {
+	return true, nil
+}
+
 // realMCPRouter builds the production MCP service (enabled, resource on the
 // public host) over the in-memory store and mounts the real HTTP adapter.
 func realMCPRouter(t *testing.T) http.Handler {

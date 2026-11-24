@@ -597,6 +597,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/mcp-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the installation MCP policy
+         * @description Instance administrator only (ADR 0023, slice B1b2). Returns the installation switch, the installation defaults and the read-only operatorEnabled (TENDO_MCP_ENABLED). Works whether or not TENDO_MCP_ENABLED is set or the installation switch is off, so the switch can always be turned back on. Session cookie only; an MCP bearer token is never accepted. The instance-administrator grant is checked before any body or If-Match handling. A missing installation row is a 503 unavailable; no defaults are invented.
+         */
+        get: operations["getMcpInstallationPolicy"];
+        /**
+         * Replace the installation MCP policy
+         * @description Instance administrator only (ADR 0023, slice B1b2). Full replacement of enabled, defaultAccountEnabled and defaultMaxScopes. operatorEnabled is not accepted; sending it is a 400. A change bumps the version and appends one installation row to the policy audit (mcp_policy_events) with the administrator as actor. A PUT that changes nothing keeps the version and appends nothing. Requires the canonical Origin and a strong If-Match. Works regardless of TENDO_MCP_ENABLED or the installation switch.
+         */
+        put: operations["updateMcpInstallationPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mcp-policy-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the MCP policy audit
+         * @description Instance administrator only (ADR 0023, slice B1b2). One newest-first page of the policy audit across the installation, account and user levels, ordered by the uuidv7 id. limit defaults to 50 and is capped at 100. cursor is opaque and versioned; a malformed cursor is a 400 invalid_query on cursor and reads nothing. Session cookie only. Reads need no Origin header.
+         */
+        get: operations["listMcpPolicyEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/accounts/{userId}/mcp-policy": {
         parameters: {
             query?: never;
@@ -874,7 +918,7 @@ export interface paths {
         put?: never;
         /**
          * Register an MCP public client (RFC 7591)
-         * @description Dynamic client registration for MCP public clients (ADR 0023). Unauthenticated; rate limited per client IP and globally. While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials (Access-Control-Allow-Origin: *, Access-Control-Expose-Headers: Retry-After); the browser preflight is an OPTIONS request answered by the server and is not a contract operation. Request and response fields use the RFC-defined snake_case wire names, an RFC-defined exception to the camelCase convention of API.md. Errors use the RFC 7591 shape {error, error_description} as application/json, not problem+json. Responses never set or read cookies.
+         * @description Dynamic client registration for MCP public clients (ADR 0023). Unauthenticated; rate limited per client IP and globally. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials (Access-Control-Allow-Origin: *, Access-Control-Expose-Headers: Retry-After); the browser preflight is an OPTIONS request answered by the server and is not a contract operation. Request and response fields use the RFC-defined snake_case wire names, an RFC-defined exception to the camelCase convention of API.md. Errors use the RFC 7591 shape {error, error_description} as application/json, not problem+json. Responses never set or read cookies.
          */
         post: operations["registerMcpClient"];
         delete?: never;
@@ -892,7 +936,7 @@ export interface paths {
         };
         /**
          * Read the MCP protected resource metadata (RFC 9728)
-         * @description Describes the Tendo MCP resource and its authorization server. Only the suffixed document exists; the root protected-resource document is not served. While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
+         * @description Describes the Tendo MCP resource and its authorization server. Only the suffixed document exists; the root protected-resource document is not served. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
          */
         get: operations["getMcpProtectedResourceMetadata"];
         put?: never;
@@ -912,7 +956,7 @@ export interface paths {
         };
         /**
          * Read the authorization server metadata (RFC 8414)
-         * @description Advertises the MCP authorization server whose issuer is the canonical public origin. Advertised endpoints are implemented by later MCP slices. While MCP is disabled the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
+         * @description Advertises the MCP authorization server whose issuer is the canonical public origin. Advertised endpoints are implemented by later MCP slices. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. CORS: any Origin is accepted without credentials. Field names are the RFC-defined snake_case wire names.
          */
         get: operations["getMcpAuthorizationServerMetadata"];
         put?: never;
@@ -932,7 +976,7 @@ export interface paths {
         };
         /**
          * Start an MCP authorization request (RFC 6749 section 4.1.1)
-         * @description Browser entry point for the MCP authorization code flow with PKCE S256 (ADR 0023, slice A3a). Reached by top-level navigation, never by a script. Every outcome is a 303 to Tendo's own /connect page, never to the client: success carries the pending request handle in the fragment (#request=), a refusal carries an RFC 6749 error code in the fragment (#error=). The client redirect happens only after a signed-in person approves the consent. The response sets a binding cookie scoped to the handle and reads no session cookie. Unknown parameters are ignored; a repeated recognized parameter is invalid_request, and a repeated resource is invalid_target. A refused client redirect URI is never echoed. While MCP is disabled the operation answers the unknown-path 404 problem. Rate limited per client IP (20 per minute) and globally (120 per minute).
+         * @description Browser entry point for the MCP authorization code flow with PKCE S256 (ADR 0023, slice A3a). Reached by top-level navigation, never by a script. Every outcome is a 303 to Tendo's own /connect page, never to the client: success carries the pending request handle in the fragment (#request=), a refusal carries an RFC 6749 error code in the fragment (#error=). The client redirect happens only after a signed-in person approves the consent. The response sets a binding cookie scoped to the handle and reads no session cookie. Unknown parameters are ignored; a repeated recognized parameter is invalid_request, and a repeated resource is invalid_target. A refused client redirect URI is never echoed. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. If the installation switch cannot be read the operation fails closed with a server_error redirect, which carries Cache-Control no-store and Referrer-Policy no-referrer like every other answer. Rate limited per client IP (20 per minute) and globally (120 per minute).
          */
         get: operations["authorizeMcpClient"];
         put?: never;
@@ -1078,7 +1122,7 @@ export interface paths {
         put?: never;
         /**
          * Revoke an MCP token (RFC 7009)
-         * @description Revokes the whole grant of an access or refresh token presented by the client that holds it. Form-encoded body only; the same CORS, cookie and media rules as the token endpoint. A malformed, unknown, foreign or already revoked token is a silent success. token_type_hint is accepted and ignored. Rate limited per client IP (30 per minute). While MCP is disabled the operation answers the unknown-path 404 problem.
+         * @description Revokes the whole grant of an access or refresh token presented by the client that holds it. Form-encoded body only; the same CORS, cookie and media rules as the token endpoint. A malformed, unknown, foreign or already revoked token is a silent success. token_type_hint is accepted and ignored. Rate limited per client IP (30 per minute). While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem.
          */
         post: operations["revokeMcpToken"];
         delete?: never;
@@ -1098,7 +1142,7 @@ export interface paths {
         put?: never;
         /**
          * Send one MCP JSON-RPC message (Streamable HTTP)
-         * @description The MCP endpoint (Streamable HTTP, stateless, JSON responses only). The body is exactly one JSON-RPC 2.0 message; a batch (a JSON array) is refused with 400. Pinned protocol revisions are 2026-07-28, 2025-11-25 and 2025-06-18 (MCP-Protocol-Version). Mcp-Session-Id is ignored and never returned. The bearer access token is the only credential: cookies, query and form tokens are never read, and an upstream OIDC ID token is never accepted. Every request re-verifies the token, its grant and the account. An absent Origin is accepted; a present Origin must be the public origin (403 otherwise). Other methods on /mcp answer 405 with Allow: POST. Limits: 300 requests per minute per client IP before authentication, then 120 per minute per grant and 240 per minute per user. Body limit 64 KiB. Every message except initialize must carry MCP-Protocol-Version; without it the request is refused with 400, so the excluded 2025-03-26 default never applies. Tool scope refusals and unknown tools are tool error results inside a 200 JSON-RPC response. Responses from the MCP protocol layer are plain MCP Streamable HTTP responses: text/plain 400 (malformed payload, unsupported protocol version, missing Accept value, an unhandled method under 2025-11-25 or 2025-06-18), text/plain 415, 202 for a notification-only body, a JSON-RPC 404 (-32601) for an unhandled method under 2026-07-28, and a finite text/event-stream answer where the SDK frames one (for example subscriptions/listen). While MCP is disabled every method answers the unknown-path 404 problem. Every response is Cache-Control no-store, including SDK responses.
+         * @description The MCP endpoint (Streamable HTTP, stateless, JSON responses only). The body is exactly one JSON-RPC 2.0 message; a batch (a JSON array) is refused with 400. Pinned protocol revisions are 2026-07-28, 2025-11-25 and 2025-06-18 (MCP-Protocol-Version). Mcp-Session-Id is ignored and never returned. The bearer access token is the only credential: cookies, query and form tokens are never read, and an upstream OIDC ID token is never accepted. Every request re-verifies the token, its grant and the account. An absent Origin is accepted; a present Origin must be the public origin (403 otherwise). Other methods on /mcp answer 405 with Allow: POST. Limits: 300 requests per minute per client IP before authentication, then 120 per minute per grant and 240 per minute per user. Body limit 64 KiB. Every message except initialize must carry MCP-Protocol-Version; without it the request is refused with 400, so the excluded 2025-03-26 default never applies. Tool scope refusals and unknown tools are tool error results inside a 200 JSON-RPC response. Responses from the MCP protocol layer are plain MCP Streamable HTTP responses: text/plain 400 (malformed payload, unsupported protocol version, missing Accept value, an unhandled method under 2025-11-25 or 2025-06-18), text/plain 415, 202 for a notification-only body, a JSON-RPC 404 (-32601) for an unhandled method under 2026-07-28, and a finite text/event-stream answer where the SDK frames one (for example subscriptions/listen). While MCP is disabled or the installation switch is off every method answers the unknown-path 404 problem. Every response is Cache-Control no-store, including SDK responses.
          */
         post: operations["callMcp"];
         delete?: never;
@@ -1273,6 +1317,49 @@ export interface components {
             enabled: boolean | null;
             maxScopes: components["schemas"]["McpScopeList"] | null;
         };
+        /** @description The installation MCP terms. operatorEnabled is TENDO_MCP_ENABLED and is read-only here. Shares one policy version (ETag) with the other MCP policy writes. */
+        McpInstallationPolicy: {
+            /** @description The installation switch. Off answers every MCP route as the unknown-path 404, except the connected apps, settings, policy and audit routes. */
+            enabled: boolean;
+            /** @description TENDO_MCP_ENABLED. Read-only. */
+            operatorEnabled: boolean;
+            /** @description The default for accounts whose administrator override is null. */
+            defaultAccountEnabled: boolean;
+            /** @description The default scope maximum for accounts whose administrator maximum is null. */
+            defaultMaxScopes: components["schemas"]["McpScopeList"];
+        };
+        /** @description Full replacement of the installation terms. operatorEnabled is not accepted. */
+        McpInstallationPolicyUpdate: {
+            enabled: boolean;
+            defaultAccountEnabled: boolean;
+            defaultMaxScopes: components["schemas"]["McpScopeList"];
+        };
+        /** @description One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse. */
+        McpPolicyEvent: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            policy: "installation" | "account" | "user";
+            /** Format: uuid */
+            actorUserId: string;
+            /**
+             * Format: uuid
+             * @description The account the change applies to. null for the installation level.
+             */
+            targetUserId: string | null;
+            enabled: boolean | null;
+            /** @description Set only for the installation level. */
+            defaultAccountEnabled: boolean | null;
+            scopes: components["schemas"]["McpScopeList"] | null;
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        /** @description One newest-first page of the MCP policy audit list. */
+        McpPolicyEventList: {
+            items: components["schemas"]["McpPolicyEvent"][];
+            /** @description Opaque cursor for the next page. Absent or null on the last page. */
+            nextCursor?: string | null;
+        };
         /** @description The signed-in account's own MCP settings. */
         McpSettings: {
             enabled: boolean;
@@ -1290,6 +1377,12 @@ export interface components {
         McpPolicyValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             field: "maxScopes" | "scopes";
+            /** @enum {string} */
+            code: "invalid_value";
+        };
+        McpInstallationPolicyValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "defaultMaxScopes";
             /** @enum {string} */
             code: "invalid_value";
         };
@@ -9559,6 +9652,534 @@ export interface operations {
             };
         };
     };
+    getMcpInstallationPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The installation MCP policy. */
+            200: {
+                headers: {
+                    /** @description Strong installation policy version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true,
+                     *       "operatorEnabled": true,
+                     *       "defaultAccountEnabled": true,
+                     *       "defaultMaxScopes": [
+                     *         "tendo:read",
+                     *         "tendo:write"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpInstallationPolicy"];
+                };
+            };
+            /** @description Malformed trusted forwarded request metadata. The problem carries no code. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The signed-in account is not an instance administrator. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "instance_admin_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The installation policy is unreadable or its row is missing. Recorded as a fault, never defaulted. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateMcpInstallationPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+                /**
+                 * @description Strong installation policy version from the ETag. Missing is 428; malformed, weak, a list, or stale is 412.
+                 * @example "1"
+                 */
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "enabled": true,
+                 *       "defaultAccountEnabled": true,
+                 *       "defaultMaxScopes": [
+                 *         "tendo:read"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["McpInstallationPolicyUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated installation policy, or the current one for a PUT that changes nothing. */
+            200: {
+                headers: {
+                    /** @description Strong installation policy version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true,
+                     *       "operatorEnabled": true,
+                     *       "defaultAccountEnabled": true,
+                     *       "defaultMaxScopes": [
+                     *         "tendo:read"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpInstallationPolicy"];
+                };
+            };
+            /** @description Invalid body (invalid_request): malformed JSON, unknown or duplicate keys (operatorEnabled included), or wrong JSON types; or malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller does not currently hold the instance-administrator grant (checked before any parameter, body or If-Match handling), code instance_admin_required; or Origin is missing, malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match is malformed, weak, a list, or stale. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description defaultMaxScopes is empty, duplicated, or names an unknown scope. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_value",
+                     *       "field": "defaultMaxScopes"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["McpInstallationPolicyValidationProblem"];
+                };
+            };
+            /** @description If-Match is required. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The installation policy is unreadable or its row is missing. Recorded as a fault, never defaulted. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMcpPolicyEvents: {
+        parameters: {
+            query?: {
+                /** @description Page size, 1 to 100. Defaults to 50. */
+                limit?: number;
+                /** @description Opaque cursor from nextCursor. Omit for the first page. */
+                cursor?: string;
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the MCP policy audit. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *           "policy": "installation",
+                     *           "actorUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                     *           "targetUserId": null,
+                     *           "enabled": true,
+                     *           "defaultAccountEnabled": true,
+                     *           "scopes": [
+                     *             "tendo:read"
+                     *           ],
+                     *           "occurredAt": "2026-11-24T10:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["McpPolicyEventList"];
+                };
+            };
+            /** @description Malformed limit or cursor (invalid_query on the parameter), or malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "cursor"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The signed-in account is not an instance administrator. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "instance_admin_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The audit list is unreadable. Recorded as a fault. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getAdminAccountMcpPolicy: {
         parameters: {
             query?: never;
@@ -13201,7 +13822,7 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
-            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            /** @description MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13333,7 +13954,7 @@ export interface operations {
                     "application/json": components["schemas"]["McpProtectedResourceMetadata"];
                 };
             };
-            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            /** @description MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13346,6 +13967,25 @@ export interface operations {
                      *       "type": "about:blank",
                      *       "title": "Not Found",
                      *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The installation switch cannot be read. Recorded as a fault and answered fail-closed; no driver text. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
                      *     }
                      */
                     "application/problem+json": components["schemas"]["Problem"];
@@ -13412,7 +14052,7 @@ export interface operations {
                     "application/json": components["schemas"]["McpAuthorizationServerMetadata"];
                 };
             };
-            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            /** @description MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13425,6 +14065,25 @@ export interface operations {
                      *       "type": "about:blank",
                      *       "title": "Not Found",
                      *       "status": 404
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The installation switch cannot be read. Recorded as a fault and answered fail-closed; no driver text. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
                      *     }
                      */
                     "application/problem+json": components["schemas"]["Problem"];
@@ -13472,7 +14131,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            /** @description MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13553,7 +14212,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description No pending consent for this handle and browser, or it has expired or was consumed. MCP disabled answers the unknown-path 404 instead. */
+            /** @description No pending consent for this handle and browser, or it has expired or was consumed. MCP disabled (TENDO_MCP_ENABLED off or the installation switch off) answers the unknown-path 404 instead. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13590,7 +14249,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Persistence is unavailable. */
+            /** @description Persistence is unavailable, including the installation switch gate read, which fails closed with this problem and never falls back to enabled. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13717,7 +14376,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description No pending consent for this handle and browser, or it was already decided or expired. MCP disabled answers the unknown-path 404 instead, which clears no cookie. */
+            /** @description No pending consent for this handle and browser, or it was already decided or expired. MCP disabled (TENDO_MCP_ENABLED off or the installation switch off) answers the unknown-path 404 instead, which clears no cookie. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -13814,7 +14473,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Persistence is unavailable. */
+            /** @description Persistence is unavailable, including the installation switch gate read, which fails closed with this problem and never falls back to enabled. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -14634,7 +15293,7 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
-            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            /** @description MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -14671,7 +15330,7 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
-            /** @description Token service fault. Retry later. */
+            /** @description Token service fault, or the installation switch cannot be read (fail-closed). Retry later. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -14741,7 +15400,7 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
-            /** @description MCP disabled. Answered exactly as an unknown reserved path, as problem+json. */
+            /** @description MCP disabled or the installation switch off. Answered exactly as an unknown reserved path, as problem+json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -14778,7 +15437,7 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
-            /** @description Revocation fault. Retry later. */
+            /** @description Revocation fault, or the installation switch cannot be read (fail-closed). Retry later. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -14949,7 +15608,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description MCP disabled: answered exactly as an unknown reserved path, as problem+json. With MCP enabled and protocol 2026-07-28, an unhandled JSON-RPC method is a JSON-RPC -32601 error as application/json. */
+            /** @description MCP disabled or the installation switch off: answered exactly as an unknown reserved path, as problem+json. With MCP enabled and protocol 2026-07-28, an unhandled JSON-RPC method is a JSON-RPC -32601 error as application/json. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -15042,7 +15701,7 @@ export interface operations {
                     "text/plain": components["schemas"]["McpPlainTextError"];
                 };
             };
-            /** @description Token verification fault. Retry later. */
+            /** @description Token verification fault, or the installation switch cannot be read (fail-closed). Retry later. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

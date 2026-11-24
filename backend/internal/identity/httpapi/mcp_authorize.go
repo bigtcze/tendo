@@ -36,8 +36,7 @@ var authorizeRecognized = []string{"response_type", "client_id", "redirect_uri",
 // authorize is the browser entry point. It reads no cookie: a session cookie
 // present in the request changes nothing here.
 func (h *MCPHandler) authorize(w http.ResponseWriter, r *http.Request) {
-	if !h.service.Enabled() {
-		httpx.WriteNotFound(w)
+	if !h.gate(w, r, gateAuthorizeServerError) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -220,8 +219,7 @@ func (h *MCPHandler) consentBinding(r *http.Request) (string, bool) {
 func (h *MCPHandler) guarded(next http.HandlerFunc) http.Handler {
 	authenticated := h.sessions.RequireSession(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !h.service.Enabled() {
-			httpx.WriteNotFound(w)
+		if !h.gate(w, r, gateProblemUnavailable) {
 			return
 		}
 		authenticated.ServeHTTP(w, r)

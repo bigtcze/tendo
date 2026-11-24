@@ -2,7 +2,7 @@
 """Drive the live MCP OAuth smoke against a Compose app (V5-12 A4c, ADR 0023).
 
 Usage: mcp_smoke_driver.py <phase> <state.json>, phase is one of enabled,
-disabled, reenabled. Environment: MCP_SMOKE_ORIGIN, MCP_SMOKE_SETUP_TOKEN,
+installation, disabled, reenabled. Environment: MCP_SMOKE_ORIGIN, MCP_SMOKE_SETUP_TOKEN,
 MCP_SMOKE_PSQL (a JSON array argv for psql), MCP_SMOKE_FIXTURES,
 MCP_SMOKE_SECRETS. Failures raise SmokeFailure explicitly (not assert, which
 python -O strips), and the report is redacted of every collected secret.
@@ -464,6 +464,66 @@ def phase_disabled(state):
     check(status == 200 and state['grant_e_id'] in {item['id'] for item in listed['items']}, ('paused grant listed', listed))
 
 
+def set_installation(owner, enabled, expect_etag):
+    """Writes the installation switch through the admin API (ADR 0023, B1b2).
+    Returns the new strong ETag. The current row version comes from a read, so
+    a stale precondition cannot silently change another administrator's write."""
+    status, h, current = request('GET', '/api/v1/admin/mcp-policy', '/api/v1/admin/mcp-policy',
+                                 headers={'Cookie': owner})
+    check(status == 200 and h['ETag'] == expect_etag, ('installation read', status, current, h.get('ETag')))
+    status, h, body = request('PUT', '/api/v1/admin/mcp-policy', '/api/v1/admin/mcp-policy', json_body={
+        'enabled': enabled, 'defaultAccountEnabled': current['defaultAccountEnabled'],
+        'defaultMaxScopes': current['defaultMaxScopes']},
+        headers={'Origin': ORIGIN, 'Cookie': owner, 'If-Match': expect_etag})
+    check(status == 200 and body['enabled'] is enabled, ('installation write', enabled, status, body))
+    return h['ETag']
+
+
+def phase_installation(state):
+    """The installation switch is live: it pauses every MCP route for the whole
+    deployment while the app keeps MCP enabled, and the same token works again
+    once it is restored. Runs before the env-off phase, with TENDO_MCP_ENABLED
+    still true, so only the database switch differs. A try/finally restores the
+    switch even when a check fails, so a failed run cannot leave MCP paused."""
+    owner = state['owner']
+    token_value = state['grant_e']['access_token']
+    etag = set_installation(owner, False, '"1"')
+    try:
+        # Read after the switch is off: the baseline is the unknown-path 404
+        # that an installation-off answer must match, not the enabled one.
+        unknown_headers, unknown = unknown_path_404()
+        probes = [
+            ('POST', '/oauth/register', '/oauth/register', {'json_body': {'redirect_uris': [REDIRECT]}}),
+            ('GET', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-protected-resource/mcp', {}),
+            ('GET', '/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server', {}),
+            ('GET', authorize_url(state['client_id'], 'C' * 43, 's'), '/oauth/authorize', {}),
+            ('POST', '/oauth/token', '/oauth/token', {'form': {'grant_type': 'refresh_token',
+                                                               'refresh_token': state['grant_e']['refresh_token'],
+                                                               'client_id': state['client_id']}}),
+            ('POST', '/mcp', '/mcp', {'json_body': {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, 'headers': {
+                'Authorization': 'Bearer ' + token_value, 'MCP-Protocol-Version': PROTOCOL,
+                'Accept': 'application/json, text/event-stream'}}),
+        ]
+        for method, url, template, kwargs in probes:
+            status, h, payload, _ = send(method, url, template, **kwargs)
+            check(status == 404 and payload == unknown and not h.get_all('Set-Cookie'), ('installation off', url, status, payload))
+            for header in ('Content-Type', 'Cache-Control'):
+                check(h.get(header) == unknown_headers.get(header), ('installation off', url, header, h.get(header)))
+        status, _, listed = request('GET', '/api/v1/mcp/grants', headers={'Cookie': owner})
+        check(status == 200 and state['grant_e_id'] in {item['id'] for item in listed['items']},
+              ('connected apps while paused', status, listed))
+    except BaseException as probe_error:
+        # The probe failure is the one that reports. A restore error is added to
+        # it rather than replacing it, so the original cause is never hidden.
+        try:
+            set_installation(owner, True, etag)
+        except Exception as restore_error:
+            probe_error.add_note(f'installation restore also failed: {restore_error!r}')
+        raise
+    set_installation(owner, True, etag)
+    check(households(token_value) == {(state['home'], 'MCP Smoke', 'admin')}, 'token after the switch is restored')
+
+
 def phase_reenabled(state):
     tokens = refresh(state['client_id'], state['grant_e'])
     check(households(tokens['access_token']) == {(state['home'], 'MCP Smoke', 'admin')}, 'grant E households')
@@ -482,7 +542,8 @@ def main():
     secret(os.environ['MCP_SMOKE_SETUP_TOKEN'])
     state = json.load(open(state_path)) if os.path.exists(state_path) and os.path.getsize(state_path) else {}
     try:
-        {'enabled': phase_enabled, 'disabled': phase_disabled, 'reenabled': phase_reenabled}[phase](state)
+        {'enabled': phase_enabled, 'installation': phase_installation, 'disabled': phase_disabled,
+         'reenabled': phase_reenabled}[phase](state)
     except Exception:
         # Tokens, codes, handles and cookies must not reach the CI log.
         sys.stderr.write(redact(f'MCP smoke {phase} phase failed\n' + traceback.format_exc()))
