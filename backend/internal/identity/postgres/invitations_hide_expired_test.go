@@ -46,7 +46,7 @@ func TestInvitationListHidesExpiredBeforePaging(t *testing.T) {
 			id, house, owner, "hide-expired-"+kind+fmt.Sprint(n), n+1, created, expires); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := admin.Exec(ctx, `UPDATE household_invitations SET accepted_at=`+accepted+`, revoked_at=`+revoked+` WHERE id=$1::uuid`, id); err != nil {
+		if _, err := admin.Exec(ctx, `UPDATE household_invitations SET accepted_at=`+accepted+`, revoked_at=`+revoked+`, token_hash=CASE WHEN `+accepted+` IS NULL AND `+revoked+` IS NULL THEN token_hash END WHERE id=$1::uuid`, id); err != nil {
 			t.Fatal(err)
 		}
 		all = append(all, id)

@@ -1,7 +1,7 @@
 -- name: RevokePendingInvitationsCreatedBy :exec
 -- A removed member must not keep a usable invitation into the household. The
--- rows stay as audit history with the secret-bearing token no longer usable.
-UPDATE household_invitations SET revoked_at=$3
+-- rows stay as redacted history; the token digest is cleared (ADR 0024).
+UPDATE household_invitations SET revoked_at=$3, token_hash=NULL
 WHERE household_id=$1 AND created_by_user_id=$2
   AND accepted_at IS NULL AND revoked_at IS NULL;
 

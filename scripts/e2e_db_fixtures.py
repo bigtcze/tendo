@@ -217,8 +217,10 @@ def assert_large_paging_household(
       (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}' AND token_hash IS NULL),
       (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}' AND expires_at <= now())
     )""")
-    # Hidden expired invitations stay stored: 1001 pending plus 100 expired, none accepted or revoked.
-    if actual != "1002|1001|1001|1101|1101|0|100":
+    # Hidden expired invitations stay stored: 1001 pending plus 100 expired, none accepted or revoked. The
+    # fixture is seeded before the app starts, so the startup retention sweep has cleared exactly the 100
+    # expired token digests (ADR 0024) and every pending one is kept.
+    if actual != "1002|1001|1001|1101|1101|100|100":
         raise RuntimeError(f"large paging fixture state mismatch: {actual!r}")
 
 

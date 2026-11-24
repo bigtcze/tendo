@@ -37,6 +37,9 @@ type startupSteps struct {
 	// mcpSweep replaces the production retention pass in tests. Nil uses the
 	// production MCP service.
 	mcpSweep func(context.Context) (identityapp.MCPSweepReport, error)
+	// invitationSweep replaces the production invitation retention pass in
+	// tests. Nil uses the production repository.
+	invitationSweep func(context.Context) (identityapp.InvitationSweepReport, error)
 }
 
 func defaultStartupSteps() startupSteps {
@@ -109,10 +112,17 @@ func (s startupSteps) serve(ctx context.Context, cfg config.Config, pool *pgxpoo
 	if sweep == nil {
 		sweep = defaultMCPSweep(cfg, pool)
 	}
-	stopSweeper := startSweeper(ctx, mcpSweeper{
+	invitationSweep := s.invitationSweep
+	if invitationSweep == nil {
+		invitationSweep = defaultInvitationSweep(pool)
+	}
+	stopMCP := startSweeper(ctx, mcpSweeper{
 		sweep: sweep, interval: mcpSweepInterval, timeout: cfg.DBTimeout, logger: slog.Default(),
 	}.run)
-	return serveWithSweeper(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout, stopSweeper)
+	stopInvitations := startSweeper(ctx, invitationSweeper{
+		sweep: invitationSweep, interval: invitationSweepInterval, timeout: cfg.DBTimeout, logger: slog.Default(),
+	}.run)
+	return serveWithSweeper(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout, stopAll(stopMCP, stopInvitations))
 }
 
 // defaultMCPSweep runs the retention pass of the production MCP service. The

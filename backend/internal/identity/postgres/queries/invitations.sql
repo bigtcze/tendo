@@ -23,10 +23,22 @@ WHERE household_id=sqlc.arg('household_id') AND (sqlc.narg('after_id')::uuid IS 
 ORDER BY id LIMIT sqlc.arg('row_limit');
 
 -- name: RevokeInvitation :execrows
-UPDATE household_invitations SET revoked_at=$3 WHERE household_id=$1 AND id=$2 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $3;
+-- A terminal invitation keeps no token digest (migration 031, ADR 0024).
+UPDATE household_invitations SET revoked_at=$3, token_hash=NULL WHERE household_id=$1 AND id=$2 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $3;
 
 -- name: AcceptInvitation :execrows
-UPDATE household_invitations SET accepted_at=$2 WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $2;
+UPDATE household_invitations SET accepted_at=$2, token_hash=NULL WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $2;
+
+-- name: SweepExpiredInvitationDigests :execrows
+-- One bounded batch. An invitation past expiry can never be accepted, so its
+-- digest is cleared and the redacted row stays. SKIP LOCKED leaves a row that an
+-- acceptance or revocation holds; that transaction clears the digest itself or
+-- the next batch does.
+UPDATE household_invitations SET token_hash=NULL WHERE id IN (
+  SELECT id FROM household_invitations
+  WHERE token_hash IS NOT NULL AND expires_at <= sqlc.arg(cutoff)::timestamptz
+  ORDER BY id LIMIT 1000 FOR UPDATE SKIP LOCKED
+);
 
 -- name: InvitationExistsInHousehold :one
 SELECT EXISTS(SELECT 1 FROM household_invitations WHERE household_id=$1 AND id=$2);

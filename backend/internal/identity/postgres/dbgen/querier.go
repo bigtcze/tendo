@@ -214,6 +214,7 @@ type Querier interface {
 	// any household, stops working. The per-household revocations already ran; this
 	// catches links in households the account was never a member of.
 	RevokeAccountPasswordResets(ctx context.Context, arg RevokeAccountPasswordResetsParams) error
+	// A terminal invitation keeps no token digest (migration 031, ADR 0024).
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	// revoked_at is clamped to created_at exactly as in RevokeAccountMCPGrants: a
 	// concurrent code-reuse loser read its clock before the winner created the
@@ -226,7 +227,7 @@ type Querier interface {
 	RevokeMemberResetsInHousehold(ctx context.Context, arg RevokeMemberResetsInHouseholdParams) error
 	RevokeOutstandingPasswordResetsForTarget(ctx context.Context, arg RevokeOutstandingPasswordResetsForTargetParams) (int64, error)
 	// A removed member must not keep a usable invitation into the household. The
-	// rows stay as audit history with the secret-bearing token no longer usable.
+	// rows stay as redacted history; the token digest is cleared (ADR 0024).
 	RevokePendingInvitationsCreatedBy(ctx context.Context, arg RevokePendingInvitationsCreatedByParams) error
 	SetAccountDefaultHousehold(ctx context.Context, arg SetAccountDefaultHouseholdParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
@@ -237,6 +238,11 @@ type Querier interface {
 	// then sees the grant revoked) or waits and revokes what was issued.
 	ShareLocalCredential(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error)
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
+	// One bounded batch. An invitation past expiry can never be accepted, so its
+	// digest is cleared and the redacted row stays. SKIP LOCKED leaves a row that an
+	// acceptance or revocation holds; that transaction clears the digest itself or
+	// the next batch does.
+	SweepExpiredInvitationDigests(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	// One batch by primary key. The sweep loops while a batch comes back full.
 	SweepMCPAccessTokensExpired(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	// One batch by primary key. The sweep loops while a batch comes back full.

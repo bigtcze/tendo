@@ -10,7 +10,7 @@ Store the archive privately. It contains every household record, plus:
 
 - password hashes;
 - digests of login sessions;
-- digests of pending invitation links;
+- digests of pending invitation links (accepted, revoked and expired invitations keep no digest);
 - digests of outstanding password reset links.
 
 Digests are not the original secrets, but they still let a restored copy accept them. Login sessions that had not expired when you took the backup work again after a restore. An invitation link that was still pending also works again until it expires. A password reset link that had not been used or cancelled is usable again after a restore until its 24-hour lifetime ends, so treat every outstanding link as a live credential: cancel links that should not survive, or warn the people who hold them. Keep backups off the server in encrypted, access-controlled storage.

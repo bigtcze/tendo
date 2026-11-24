@@ -44,13 +44,13 @@ func TestMigrationThirtyUpAndPrivileges(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	requireSchemaVersion(t, ctx, admin, 30)
+	requireSchemaVersion(t, ctx, admin, 31)
 	if !migrationRelationExists(t, ctx, admin, "mcp_authorization_requests") {
-		t.Fatal("mcp_authorization_requests missing after migrate to 30")
+		t.Fatal("mcp_authorization_requests missing after migrate to 31")
 	}
 	for _, name := range mcpAuthorizationRequestIndexes {
 		if !migrationRelationExists(t, ctx, admin, name) {
-			t.Fatalf("index %s missing after migrate to 30", name)
+			t.Fatalf("index %s missing after migrate to 31", name)
 		}
 	}
 	var selectOK, insertOK, deleteOK, updateOK bool
@@ -193,7 +193,7 @@ func TestMigrationThirtyDownMapsClientRevocationsAndReapplies(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("re-apply 030: %v", err)
 	}
-	requireSchemaVersion(t, ctx, admin, 30)
+	requireSchemaVersion(t, ctx, admin, 31)
 	if !migrationRelationExists(t, ctx, admin, "mcp_authorization_requests") {
 		t.Fatal("mcp_authorization_requests missing after re-apply")
 	}

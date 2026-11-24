@@ -12,7 +12,7 @@ import (
 )
 
 const acceptInvitation = `-- name: AcceptInvitation :execrows
-UPDATE household_invitations SET accepted_at=$2 WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $2
+UPDATE household_invitations SET accepted_at=$2, token_hash=NULL WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $2
 `
 
 type AcceptInvitationParams struct {
@@ -296,7 +296,7 @@ func (q *Queries) LockUserForInvitation(ctx context.Context, id pgtype.UUID) (st
 }
 
 const revokeInvitation = `-- name: RevokeInvitation :execrows
-UPDATE household_invitations SET revoked_at=$3 WHERE household_id=$1 AND id=$2 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $3
+UPDATE household_invitations SET revoked_at=$3, token_hash=NULL WHERE household_id=$1 AND id=$2 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $3
 `
 
 type RevokeInvitationParams struct {
@@ -305,8 +305,29 @@ type RevokeInvitationParams struct {
 	RevokedAt   pgtype.Timestamptz
 }
 
+// A terminal invitation keeps no token digest (migration 031, ADR 0024).
 func (q *Queries) RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeInvitation, arg.HouseholdID, arg.ID, arg.RevokedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepExpiredInvitationDigests = `-- name: SweepExpiredInvitationDigests :execrows
+UPDATE household_invitations SET token_hash=NULL WHERE id IN (
+  SELECT id FROM household_invitations
+  WHERE token_hash IS NOT NULL AND expires_at <= $1::timestamptz
+  ORDER BY id LIMIT 1000 FOR UPDATE SKIP LOCKED
+)
+`
+
+// One bounded batch. An invitation past expiry can never be accepted, so its
+// digest is cleared and the redacted row stays. SKIP LOCKED leaves a row that an
+// acceptance or revocation holds; that transaction clears the digest itself or
+// the next batch does.
+func (q *Queries) SweepExpiredInvitationDigests(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepExpiredInvitationDigests, cutoff)
 	if err != nil {
 		return 0, err
 	}

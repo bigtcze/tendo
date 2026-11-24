@@ -59,7 +59,7 @@ func sweepFaultClass(err error) string {
 		return "timeout"
 	case errors.Is(err, context.Canceled):
 		return "canceled"
-	case errors.Is(err, identityapp.ErrMCPSweepFailed):
+	case errors.Is(err, identityapp.ErrMCPSweepFailed), errors.Is(err, identityapp.ErrInvitationSweepFailed):
 		return "step_failed"
 	default:
 		return "unknown"

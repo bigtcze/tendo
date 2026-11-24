@@ -373,7 +373,7 @@ func TestOIDCJITInvitationCarryOver(t *testing.T) {
 		}
 		var people, accepted int
 		if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM subjects WHERE linked_user_id=$1 AND household_id=$2),
-			(SELECT count(*) FROM household_invitations WHERE id=$3 AND accepted_at IS NOT NULL)`, outcome.UserID, house, invitationID).Scan(&people, &accepted); err != nil || people != 1 || accepted != 1 {
+			(SELECT count(*) FROM household_invitations WHERE id=$3 AND accepted_at IS NOT NULL AND token_hash IS NULL)`, outcome.UserID, house, invitationID).Scan(&people, &accepted); err != nil || people != 1 || accepted != 1 {
 			t.Fatalf("people=%d accepted=%d err=%v", people, accepted, err)
 		}
 	})
@@ -562,7 +562,7 @@ func TestOIDCJITMigrationFromVersion18(t *testing.T) {
 		t.Fatalf("existing account gained email data: %v/%v/%v/%v", email, emailVerified, emailSource, emailIssuer)
 	}
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 30 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 31 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	// Constraint and grant coverage for the new schema.

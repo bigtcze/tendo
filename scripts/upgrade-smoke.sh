@@ -199,6 +199,9 @@ def populate():
     page_zero=items['page_00']; page_zero_etag,_=ok(200,'GET',f'{base}/items/{page_zero}',cookie=owner)
     ok(200,'PATCH',f'{base}/items/{page_zero}',{'workflowState':'waiting'},owner,{'If-Match':page_zero_etag['ETag']})
     _,pending=ok(201,'POST',base+'/invitations',{},owner,{'Idempotency-Key':'upgrade-pending'})
+    # A revoked invitation: migration 031 must clear its token digest and keep the row.
+    _,revoked=ok(201,'POST',base+'/invitations',{},owner,{'Idempotency-Key':'upgrade-revoked'})
+    ok(204,'DELETE',f"{base}/invitations/{revoked['id']}",cookie=owner)
     s={'ownerSession':owner,'ownerPassword':op,'memberPassword':mp,'householdId':hid,'personId':person['id'],'memberId':member,'items':items,'itemKeys':keys,'fluidReceipt':receipt,'pendingToken':pending['token'],'v1Session':owner}
     s['before']=capture(s)
     with open(state_path,'w',encoding='utf-8') as f: json.dump(s,f,ensure_ascii=False)
@@ -412,6 +415,11 @@ printf 'Migration 021 recovered anchor 31 and 29 from continuous receipt chains,
 instance_admins=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT string_agg(u.login || ':' || a.grant_source, ',' ORDER BY u.login) FROM instance_admins a JOIN user_accounts u ON u.id = a.user_id")
 [[ "$instance_admins" == "owner_upgrade:v4_bootstrap_migration" ]] || { printf 'Migration 022 instance administrators unexpected: %s\n' "$instance_admins" >&2; exit 1; }
 printf 'Migration 022 granted instance administrator to the setup account only.\n'
+# Migration 031 (ADR 0024): accepted and revoked invitations keep their row but no
+# token digest; the pending invitation keeps its digest and still works (verify).
+invitation_digests=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT string_agg(creation_key || ':' || (token_hash IS NOT NULL)::text, ',' ORDER BY creation_key) FROM household_invitations")
+[[ "$invitation_digests" == "upgrade-member:false,upgrade-pending:true,upgrade-revoked:false" ]] || { printf 'Migration 031 invitation digests unexpected: %s\n' "$invitation_digests" >&2; exit 1; }
+printf 'Migration 031 cleared the token digests of accepted and revoked invitations and kept the pending one.\n'
 subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM subjects")
 unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")
 memberships_without_single=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE (SELECT count(*) FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id AND s.type='person') <> 1")
