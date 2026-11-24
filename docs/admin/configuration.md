@@ -57,11 +57,11 @@ TENDO_HOST_IP=0.0.0.0
 TENDO_PUBLIC_URL=http://192.168.1.20:8080
 ```
 
-`0.0.0.0` listens on every interface of the host; a single address such as `192.168.1.20` listens only on that interface. Set `TENDO_PUBLIC_URL` to the exact address people open; any other address is refused with 421. Then recreate the app with `docker compose up -d --wait`.
+`0.0.0.0` listens on every interface of the host; a single address such as `192.168.1.20` listens only on that interface. Set `TENDO_PUBLIC_URL` to the exact address people open; any other address is refused with 421 (health checks excepted). Then recreate the app with `docker compose up -d --wait`.
 
 - Plain HTTP sends passwords and session cookies unencrypted. Use it only on a network you trust, never on the internet.
 - Docker's published ports bypass many host firewall rules (for example `ufw`). Opening the port in `.env` makes it reachable even when your firewall seems to block it.
-- Leave `TENDO_TRUSTED_PROXY_CIDRS` empty unless a proxy connects from a known address; never add the client network there.
+- Leave `TENDO_TRUSTED_PROXY_CIDRS` empty unless a proxy connects from a known address; never add the client network there. Through a published port the app may see Docker's gateway address instead of the real peer (always for connections from this machine; for all clients under rootless Docker or Docker Desktop). Never put that gateway address in `TENDO_TRUSTED_PROXY_CIDRS`.
 - `TENDO_MCP_ENABLED=true` needs an HTTPS `TENDO_PUBLIC_URL` on such an address.
 
 Updating never changes this setting. An `.env` from an earlier release has no `TENDO_HOST_IP` line and stays on `127.0.0.1`.

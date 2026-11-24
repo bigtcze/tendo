@@ -34,8 +34,9 @@ setup_environment() {
   TENDO_OIDC_CLIENT_SECRET_FILE=
   TENDO_OIDC_DISPLAY_NAME=
   TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
-  # The app's own HTTP port stays published through compose.yaml, on a non-default
-  # TENDO_HOST_IP opt-in (the proxy owns 127.0.0.1 on the same port number).
+  # The app's own HTTP port is now also published through compose.yaml, on a non-default
+  # TENDO_HOST_IP opt-in, to prove a direct client is untrusted (the proxy owns 127.0.0.1
+  # on the same port number).
   TENDO_HOST_IP=127.0.0.3
   TENDO_OIDC_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
   TENDO_OIDC_CLIENT_SECRET=tendo-proxy-oidc-secret

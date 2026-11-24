@@ -16,13 +16,14 @@ unset TENDO_HOST_IP
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
 origin=$TENDO_PUBLIC_URL
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml")
-compose_build=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
+# --env-file /dev/null: a developer's $root/.env must not mask the unset-TENDO_HOST_IP upgrade.
+compose=(docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml")
+compose_build=(docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
 
 cleanup() {
   local result=$?
   trap - EXIT
-  if ! docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" down --volumes --remove-orphans --rmi local; then
+  if ! docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" down --volumes --remove-orphans --rmi local; then
     printf 'Compose cleanup failed for project %s\n' "$project" >&2
     (( result != 0 )) || result=1
   fi

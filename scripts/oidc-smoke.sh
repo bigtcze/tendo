@@ -48,13 +48,15 @@ trap cleanup EXIT
 "${compose[@]}" up -d --build --wait --wait-timeout 180
 origin=$TENDO_PUBLIC_URL
 [[ "$("${compose[@]}" port app 8080)" == "${TENDO_HOST_IP}:${TENDO_HOST_PORT}" ]] || { echo 'OIDC smoke app is not published on its TENDO_HOST_IP' >&2; exit 1; }
-if curl -sS --max-time 3 -o /dev/null "http://127.0.0.1:${TENDO_HOST_PORT}/health/live" 2>/dev/null; then echo 'App answered on 127.0.0.1 although TENDO_HOST_IP selects another address' >&2; exit 1; fi
 ready=0
 for _ in $(seq 1 60); do
   if curl -fsS --max-time 3 "$origin/health/ready" >/dev/null; then ready=1; break; fi
   sleep 1
 done
 (( ready )) || { echo 'OIDC app failed readiness' >&2; exit 1; }
+# Another authority on the same published address is not the public origin.
+misdirected=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' -H "Host: localhost:${TENDO_HOST_PORT}" "$origin/api/not-a-route")
+[[ "$misdirected" == 421 ]] || { printf 'Host localhost:%s on TENDO_HOST_IP expected HTTP 421, got %s\n' "$TENDO_HOST_PORT" "$misdirected" >&2; exit 1; }
 OIDC_SMOKE_ORIGIN="$origin" OIDC_SMOKE_FIXTURES="$fixtures" OIDC_HOST_PORT="$TENDO_OIDC_HOST_PORT" OIDC_SMOKE_PSQL="${compose[*]} exec -T postgres psql -U postgres -d tendo -At" OIDC_SMOKE_SECRETS="$secrets" python3 - <<'PY'
 import http.client,json,os,subprocess,urllib.error,urllib.parse,urllib.request
 origin=os.environ['OIDC_SMOKE_ORIGIN']; hostport=os.environ['OIDC_HOST_PORT']; fixtures=[]

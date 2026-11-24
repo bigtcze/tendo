@@ -26,7 +26,8 @@ TENDO_TRUSTED_PROXY_CIDRS=
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
+# --env-file /dev/null: a developer's $root/.env must not mask the unset-TENDO_HOST_IP default.
+compose=(docker compose --env-file /dev/null --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
 admin_url="postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/tendo?sslmode=disable"
 origin=$TENDO_PUBLIC_URL
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-compose-startup-smoke.XXXXXX")

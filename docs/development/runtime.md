@@ -9,7 +9,7 @@ This page covers the Compose stack from a contributor's point of view. To instal
 - a session-authenticated household read (`GET /api/v1/households/{householdId}`, members only; malformed, nonexistent, and non-member IDs all return the same 404)
 - an embedded web UI served by the app: first-run onboarding, a sign-in page, and an empty home screen (see [frontend development](frontend.md))
 
-This runtime includes the household item and invitation flows described in the user guides. PostgreSQL is private to the Compose network and the app port binds to host loopback.
+This runtime includes the household item and invitation flows described in the user guides. PostgreSQL is private to the Compose network and the app port binds to host loopback by default (`TENDO_HOST_IP`).
 
 ## Prerequisites
 
