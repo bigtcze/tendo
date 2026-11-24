@@ -729,6 +729,36 @@ func (e McpGrantScopes) Valid() bool {
 	}
 }
 
+// Defines values for McpInstallationPolicyValidationProblemCode.
+const (
+	McpInstallationPolicyValidationProblemCodeInvalidValue McpInstallationPolicyValidationProblemCode = "invalid_value"
+)
+
+// Valid indicates whether the value is a known member of the McpInstallationPolicyValidationProblemCode enum.
+func (e McpInstallationPolicyValidationProblemCode) Valid() bool {
+	switch e {
+	case McpInstallationPolicyValidationProblemCodeInvalidValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpInstallationPolicyValidationProblemField.
+const (
+	DefaultMaxScopes McpInstallationPolicyValidationProblemField = "defaultMaxScopes"
+)
+
+// Valid indicates whether the value is a known member of the McpInstallationPolicyValidationProblemField enum.
+func (e McpInstallationPolicyValidationProblemField) Valid() bool {
+	switch e {
+	case DefaultMaxScopes:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpJsonRpcMessageJsonrpc.
 const (
 	N20 McpJsonRpcMessageJsonrpc = "2.0"
@@ -2229,6 +2259,24 @@ type McpInstallationPolicyUpdate struct {
 	DefaultMaxScopes      McpScopeList `json:"defaultMaxScopes"`
 	Enabled               bool         `json:"enabled"`
 }
+
+// McpInstallationPolicyValidationProblem defines model for McpInstallationPolicyValidationProblem.
+type McpInstallationPolicyValidationProblem struct {
+	Code                 McpInstallationPolicyValidationProblemCode  `json:"code"`
+	Detail               *string                                     `json:"detail,omitempty"`
+	Field                McpInstallationPolicyValidationProblemField `json:"field"`
+	Instance             *string                                     `json:"instance,omitempty"`
+	Status               int                                         `json:"status"`
+	Title                string                                      `json:"title"`
+	Type                 string                                      `json:"type"`
+	AdditionalProperties map[string]interface{}                      `json:"-"`
+}
+
+// McpInstallationPolicyValidationProblemCode defines model for McpInstallationPolicyValidationProblem.Code.
+type McpInstallationPolicyValidationProblemCode string
+
+// McpInstallationPolicyValidationProblemField defines model for McpInstallationPolicyValidationProblem.Field.
+type McpInstallationPolicyValidationProblemField string
 
 // McpJsonRpcMessage One JSON-RPC 2.0 message as defined by the MCP specification. The MCP SDK validates the message; this schema only fixes the envelope.
 type McpJsonRpcMessage struct {
@@ -4823,6 +4871,154 @@ func (a McpClientRegistrationRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'token_endpoint_auth_method': %w", err)
 		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for McpInstallationPolicyValidationProblem. Returns the specified
+// element and whether it was found
+func (a McpInstallationPolicyValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for McpInstallationPolicyValidationProblem
+func (a *McpInstallationPolicyValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for McpInstallationPolicyValidationProblem to handle AdditionalProperties
+func (a *McpInstallationPolicyValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for McpInstallationPolicyValidationProblem to handle AdditionalProperties
+func (a McpInstallationPolicyValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

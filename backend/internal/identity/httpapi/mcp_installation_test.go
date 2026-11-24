@@ -119,6 +119,18 @@ func TestInstallationGateFaultFailsClosedPerRoute(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("mcp fault: status=%d; want the 503", w.Code)
 	}
+	// The browser entry point fails closed with a server_error redirect that
+	// carries the same no-store and no-referrer headers as every other answer.
+	w = mcpServe(h, http.MethodGet, mcpAuthorizePath, "", gateHeader(nil), "192.0.2.1:1")
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != mcpConnectPath+"#error=server_error" {
+		t.Errorf("authorize fault: status=%d location=%q; want 303 to #error=server_error", w.Code, w.Header().Get("Location"))
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("authorize fault Cache-Control=%q, want no-store", got)
+	}
+	if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("authorize fault Referrer-Policy=%q, want no-referrer", got)
+	}
 	if strings.Contains(w.Body.String(), "driver") {
 		t.Errorf("gate fault leaked driver text: %s", w.Body)
 	}

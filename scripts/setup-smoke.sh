@@ -822,6 +822,8 @@ st,_,inst_stale=ainst_req('PUT',{**owner_mut,'If-Match':'"9"'},body={'enabled':F
 assert st==412 and inst_stale['code']=='precondition_failed',('installation mcp policy stale If-Match',st,inst_stale)
 st,_,inst_operator=ainst_req('PUT',{**owner_mut,'If-Match':'"1"'},body={'enabled':True,'operatorEnabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
 assert st==400 and inst_operator['code']=='invalid_request',('installation mcp policy sends operatorEnabled',st,inst_operator)
+st,_,inst_bad_scope=ainst_req('PUT',{**owner_mut,'If-Match':'"1"'},body={'enabled':True,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:admin']})
+assert st==422 and inst_bad_scope['code']=='invalid_value' and inst_bad_scope['field']=='defaultMaxScopes',('installation mcp policy unknown scope',st,inst_bad_scope)
 st,h,inst_off=ainst_req('PUT',{**owner_mut,'If-Match':'"1"'},body={'enabled':False,'defaultAccountEnabled':True,'defaultMaxScopes':['tendo:read']})
 assert st==200 and inst_off['enabled'] is False and inst_off['defaultMaxScopes']==['tendo:read'] and h['ETag']=='"2"' and h['Cache-Control']=='no-store',('switch installation mcp off',st,inst_off,dict(h))
 assert psql("SELECT count(*)||'|'||COALESCE(min(policy),'')||'|'||COALESCE(min(enabled::text),'')||'|'||COALESCE(min(default_account_enabled::text),'')||'|'||COALESCE(min(array_to_string(scopes,',')),'') FROM mcp_policy_events WHERE policy='installation'")=='1|installation|false|true|tendo:read','installation mcp policy audit row'

@@ -153,7 +153,13 @@ func gateProblemUnavailable(w http.ResponseWriter, _ *http.Request) {
 
 // gateAuthorizeServerError is the browser entry point's fail-closed answer: the
 // same redirect as any other server fault on /oauth/authorize.
+// gateAuthorizeServerError answers a fault of the installation gate on the
+// browser entry point. It carries the same no-store and no-referrer headers as
+// every other /oauth/authorize answer, so the fault is never cached or leaks
+// the connect URL through a Referer.
 func gateAuthorizeServerError(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	redirectConnectError(w, "server_error")
 }
 

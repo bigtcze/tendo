@@ -1025,8 +1025,10 @@ administrator grant list and revocation) is still separate.
   `scopes` after the change. A no-op writes no row and keeps the version.
 - The installation write takes `installation_state` `FOR SHARE`, then the live
   instance-administrator check, then `mcp_installation_policy` `FOR UPDATE`
-  with a version compare. The update is guarded by the previous version and
-  must affect exactly one row. Both sides read the row back under the lock.
+  with a version compare. The version compare uses the row that
+  `LockInstallationPolicy` returned under that lock. The update is guarded by
+  the previous version (`WHERE version = new - 1`) and must affect exactly one
+  row; it does not re-read the row afterwards.
 - The audit table is append-only for the runtime role. The no-UPDATE and
   no-DELETE grant is proven by
   `household/postgres` `TestMigrationThirtyTwoUpAndPrivileges`; this slice
@@ -1057,11 +1059,15 @@ administrator grant list and revocation) is still separate.
 
 ### Deviations and follow-ups (B1b2)
 
-- The OpenAPI 404 descriptions for MCP routes now name the installation
-  switch as well as `TENDO_MCP_ENABLED`. The 503 entries for the gate are
-  documented per operation, and the discovery documents and `/mcp` carry them.
-  The preflights have no separate contract entry; their fault shape is in the
-  `/oauth/register` description.
+- The OpenAPI 404 descriptions for MCP routes name the installation switch as
+  well as `TENDO_MCP_ENABLED`, including the consent read and decision. Each
+  JSON operation that the gate guards documents a 503 `unavailable` entry for
+  the gate fault: the registration, discovery documents, token, revoke, `/mcp`,
+  and the consent read and decision. `/oauth/authorize` has no 503 entry. Its
+  gate fault is a `303` redirect with `error=server_error`, carrying
+  `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and its contract
+  is the `/oauth/authorize` description. The CORS preflights have no separate
+  contract entry; their fault shape is in the `/oauth/register` description.
 - This closes the B1a follow-up: discovery, registration, authorization start,
   revocation and an unauthenticated `/mcp` now follow the installation switch
   as well as `TENDO_MCP_ENABLED`.

@@ -1996,8 +1996,10 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/McpInstallationPolicy' }
               example: { enabled: true, operatorEnabled: true, defaultAccountEnabled: true, defaultMaxScopes: [tendo:read, tendo:write] }
+        '400': { description: 'Malformed trusted forwarded request metadata. The problem carries no code.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400 } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'The signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'The installation policy is unreadable or its row is missing. Recorded as a fault, never defaulted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
     put:
       operationId: updateMcpInstallationPolicy
@@ -2037,11 +2039,23 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/McpInstallationPolicy' }
               example: { enabled: true, operatorEnabled: true, defaultAccountEnabled: true, defaultMaxScopes: [tendo:read] }
-        '400': { description: 'Malformed body, an unknown field such as operatorEnabled, or an invalid scope list.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
-        '401': { description: 'No valid session cookie; a stale single cookie is cleared.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
-        '403': { description: 'Foreign Origin, or the signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
-        '412': { description: 'The If-Match version is stale or malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
-        '428': { description: 'If-Match is missing.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
+        '400': { description: 'Invalid body (invalid_request): malformed JSON, unknown or duplicate keys (operatorEnabled included), or wrong JSON types; or malformed trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter, body or If-Match handling), code instance_admin_required; or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '412': { description: 'If-Match is malformed, weak, a list, or stale.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'defaultMaxScopes is empty, duplicated, or names an unknown scope.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/McpInstallationPolicyValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_value, field: defaultMaxScopes } } } }
+        '428': { description: 'If-Match is required.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
         '503': { description: 'The installation policy is unreadable or its row is missing. Recorded as a fault, never defaulted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/admin/mcp-policy-events:
     get:
@@ -2073,9 +2087,10 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/McpPolicyEventList' }
               example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, policy: installation, actorUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, targetUserId: null, enabled: true, defaultAccountEnabled: true, scopes: [tendo:read], occurredAt: '2026-11-24T10:00:00Z' }] }
-        '400': { description: 'Malformed limit or cursor.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '400': { description: 'Malformed limit or cursor (invalid_query on the parameter), or malformed trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'The signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'The audit list is unreadable. Recorded as a fault.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/admin/accounts/{userId}/mcp-policy:
     get:
@@ -3052,7 +3067,7 @@ paths:
         fragment (#error=). The client redirect happens only after a signed-in person approves the consent. The response
         sets a binding cookie scoped to the handle and reads no session cookie. Unknown parameters are ignored; a repeated
         recognized parameter is invalid_request, and a repeated resource is invalid_target. A refused client redirect URI
-        is never echoed. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. If the installation switch cannot be read the operation fails closed with a server_error redirect. Rate limited per client
+        is never echoed. While MCP is disabled or the installation switch is off the operation answers the unknown-path 404 problem. If the installation switch cannot be read the operation fails closed with a server_error redirect, which carries Cache-Control no-store and Referrer-Policy no-referrer like every other answer. Rate limited per client
         IP (20 per minute) and globally (120 per minute).
       tags: [Mcp]
       security: []
@@ -3149,7 +3164,7 @@ paths:
                 expiresAt: '2026-11-20T10:05:00Z'
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '404':
-          description: No pending consent for this handle and browser, or it has expired or was consumed. MCP disabled answers the unknown-path 404 instead.
+          description: No pending consent for this handle and browser, or it has expired or was consumed. MCP disabled (TENDO_MCP_ENABLED off or the installation switch off) answers the unknown-path 404 instead.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -3159,7 +3174,7 @@ paths:
               example: { type: 'about:blank', title: Not Found, status: 404, code: authorization_request_not_found }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503':
-          description: Persistence is unavailable.
+          description: Persistence is unavailable, including the installation switch gate read, which fails closed with this problem and never falls back to enabled.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -3214,7 +3229,7 @@ paths:
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
         '404':
-          description: No pending consent for this handle and browser, or it was already decided or expired. MCP disabled answers the unknown-path 404 instead, which clears no cookie.
+          description: No pending consent for this handle and browser, or it was already decided or expired. MCP disabled (TENDO_MCP_ENABLED off or the installation switch off) answers the unknown-path 404 instead, which clears no cookie.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -3239,7 +3254,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited }
         '503':
-          description: Persistence is unavailable.
+          description: Persistence is unavailable, including the installation switch gate read, which fails closed with this problem and never falls back to enabled.
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -3943,6 +3958,14 @@ components:
           required: [field, code]
           properties:
             field: { type: string, enum: [maxScopes, scopes] }
+            code: { type: string, enum: [invalid_value] }
+    McpInstallationPolicyValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [field, code]
+          properties:
+            field: { type: string, enum: [defaultMaxScopes] }
             code: { type: string, enum: [invalid_value] }
     McpTokenRequest:
       type: object

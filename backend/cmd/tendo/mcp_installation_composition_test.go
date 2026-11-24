@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -58,6 +59,56 @@ func TestEnabledMCPGateReadsDatabaseSwitchWithoutOverride(t *testing.T) {
 			t.Fatalf("%s leaks driver text: %s", name, body)
 		}
 	}
+}
+
+// TestInstallationOffAnswersEveryMCPPathAsTheUnknownPath (ADR 0023, slice B1b2)
+// pins the installation switch off on an enabled app: every entry of the MCP
+// path list answers byte for byte the unknown reserved path's 404. It must match
+// in status, body, header set and header values (except the per-request
+// X-Request-ID), carry no CORS header, and never answer the SPA. The list already
+// covers OPTIONS, DELETE, PUT and PATCH on /mcp.
+func TestInstallationOffAnswersEveryMCPPathAsTheUnknownPath(t *testing.T) {
+	app, cfg := newEnabledMCPApp(t, fixedInstallationSwitch(false))
+	unknown := serveAt(app, http.MethodGet, cfg.PublicURL+"/oauth/xyz", cfg.PublicURL)
+	if unknown.Code != http.StatusNotFound || unknown.Header().Get("Content-Type") != "application/problem+json" {
+		t.Fatalf("unknown reserved path status=%d type=%q", unknown.Code, unknown.Header().Get("Content-Type"))
+	}
+	for _, tc := range mcpDisabledPaths {
+		w := serveAt(app, tc.method, cfg.PublicURL+tc.path, cfg.PublicURL)
+		if w.Code != unknown.Code || w.Body.String() != unknown.Body.String() {
+			t.Errorf("%s %s: status=%d body=%s; want the unknown-path 404 %s", tc.method, tc.path, w.Code, w.Body, unknown.Body)
+		}
+		if got, want := headerSet(w.Header()), headerSet(unknown.Header()); !slices.Equal(got, want) {
+			t.Errorf("%s %s: headers=%v; want the unknown-path headers %v", tc.method, tc.path, got, want)
+		}
+		for _, name := range []string{"Content-Type", "Cache-Control", "Referrer-Policy", "X-Content-Type-Options"} {
+			if w.Header().Get(name) != unknown.Header().Get(name) {
+				t.Errorf("%s %s: %s=%q; want the unknown-path value %q", tc.method, tc.path, name, w.Header().Get(name), unknown.Header().Get(name))
+			}
+		}
+		for name := range w.Header() {
+			if strings.HasPrefix(http.CanonicalHeaderKey(name), "Access-Control-") {
+				t.Errorf("%s %s sends the CORS header %s", tc.method, tc.path, name)
+			}
+		}
+		if strings.Contains(w.Body.String(), "spa-fallback") {
+			t.Errorf("%s %s answered the SPA", tc.method, tc.path)
+		}
+	}
+}
+
+// headerSet returns the sorted header names, without the per-request ID that
+// every answer carries with its own value.
+func headerSet(h http.Header) []string {
+	names := make([]string, 0, len(h))
+	for name := range h {
+		if http.CanonicalHeaderKey(name) == "X-Request-Id" {
+			continue
+		}
+		names = append(names, http.CanonicalHeaderKey(name))
+	}
+	slices.Sort(names)
+	return names
 }
 
 // TestMCPInstallationPutRefusesForeignOriginBeforeHandler: the installation

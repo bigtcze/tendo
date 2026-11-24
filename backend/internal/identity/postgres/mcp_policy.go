@@ -12,7 +12,10 @@ import (
 )
 
 var (
-	_ identity.MCPPolicyRepository  = (*MCPRepository)(nil)
+	_ identity.MCPPolicyRepository = (*MCPRepository)(nil)
+	// The gate reads the installation switch from this repository. A missing
+	// method is a build error here, not a silent fail-closed in production.
+	_ identity.MCPInstallationStore = (*MCPRepository)(nil)
 	_ identity.MCPPolicyTransaction = (*mcpPolicyTx)(nil)
 )
 
@@ -190,11 +193,6 @@ func (t *mcpPolicyTx) UpdateInstallationPolicy(ctx context.Context, row identity
 // three levels. afterID is empty for the first page.
 func (t *mcpPolicyTx) ListPolicyEvents(ctx context.Context, afterID string, limit int) ([]identity.MCPPolicyEvent, error) {
 	return listPolicyEvents(ctx, t.q, afterID, limit)
-}
-
-// ListPolicyEvents is the unlocked audit read used outside a transaction.
-func (r *MCPRepository) ListPolicyEvents(ctx context.Context, afterID string, limit int) ([]identity.MCPPolicyEvent, error) {
-	return listPolicyEvents(ctx, identitydb.New(r.pool), afterID, limit)
 }
 
 func listPolicyEvents(ctx context.Context, q *identitydb.Queries, afterID string, limit int) ([]identity.MCPPolicyEvent, error) {

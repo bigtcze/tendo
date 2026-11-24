@@ -35,8 +35,6 @@ type fakeMCPVerifier struct {
 	availErr        error
 }
 
-func (f *fakeMCPVerifier) Enabled() bool { return f.enabled }
-
 // Available is TENDO_MCP_ENABLED and the installation switch (B1b2).
 func (f *fakeMCPVerifier) Available(context.Context) (bool, error) {
 	if f.availErr != nil {

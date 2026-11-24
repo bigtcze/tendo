@@ -22,18 +22,26 @@ func TestMCPAvailableReadsInstallationSwitch(t *testing.T) {
 		want      bool
 		wantErr   bool
 		wantReads int
+		// bare is a repository without MCPInstallationStore: the service has no
+		// switch to read and must fail closed rather than default to on.
+		bare bool
 	}{
 		{name: "env off never reads", enabled: false, switchOn: true, want: false, wantReads: 0},
 		{name: "env on installation on", enabled: true, switchOn: true, want: true, wantReads: 1},
 		{name: "env on installation off", enabled: true, switchOn: false, want: false, wantReads: 1},
 		{name: "read failure fails closed", enabled: true, switchErr: errMCPInjected, want: false, wantErr: true, wantReads: 1},
 		{name: "missing row fails closed", enabled: true, switchErr: ErrMCPInstallationMissing, want: false, wantErr: true, wantReads: 1},
+		{name: "no installation store fails closed", enabled: true, want: false, wantErr: true, bare: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newMCPFake(mcpTestStart)
 			f.policy.InstallationEnabled = tc.switchOn
 			f.switchErr = tc.switchErr
-			svc, err := NewMCPService(f, MCPOptions{Enabled: tc.enabled, Resource: mcpTestResource}, f.clock)
+			var repo MCPRepository = f
+			if tc.bare {
+				repo = &bareMCPRepository{}
+			}
+			svc, err := NewMCPService(repo, MCPOptions{Enabled: tc.enabled, Resource: mcpTestResource}, f.clock)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -41,7 +49,7 @@ func TestMCPAvailableReadsInstallationSwitch(t *testing.T) {
 			if got != tc.want || (err != nil) != tc.wantErr {
 				t.Fatalf("Available()=%v err=%v; want %v err=%v", got, err, tc.want, tc.wantErr)
 			}
-			if f.switchReads != tc.wantReads {
+			if !tc.bare && f.switchReads != tc.wantReads {
 				t.Fatalf("switch reads=%d want %d", f.switchReads, tc.wantReads)
 			}
 		})
