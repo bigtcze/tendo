@@ -158,6 +158,21 @@ func TestTokenErrorMapping(t *testing.T) {
 	}
 }
 
+// TestTokenInstallationPolicyOffIsNotFound: the installation policy switched
+// off after routing admitted the request answers the same 404 as the operator
+// switch, for both grant types (#457).
+func TestTokenInstallationPolicyOffIsNotFound(t *testing.T) {
+	flow := &fakeMCPFlow{fakeMCPService: fakeMCPService{enabled: true}, tokenErr: identity.ErrMCPDisabled}
+	h := flowRouter(t, flow, signedIn(), mcpPublicURL)
+	disabled := mcpServe(flowRouter(t, &fakeMCPFlow{}, signedIn(), mcpPublicURL), http.MethodPost, "/oauth/token", validCodeForm(), formHeader(formHeaderValue), "192.0.2.61:1")
+	for _, form := range []string{validCodeForm(), "grant_type=refresh_token&refresh_token=R&client_id=c"} {
+		w := mcpServe(h, http.MethodPost, "/oauth/token", form, formHeader(formHeaderValue), "192.0.2.61:1")
+		if w.Code != http.StatusNotFound || w.Body.String() != disabled.Body.String() || w.Header().Get("Content-Type") != disabled.Header().Get("Content-Type") {
+			t.Fatalf("%s: status=%d body=%s want the disabled 404 %s", form, w.Code, w.Body, disabled.Body)
+		}
+	}
+}
+
 func TestTokenRefreshPassesScopesAndRejectsMissing(t *testing.T) {
 	flow := &fakeMCPFlow{fakeMCPService: fakeMCPService{enabled: true}, tokens: tokenOK()}
 	h := flowRouter(t, flow, signedIn(), mcpPublicURL)

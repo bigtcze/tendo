@@ -305,6 +305,9 @@ func (h *MCPHandler) decideAuthorizationRequest(w http.ResponseWriter, r *http.R
 	case errors.Is(err, identity.ErrMCPAuthorizationRequestNotFound):
 		h.writeDecisionNotFound(w, handle)
 		return
+	case errors.Is(err, identity.ErrMCPDisabled):
+		httpx.WriteNotFound(w)
+		return
 	case err != nil:
 		httpx.RecordFault(r, "mcp_decision")
 		problem(w, http.StatusServiceUnavailable, "unavailable")
