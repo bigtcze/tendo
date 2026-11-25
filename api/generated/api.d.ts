@@ -1378,7 +1378,7 @@ export interface components {
             defaultAccountEnabled: boolean;
             defaultMaxScopes: components["schemas"]["McpScopeList"];
         };
-        /** @description One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse. */
+        /** @description One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse. targetLogin is null whenever targetUserId is, and either login is null for a deleted account. */
         McpPolicyEvent: {
             /** Format: uuid */
             id: string;

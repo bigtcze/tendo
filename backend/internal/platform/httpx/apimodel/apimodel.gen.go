@@ -2290,7 +2290,7 @@ type McpJsonRpcMessageJsonrpc string
 // McpPlainTextError A plain-text refusal written by the MCP SDK transport layer.
 type McpPlainTextError = string
 
-// McpPolicyEvent One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse.
+// McpPolicyEvent One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse. targetLogin is null whenever targetUserId is, and either login is null for a deleted account.
 type McpPolicyEvent struct {
 	// ActorLogin The actor's current login, read with the list. null when the account has been deleted; a deleted account's former login is never returned.
 	ActorLogin  *string `json:"actorLogin"`

@@ -4073,7 +4073,7 @@ components:
         defaultMaxScopes: { $ref: '#/components/schemas/McpScopeList' }
     McpPolicyEvent:
       type: object
-      description: One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse.
+      description: One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse. targetLogin is null whenever targetUserId is, and either login is null for a deleted account.
       additionalProperties: false
       required: [id, policy, actorUserId, actorLogin, targetUserId, targetLogin, enabled, defaultAccountEnabled, scopes, occurredAt]
       properties:

@@ -386,4 +386,28 @@ func TestMCPPolicyEventsNameLiveAccounts(t *testing.T) {
 	if got := page.Items[2]; got.ActorLogin != "mcp_names_admin" || got.TargetLogin != "" {
 		t.Fatalf("installation event after deletion: %+v", got)
 	}
+
+	// A deleted actor alongside a live, different target: each join drops
+	// only its own deleted account.
+	formerAdmin, _ := env.newAccount(t, "mcp_names_former_admin")
+	env.grantInstanceAdmin(t, formerAdmin)
+	peer, _ := env.newAccount(t, "mcp_names_peer")
+	peerPolicy, err := policies.AccountPolicy(env.ctx, formerAdmin, peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := policies.UpdateAccountPolicy(env.ctx, formerAdmin, peer, identity.MCPAccountPolicyChange{MaxScopes: []string{identity.MCPScopeRead}}, peerPolicy.Version); err != nil {
+		t.Fatal(err)
+	}
+	eraseAccountAdmin(t, env, formerAdmin, adminID)
+	page, err = policies.PolicyEvents(env.ctx, adminID, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("events=%d want 1", len(page.Items))
+	}
+	if got := page.Items[0]; got.ActorUserID != formerAdmin || got.ActorLogin != "" || got.TargetUserID != peer || got.TargetLogin != "mcp_names_peer" {
+		t.Fatalf("deleted actor with a live target: %+v", got)
+	}
 }

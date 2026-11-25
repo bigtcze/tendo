@@ -1550,7 +1550,6 @@ Frontend only, on the B1b3 administrator grant routes as they are
   move focus on a first page load, which the arrival rule forbids; this rare
   timing case is accepted.
 
-
 ## Slice B4a3a: logins on the policy audit list
 
 B4a3 was planned as a frontend-only audit list "readable without raw ids". The
@@ -1569,8 +1568,9 @@ only).
 - The logins are read in the same statement as the page:
   `ListMCPPolicyEvents` left-joins `user_accounts` twice, once for the actor
   and once for the target, each restricted to `deleted_at IS NULL`. The audit
-  row itself still stores only ids, so a later login change shows the current
-  login; that is the name an administrator can act on.
+  row itself still stores only ids. No live login changes today; if one ever
+  does, the list shows the current login, the name an administrator can act
+  on.
 - A deleted account reads as `null`. Its former login is cleared by the
   anonymization and its tombstone (`~deleted-…`) is never returned, so the
   list cannot reveal a deleted login. `targetLogin` is also `null` at the
@@ -1584,8 +1584,10 @@ only).
 - PostgreSQL `TestMCPPolicyEventsNameLiveAccounts`: installation, account and
   user events name their actor and target; after the owner account is deleted,
   the account event keeps its target id with a `null` login, and the user
-  event's actor and target both read as `null`. It failed to compile before
-  the change.
+  event's actor and target both read as `null`. A second administrator's
+  account event, read after that administrator is deleted, has a `null`
+  actor login and still names its live target, so each join's deletion filter
+  is proven on its own. It failed to compile before the change.
 - Handler `TestPolicyEventsNameAccountsByLogin`: both keys are always present,
   as a string or `null`, never omitted.
 - setup-smoke: the live installation event names its actor `owner_smoke` with
