@@ -32,6 +32,8 @@ function renderAt(routes: Parameters<typeof installFakeServer>[0], path = pagePa
     'GET /api/v1/session': json(200, viewer),
     [`GET ${base}`]: json(200, household),
     ...itemRoutes(base, []),
+    // The account's connected apps read on their own; their states are AccountConnectedApps.test.tsx's.
+    [`GET /api/v1/admin/accounts/${ACCOUNT}/mcp-grants`]: json(200, { items: [], nextCursor: null }),
     ...routes,
   });
   window.history.replaceState(null, '', path);

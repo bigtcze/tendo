@@ -12,6 +12,7 @@ import { useI18n, type MessageKey, type Translate } from '../../i18n';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
 import type { AccountAiApps } from './aiAppsApi';
 import { ChoiceOption, OutcomeHosts } from './AiAppsFields';
+import { AccountConnectedApps } from './AccountConnectedApps';
 import { BACK_LINK, InstallationOnlyAdmins } from './InstallationStates';
 import {
   accessWord, useAccountAiApps, type AccountAiAppsState, type AccountMaximum, type AccountSwitch,
@@ -54,10 +55,24 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
 }) {
   const { t } = useI18n();
   const refusalHeadingRef = useRef<HTMLHeadingElement>(null);
-  // Focus after a refusal comes from useRefusalFocus, which also covers the account being gone, so the hook's
-  // during-save flag is not needed here.
-  const account = useAccountAiApps({ userId, onSignedOut, onForbidden: () => onForbidden() });
+  // The shell re-reads the session once, whichever part of the page found the grant gone first.
+  const toldShell = useRef(false);
+  const forbidden = () => {
+    if (toldShell.current) return;
+    toldShell.current = true;
+    onForbidden();
+  };
+  // Focus after a refusal of the settings comes from useRefusalFocus, which also covers the account being gone, so
+  // the hook's during-save flag is not needed here.
+  const account = useAccountAiApps({ userId, onSignedOut, onForbidden: forbidden });
+  // The connected apps read on their own and can be the first to find the grant or the account gone. They say
+  // whether that followed an action; it can, even while the settings above failed to load.
+  const [lost, setLost] = useState<{ state: 'forbidden' | 'notFound'; duringAction: boolean } | null>(null);
+  const state = lost?.state ?? account.state;
   useRefusalFocus(account.state, refusalHeadingRef);
+  useEffect(() => {
+    if (lost?.duringAction) refusalHeadingRef.current?.focus();
+  }, [lost]);
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
@@ -66,16 +81,21 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
       </Heading>
       <AdminSectionSwitcher current="accounts" />
       <NavLink href={ADMIN_ACCOUNTS_PATH} onNavigate={onBack} className={BACK_LINK}>{t('accountAiApps.back')}</NavLink>
-      {account.state === 'forbidden' ? <InstallationOnlyAdmins t={t} headingRef={refusalHeadingRef} /> : null}
-      {account.state === 'notFound' ? <AccountGone t={t} headingRef={refusalHeadingRef} /> : null}
-      {account.state === 'forbidden' || account.state === 'notFound' ? null : <AccountSection account={account} t={t} />}
+      {state === 'forbidden' ? <InstallationOnlyAdmins t={t} headingRef={refusalHeadingRef} /> : null}
+      {state === 'notFound' ? <AccountGone t={t} headingRef={refusalHeadingRef} /> : null}
+      {state === 'forbidden' || state === 'notFound' ? null : <>
+        <AccountSection account={account} t={t} />
+        <AccountConnectedApps userId={userId} onSignedOut={onSignedOut}
+          onForbidden={(duringAction) => { setLost({ state: 'forbidden', duringAction }); forbidden(); }}
+          onGone={(duringAction) => setLost({ state: 'notFound', duringAction })} />
+      </>}
     </section>
   </Layout>;
 }
 
 /**
- * A refusal that took the form away — the grant gone, or the account deleted, during a save or its re-read — puts the
- * reader on the refusal's heading. A refusal on arrival leaves focus where the page put it.
+ * A refusal of the settings that took the page away — the grant gone, or the account deleted, during a save or a
+ * re-read — puts the reader on the refusal's heading. A refusal on arrival leaves focus where the page put it.
  */
 function useRefusalFocus(state: VersionedFormState, headingRef: RefObject<HTMLHeadingElement | null>) {
   const previous = useRef(state);

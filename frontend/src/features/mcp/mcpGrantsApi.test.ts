@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installFakeServer, json } from '../../test/fakeServer';
-import { listMcpGrants, revokeMcpGrant, type McpGrant } from './mcpGrantsApi';
+import {
+  listAccountMcpGrants, listMcpGrants, revokeAccountMcpGrant, revokeAllAccountMcpGrants, revokeMcpGrant, type McpGrant,
+} from './mcpGrantsApi';
 
 const id = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90';
 const grant: McpGrant = {
@@ -62,5 +64,64 @@ describe('mcpGrantsApi revoke', () => {
     await expect(revokeMcpGrant(id)).resolves.toEqual({ kind: 'unavailable' });
     refuse(() => Promise.reject(new Error('offline')));
     await expect(revokeMcpGrant(id)).resolves.toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('mcpGrantsApi for an administrator', () => {
+  const user = '0198a2f0-0000-7000-8000-0000000000b0';
+  const list = `GET /api/v1/admin/accounts/${user}/mcp-grants`;
+  const one = `DELETE /api/v1/admin/accounts/${user}/mcp-grants/${id}`;
+  const all = `DELETE /api/v1/admin/accounts/${user}/mcp-grants`;
+
+  it('reads one account’s page with the fixed page size and the opaque cursor', async () => {
+    const fake = installFakeServer({ [list]: json(200, { items: [grant], nextCursor: null }) });
+    await expect(listAccountMcpGrants(user, 'g1x')).resolves.toEqual({ kind: 'ok', items: [grant], nextCursor: null });
+    expect(fake.requests[0].query.get('limit')).toBe('20');
+    expect(fake.requests[0].query.get('cursor')).toBe('g1x');
+  });
+
+  it('tells a lost grant, a gone account, a missing session and anything else apart on the list', async () => {
+    installFakeServer({ [list]: problem(403, 'instance_admin_required') });
+    await expect(listAccountMcpGrants(user)).resolves.toEqual({ kind: 'forbidden' });
+    installFakeServer({ [list]: problem(404, 'not_found') });
+    await expect(listAccountMcpGrants(user)).resolves.toEqual({ kind: 'gone' });
+    installFakeServer({ [list]: problem(401, 'unauthenticated') });
+    await expect(listAccountMcpGrants(user)).resolves.toEqual({ kind: 'unauthenticated' });
+    installFakeServer({ [list]: problem(403) });
+    await expect(listAccountMcpGrants(user)).resolves.toEqual({ kind: 'unavailable' });
+    installFakeServer({ [list]: () => Promise.reject(new Error('offline')) });
+    await expect(listAccountMcpGrants(user)).resolves.toEqual({ kind: 'unavailable' });
+  });
+
+  it('revokes one grant with the canonical Origin and maps every answer', async () => {
+    const fake = installFakeServer({ [one]: json(204) });
+    await expect(revokeAccountMcpGrant(user, id)).resolves.toEqual({ kind: 'ok' });
+    expect(fake.requests[0].headers.get('Origin')).toBe(window.location.origin);
+    const cases: [Response | (() => Promise<Response>), string][] = [
+      [problem(404, 'not_found'), 'notFound'], [problem(403, 'instance_admin_required'), 'forbidden'],
+      [problem(403, 'origin_mismatch'), 'rejected'], [problem(429, 'rate_limited'), 'rateLimited'],
+      [problem(401, 'unauthenticated'), 'unauthenticated'], [problem(503, 'unavailable'), 'unavailable'],
+      [() => Promise.reject(new Error('offline')), 'unavailable'],
+    ];
+    for (const [response, kind] of cases) {
+      installFakeServer({ [one]: response });
+      await expect(revokeAccountMcpGrant(user, id)).resolves.toEqual({ kind });
+    }
+  });
+
+  it('revokes every grant of the account with the canonical Origin, and 404 is the account gone', async () => {
+    const fake = installFakeServer({ [all]: json(204) });
+    await expect(revokeAllAccountMcpGrants(user)).resolves.toEqual({ kind: 'ok' });
+    expect(fake.requests[0].headers.get('Origin')).toBe(window.location.origin);
+    const cases: [Response | (() => Promise<Response>), string][] = [
+      [problem(404, 'not_found'), 'gone'], [problem(403, 'instance_admin_required'), 'forbidden'],
+      [problem(403, 'origin_mismatch'), 'rejected'], [problem(429, 'rate_limited'), 'rateLimited'],
+      [problem(401, 'unauthenticated'), 'unauthenticated'], [problem(503, 'unavailable'), 'unavailable'],
+      [() => Promise.reject(new Error('offline')), 'unavailable'],
+    ];
+    for (const [response, kind] of cases) {
+      installFakeServer({ [all]: response });
+      await expect(revokeAllAccountMcpGrants(user)).resolves.toEqual({ kind });
+    }
   });
 });

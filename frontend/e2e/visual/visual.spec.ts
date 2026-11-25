@@ -183,6 +183,12 @@ async function assertTitleTargetGeometry(page: Page, width: number) {
   expect(geometry.top, `row target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
 }
 
+/** One account's AI apps with both reads settled: the facts, and the reference member's empty connected apps. */
+async function accountAiAppsSettled(page: Page, words: Record<keyof typeof en, string>) {
+  await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
+  await expect(page.getByText(words['accountApps.empty'], { exact: true })).toBeVisible();
+}
+
 // Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
 async function darkScreen(browser: Browser, storageState: string | undefined, path: string, name: string) {
   const context = await browser.newContext({ ...CONTEXT, ...(storageState ? { storageState } : {}), viewport: { width: 390, height: 900 } });
@@ -211,7 +217,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     } else if (path === '/admin/ai-apps') {
       await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
     } else if (ACCOUNT_AI_APPS.test(path)) {
-      await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
+      await accountAiAppsSettled(page, en);
     } else {
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     }
@@ -226,7 +232,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     else if (path === '/admin/households') await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
     else if (path === '/admin/accounts') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
     else if (path === '/admin/ai-apps') await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
-    else if (ACCOUNT_AI_APPS.test(path)) await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
+    else if (ACCOUNT_AI_APPS.test(path)) await accountAiAppsSettled(page, en);
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
     if (path === '/items') await waitForAllItemsSummary(page);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -932,6 +938,7 @@ test('Installation account AI apps', async ({ browser }) => {
   const useGroup = page.getByRole('group', { name: en['accountAiApps.use.title'], exact: true });
   await expect(useGroup.getByRole('radio', { name: en['accountAiApps.use.default'], exact: true })).toBeChecked();
   await expect(page.locator('[data-account-ai-apps-now]')).toHaveText(en['accountAiApps.now.both']);
+  await accountAiAppsSettled(page, en);
   await captureScreen(page, 'admin-account-ai-apps', true);
   await page.setViewportSize({ width: 320, height: 640 });
   await capture(page, 'admin-account-ai-apps-320', 320, 640, true);
@@ -944,6 +951,7 @@ test('Installation account AI apps', async ({ browser }) => {
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: cs['accountAiApps.title'] })).toBeVisible();
   await expect(page.getByRole('radio', { name: cs['accountAiApps.use.default'], exact: true }).first()).toBeChecked();
+  await accountAiAppsSettled(page, cs);
   await capture(page, 'admin-account-ai-apps-cs-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await context.close();
