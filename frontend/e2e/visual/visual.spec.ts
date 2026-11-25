@@ -8,6 +8,7 @@ import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
 import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpPolicyEventDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
 import { assertArchiveSettled, assertHistoryPage, openMoreSheet, seedPagedHistory } from './archiveHistory';
+import { openConsent, setOwnAiApps } from './consentStates';
 import { captureLargeDataset } from './largeData';
 import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
 
@@ -1256,7 +1257,7 @@ test('Archive and paged item history', async ({ browser }) => {
   await context.close();
 });
 
-// Appended last: the one connected app it creates is disconnected again before it ends, so no baseline sees it.
+// The one connected app this test creates is disconnected again before it ends, so no baseline sees it.
 test('MCP consent and Connected apps', async ({ browser }) => {
   test.setTimeout(120_000);
   const clientName = 'Notes Assistant';
@@ -1363,4 +1364,55 @@ test('MCP consent and Connected apps', async ({ browser }) => {
   const removed = await cleanup.request.delete(`/api/v1/mcp/grants/${grant!.id}`, { headers: { Origin: BASE_URL! } });
   expect(removed.status(), 'disconnect the visual app').toBe(204);
   await cleanup.close();
+});
+
+// Appended after the consent group: the owner's own AI app settings narrow the consent, then block it, and are put
+// back before the test ends. The requests are left pending and expire on their own; no app is ever connected.
+test('MCP consent with less allowed and blocked', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const clientName = 'Notes Assistant';
+  const redirect = 'http://127.0.0.1:43123/callback';
+  const { context, page } = await authenticated(browser);
+  await pinMcpRequestExpiry(context);
+  await page.clock.pauseAt(new Date('2026-05-14T08:01:00Z'));
+  try {
+    // Read only: the app asks for read and change, so the card lists what it gets and, quieter, what it does not.
+    await setOwnAiApps(page, true, ['tendo:read']);
+    await openConsent(page, clientName, redirect);
+    await expect(page.getByRole('heading', { level: 1, name: en['connect.heading'].replace('{client}', clientName) })).toBeVisible();
+    const granted = page.getByRole('list', { name: en['connect.scopes.intro'], exact: true }).getByRole('listitem');
+    await expect(granted).toHaveText([en['connect.scope.read']]);
+    const withheld = page.getByRole('list', { name: en['connect.scopes.withheld'], exact: true }).getByRole('listitem');
+    await expect(withheld).toHaveText([en['connect.scope.write']]);
+    await expect(page.getByRole('main').getByRole('button', { name: en['connect.allow'], exact: true })).toBeDisabled();
+    await captureScreen(page, 'consent-narrowed', true);
+
+    // Switched off: nothing the app asks for is allowed, so the card offers only the way back to the app.
+    await setOwnAiApps(page, false, ['tendo:read', 'tendo:write']);
+    await openConsent(page, clientName, redirect);
+    const blocked = (catalog: Record<keyof typeof en, string>) => page.getByRole('heading', {
+      level: 1, name: catalog['connect.blocked.heading'].replace('{client}', clientName),
+    });
+    await expect(blocked(en)).toBeVisible();
+    await expect(page.getByRole('main').getByRole('button', { name: en['connect.back'], exact: true })).toBeEnabled();
+    await expect(page.getByRole('main').getByRole('button', { name: en['connect.allow'], exact: true })).toHaveCount(0);
+    await captureScreen(page, 'consent-blocked', true);
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(blocked(en)).toBeVisible();
+    await capture(page, 'consent-blocked-dark-390', 390, 900, true);
+    await page.evaluate(() => { localStorage.setItem('tendo.theme', 'light'); localStorage.setItem('tendo.locale', 'cs'); });
+    await page.reload();
+    await expect(blocked(cs)).toBeVisible();
+    await capture(page, 'consent-blocked-cs-390', 390, 900, true);
+    await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  } finally {
+    try {
+      await setOwnAiApps(page, true, ['tendo:read', 'tendo:write']);
+    } finally {
+      await context.close();
+    }
+  }
 });

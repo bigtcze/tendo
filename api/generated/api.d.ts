@@ -1040,7 +1040,7 @@ export interface paths {
         };
         /**
          * Read a pending MCP consent for the consent screen
-         * @description Returns what the consent screen shows for a pending authorization request. Requires the session cookie and the browser binding cookie set by /oauth/authorize; the binding cookie alone never authorizes a read. The client name is the client's own registration and is not verified (clientNameVerified is always false). A malformed handle, a missing or duplicated binding cookie, a mismatched binding, an expired request and a consumed request all answer the same 404. Problem responses only, with the cache headers of other session routes.
+         * @description Returns what the consent screen shows for a pending authorization request. Requires the session cookie and the browser binding cookie set by /oauth/authorize; the binding cookie alone never authorizes a read. The client name is the client's own registration and is not verified (clientNameVerified is always false). A malformed handle, a missing or duplicated binding cookie, a mismatched binding, an expired request and a consumed request all answer the same 404. allowedScopes (ADR 0023, slice B4b1) are the requested scopes the signed-in account's policy allows at the time of the read (operator, installation, administrator and the account's own settings); empty when nothing is allowed, so the screen can show that Allow would only answer access_denied. It is a display, never an authorization input: the decision reads the policy again and issues requested ∩ allowed ∩ the scopes the screen sends back with Allow. An installation switched off answers the unknown-path 404 as on every MCP route. Problem responses only, with the cache headers of other session routes.
          */
         get: operations["getMcpAuthorizationRequest"];
         put?: never;
@@ -1062,7 +1062,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or deny a pending MCP consent
-         * @description The signed-in person's decision on a pending consent. Requires the session cookie, the canonical Origin header and the binding cookie. Approval issues a single-use code and denial issues none; either consumes the request, so a second decision answers 404. The response carries the client redirect URI with code (approval) or error=access_denied (denial), state when the client sent one, and iss equal to the authorization server issuer. The client redirect is returned to the browser for navigation and is never followed by the server. The binding cookie is cleared on 200 and on 404. Rate limited per user (30 per minute).
+         * @description The signed-in person's decision on a pending consent. Requires the session cookie, the canonical Origin header and the binding cookie. Approval issues a single-use code and denial issues none; either consumes the request, so a second decision answers 404. An approval issues the requested scopes the account's policy allows at the decision; when scopes is sent (the consent screen sends the allowedScopes it showed), never one outside it, so a policy widened after the screen was read cannot grant more than the person saw (ADR 0023, slice B4b1). Nothing left to issue is answered like a denial. The response carries the client redirect URI with code (approval) or error=access_denied (denial), state when the client sent one, and iss equal to the authorization server issuer. The client redirect is returned to the browser for navigation and is never followed by the server. The binding cookie is cleared on 200 and on 404. Rate limited per user (30 per minute).
          */
         post: operations["decideMcpAuthorizationRequest"];
         delete?: never;
@@ -1299,7 +1299,10 @@ export interface components {
             /** @constant */
             clientNameVerified: false;
             redirectUri: string;
+            /** @description What the client asked for. */
             scopes: ("tendo:read" | "tendo:write")[];
+            /** @description The requested scopes the signed-in account may grant now, a subset of scopes; empty when nothing is allowed. Shown to the person; the screen sends it back with Allow as the most the decision may issue. */
+            allowedScopes: ("tendo:read" | "tendo:write")[];
             /** Format: date-time */
             expiresAt: string;
         };
@@ -1307,6 +1310,8 @@ export interface components {
         McpAuthorizationDecisionRequest: {
             /** @enum {string} */
             decision: "approve" | "deny";
+            /** @description The scopes the consent screen showed as granted. An approval never issues one outside them. Optional; one or two distinct known scopes. Accepted and ignored with deny. */
+            scopes?: ("tendo:read" | "tendo:write")[];
         };
         /** @description The client redirect URI with the authorization response appended. The existing query of the registered URI is kept. */
         McpAuthorizationDecisionResponse: {
@@ -14727,6 +14732,9 @@ export interface operations {
                      *         "tendo:read",
                      *         "tendo:write"
                      *       ],
+                     *       "allowedScopes": [
+                     *         "tendo:read"
+                     *       ],
                      *       "expiresAt": "2026-11-20T10:05:00Z"
                      *     }
                      */
@@ -14836,7 +14844,10 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "decision": "approve"
+                 *       "decision": "approve",
+                 *       "scopes": [
+                 *         "tendo:read"
+                 *       ]
                  *     }
                  */
                 "application/json": components["schemas"]["McpAuthorizationDecisionRequest"];
@@ -14860,7 +14871,7 @@ export interface operations {
                     "application/json": components["schemas"]["McpAuthorizationDecisionResponse"];
                 };
             };
-            /** @description Malformed JSON, duplicate or unknown keys, null values, or a decision other than approve or deny. */
+            /** @description Malformed JSON, duplicate or unknown keys, null values, a decision other than approve or deny, or scopes that are empty, unknown or repeated. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -227,13 +228,23 @@ func (h *MCPHandler) guarded(next http.HandlerFunc) http.Handler {
 }
 
 // authorizationRequestJSON is the consent screen view. The client name is
-// unverified: it comes from the client's own registration.
+// unverified: it comes from the client's own registration. AllowedScopes is a
+// display of what Allow would grant now; the decision decides.
 type authorizationRequestJSON struct {
 	ClientName         string   `json:"clientName"`
 	ClientNameVerified bool     `json:"clientNameVerified"`
 	RedirectURI        string   `json:"redirectUri"`
 	Scopes             []string `json:"scopes"`
+	AllowedScopes      []string `json:"allowedScopes"`
 	ExpiresAt          string   `json:"expiresAt"`
+}
+
+// nonNil keeps an empty scope list a JSON array, never null.
+func nonNil(scopes []string) []string {
+	if scopes == nil {
+		return []string{}
+	}
+	return scopes
 }
 
 func (h *MCPHandler) getAuthorizationRequest(w http.ResponseWriter, r *http.Request) {
@@ -243,21 +254,24 @@ func (h *MCPHandler) getAuthorizationRequest(w http.ResponseWriter, r *http.Requ
 		problem(w, http.StatusNotFound, "authorization_request_not_found")
 		return
 	}
-	view, err := h.service.GetAuthorizationRequest(r.Context(), handle, binding)
+	principal, _ := PrincipalFromContext(r.Context())
+	view, err := h.service.GetAuthorizationRequest(r.Context(), principal.UserID, handle, binding)
 	switch {
 	case errors.Is(err, identity.ErrMCPAuthorizationRequestNotFound):
 		problem(w, http.StatusNotFound, "authorization_request_not_found")
+	case errors.Is(err, identity.ErrUnauthenticated):
+		problem(w, http.StatusUnauthorized, "unauthenticated")
+	case errors.Is(err, identity.ErrMCPDisabled):
+		// Switched off between the gate and the read: the same unknown-path 404.
+		httpx.WriteNotFound(w)
 	case err != nil:
 		httpx.RecordFault(r, "mcp_authorization_request")
 		problem(w, http.StatusServiceUnavailable, "unavailable")
 	default:
-		scopes := view.Scopes
-		if scopes == nil {
-			scopes = []string{}
-		}
 		writeJSON(w, http.StatusOK, authorizationRequestJSON{
 			ClientName: view.ClientName, ClientNameVerified: false, RedirectURI: view.RedirectURI,
-			Scopes: scopes, ExpiresAt: view.ExpiresAt.UTC().Format(time.RFC3339),
+			Scopes: nonNil(view.Scopes), AllowedScopes: nonNil(view.AllowedScopes),
+			ExpiresAt: view.ExpiresAt.UTC().Format(time.RFC3339),
 		})
 	}
 }
@@ -283,17 +297,20 @@ func (h *MCPHandler) decideAuthorizationRequest(w http.ResponseWriter, r *http.R
 	}
 	values, ok := httpx.ReadObject(w, r, map[string]httpx.Field{
 		"decision": {Kind: httpx.KindString, Required: true},
+		"scopes":   {Kind: httpx.KindStringArray},
 	}, mcpDecisionBodyLimit)
 	if !ok {
 		return
 	}
 	decision := stringField(values, "decision")
-	if decision != "approve" && decision != "deny" {
+	shown, valid := shownScopes(values)
+	if (decision != "approve" && decision != "deny") || !valid {
 		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
 	result, err := h.service.DecideAuthorization(r.Context(), identity.MCPDecision{
 		Principal: principal, SessionToken: token, Handle: handle, BrowserBinding: binding, Approve: decision == "approve",
+		ShownScopes: shown,
 	})
 	switch {
 	case errors.Is(err, identity.ErrUnauthenticated):
@@ -319,6 +336,27 @@ func (h *MCPHandler) decideAuthorizationRequest(w http.ResponseWriter, r *http.R
 	}
 	h.clearConsentCookie(w, handle)
 	writeJSON(w, http.StatusOK, map[string]string{"redirectTo": redirectTo})
+}
+
+// shownScopes reads the optional scopes the consent screen showed: absent is
+// nil; present must be one or two distinct known scopes, returned sorted.
+func shownScopes(values map[string]any) ([]string, bool) {
+	raw, present := values["scopes"]
+	if !present {
+		return nil, true
+	}
+	scopes, ok := raw.([]string)
+	if !ok || len(scopes) == 0 {
+		return nil, false
+	}
+	var out []string
+	for _, scope := range []string{identity.MCPScopeRead, identity.MCPScopeWrite} {
+		if slices.Contains(scopes, scope) {
+			out = append(out, scope)
+		}
+	}
+	// Equal lengths: every value was known and none was repeated.
+	return out, len(out) == len(scopes)
 }
 
 func (h *MCPHandler) writeDecisionNotFound(w http.ResponseWriter, handle string) {

@@ -3302,7 +3302,11 @@ paths:
         browser binding cookie set by /oauth/authorize; the binding cookie alone never authorizes a read. The client name is
         the client's own registration and is not verified (clientNameVerified is always false). A malformed handle, a missing
         or duplicated binding cookie, a mismatched binding, an expired request and a consumed request all answer the same 404.
-        Problem responses only, with the cache headers of other session routes.
+        allowedScopes (ADR 0023, slice B4b1) are the requested scopes the signed-in account's policy allows at the time of
+        the read (operator, installation, administrator and the account's own settings); empty when nothing is allowed, so
+        the screen can show that Allow would only answer access_denied. It is a display, never an authorization input: the
+        decision reads the policy again and issues requested ∩ allowed ∩ the scopes the screen sends back with Allow. An installation switched off answers the unknown-path
+        404 as on every MCP route. Problem responses only, with the cache headers of other session routes.
       tags: [Mcp]
       security: [{ SessionCookie: [] }]
       parameters:
@@ -3326,6 +3330,7 @@ paths:
                 clientNameVerified: false
                 redirectUri: 'http://localhost:54123/callback'
                 scopes: [tendo:read, tendo:write]
+                allowedScopes: [tendo:read]
                 expiresAt: '2026-11-20T10:05:00Z'
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '404':
@@ -3354,7 +3359,10 @@ paths:
       description: >-
         The signed-in person's decision on a pending consent. Requires the session cookie, the canonical Origin header and the
         binding cookie. Approval issues a single-use code and denial issues none; either consumes the request, so a second
-        decision answers 404. The response carries the client redirect URI with code (approval) or error=access_denied
+        decision answers 404. An approval issues the requested scopes the account's policy allows at the decision; when
+        scopes is sent (the consent screen sends the allowedScopes it showed), never one outside it, so a policy widened
+        after the screen was read cannot grant more than the person saw (ADR 0023, slice B4b1). Nothing left to issue is
+        answered like a denial. The response carries the client redirect URI with code (approval) or error=access_denied
         (denial), state when the client sent one, and iss equal to the authorization server issuer. The client redirect is
         returned to the browser for navigation and is never followed by the server. The binding cookie is cleared on 200 and
         on 404. Rate limited per user (30 per minute).
@@ -3378,7 +3386,7 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/McpAuthorizationDecisionRequest' }
-            example: { decision: approve }
+            example: { decision: approve, scopes: [tendo:read] }
       responses:
         '200':
           description: The decision was recorded. Navigate the browser to redirectTo.
@@ -3390,7 +3398,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/McpAuthorizationDecisionResponse' }
               example: { redirectTo: 'http://localhost:54123/callback?code=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&state=abc&iss=https%3A%2F%2Ftendo.example' }
-        '400': { description: 'Malformed JSON, duplicate or unknown keys, null values, or a decision other than approve or deny.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '400': { description: 'Malformed JSON, duplicate or unknown keys, null values, a decision other than approve or deny, or scopes that are empty, unknown or repeated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
         '404':
@@ -3975,13 +3983,14 @@ components:
     McpAuthorizationRequest:
       type: object
       description: The consent screen view of a pending MCP authorization request. Field names are camelCase, not the RFC wire names of /oauth/*.
-      required: [clientName, clientNameVerified, redirectUri, scopes, expiresAt]
+      required: [clientName, clientNameVerified, redirectUri, scopes, allowedScopes, expiresAt]
       additionalProperties: false
       properties:
         clientName: { type: string, description: The client's own registration name. Not verified. }
         clientNameVerified: { type: boolean, const: false }
         redirectUri: { type: string, maxLength: 2048 }
-        scopes: { type: array, items: { type: string, enum: [tendo:read, tendo:write] } }
+        scopes: { type: array, description: What the client asked for., items: { type: string, enum: [tendo:read, tendo:write] } }
+        allowedScopes: { type: array, description: 'The requested scopes the signed-in account may grant now, a subset of scopes; empty when nothing is allowed. Shown to the person; the screen sends it back with Allow as the most the decision may issue.', items: { type: string, enum: [tendo:read, tendo:write] } }
         expiresAt: { type: string, format: date-time }
     McpAuthorizationDecisionRequest:
       type: object
@@ -3990,6 +3999,13 @@ components:
       additionalProperties: false
       properties:
         decision: { type: string, enum: [approve, deny] }
+        scopes:
+          type: array
+          description: The scopes the consent screen showed as granted. An approval never issues one outside them. Optional; one or two distinct known scopes. Accepted and ignored with deny.
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { type: string, enum: [tendo:read, tendo:write] }
     McpAuthorizationDecisionResponse:
       type: object
       description: The client redirect URI with the authorization response appended. The existing query of the registered URI is kept.

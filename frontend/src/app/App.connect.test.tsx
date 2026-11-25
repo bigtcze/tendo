@@ -14,7 +14,7 @@ const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const consentPath = `/api/v1/mcp/authorization-requests/${handle}`;
 const request = {
   clientName: 'Claude Code', clientNameVerified: false, redirectUri: 'http://localhost:54123/callback',
-  scopes: ['tendo:read'], expiresAt: '2026-11-20T10:05:00Z',
+  scopes: ['tendo:read'], allowedScopes: ['tendo:read'], expiresAt: '2026-11-20T10:05:00Z',
 };
 
 function renderApp() { return render(<I18nProvider><App /></I18nProvider>); }

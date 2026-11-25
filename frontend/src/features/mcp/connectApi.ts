@@ -29,7 +29,28 @@ export async function fetchConnectRequest(handle: string): Promise<FetchConnectR
   }
 }
 
-export async function decideConnectRequest(handle: string, decision: ConnectDecision): Promise<DecideConnectResult> {
+const SCOPE_ORDER: McpAuthorizationRequest['scopes'] = ['tendo:read', 'tendo:write'];
+
+/**
+ * What Allow would grant and what the app asked for but will not get. The server's allowed list is only trusted as
+ * far as it names a requested scope, so the screen can never promise more than the app asked for. Allowing nothing is
+ * the blocked request: Allow is never offered and only a denial goes back to the app.
+ */
+export function grantedScopes(request: McpAuthorizationRequest) {
+  const requested = SCOPE_ORDER.filter((scope) => request.scopes.includes(scope));
+  return {
+    allowedScopes: requested.filter((scope) => request.allowedScopes.includes(scope)),
+    withheldScopes: requested.filter((scope) => !request.allowedScopes.includes(scope)),
+  };
+}
+
+export function isBlocked(request: McpAuthorizationRequest): boolean {
+  return grantedScopes(request).allowedScopes.length === 0;
+}
+
+export async function decideConnectRequest(
+  handle: string, decision: ConnectDecision, scopes?: McpAuthorizationRequest['scopes'],
+): Promise<DecideConnectResult> {
   try {
     const { data, response } = await api.POST('/api/v1/mcp/authorization-requests/{requestHandle}/decision', {
       params: {
@@ -37,7 +58,7 @@ export async function decideConnectRequest(handle: string, decision: ConnectDeci
         // Browsers set Origin themselves and ignore this value; it only satisfies the generated type.
         header: { Origin: window.location.origin },
       },
-      body: { decision },
+      body: scopes && scopes.length > 0 ? { decision, scopes } : { decision },
     });
     if (data && response.status === 200) return { kind: 'redirect', redirectTo: data.redirectTo };
     return { kind: failureFor(response.status) };

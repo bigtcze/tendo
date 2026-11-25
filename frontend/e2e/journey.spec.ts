@@ -8057,6 +8057,106 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n33d. the consent shows only what the account allows, and a blocked request only goes back to the app', async () => {
+    // V5-13 B4b1. The browser's part only: with the owner's own settings at read, the consent lists read and, apart,
+    // the change the app asked for but will not get, and Allow issues read alone; switched off, the screen offers no
+    // Allow and its one button returns access_denied to the app. That the view is read under the account's stored
+    // policy for every term (operator, installation, administrator, own) is the PostgreSQL tests'. Budgets: 1
+    // registration, 2 authorizations, 2 decisions and 1 token call, far under their per-minute limits.
+    test.setTimeout(90_000);
+    const redirect = 'http://127.0.0.1:9/callback';
+    const clientName = 'Journey narrowed client';
+    const settingsPath = '/api/v1/mcp/settings';
+    const viewer = await (await page.request.get('/api/v1/session')).json() as { userId: string };
+    const grantsPath = `/api/v1/admin/accounts/${viewer.userId}/mcp-grants`;
+    const saveOwn = async (enabled: boolean, scopes: string[]) => {
+      const current = await page.request.get(settingsPath);
+      expect(current.status()).toBe(200);
+      const saved = await page.request.put(settingsPath, {
+        headers: { Origin: baseURL, 'If-Match': current.headers().etag ?? '' }, data: { enabled, scopes },
+      });
+      expect(saved.status(), 'save the owner’s own AI app settings').toBe(200);
+    };
+    const start = await (await page.request.get(settingsPath)).json() as { enabled: boolean; scopes: string[] };
+    expect(start, 'nothing has narrowed the owner’s own settings yet').toMatchObject({ enabled: true, scopes: ['tendo:read', 'tendo:write'] });
+    const client = await request.newContext({ baseURL });
+    const callbacks: URL[] = [];
+    const callbackRoute = async (route: Parameters<Parameters<Page['route']>[1]>[0]) => {
+      callbacks.push(new URL(route.request().url()));
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Callback</title><link rel="icon" href="data:,"><p>Back in the app.</p>' });
+    };
+    await page.route('http://127.0.0.1:9/**', callbackRoute);
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      const registered = await client.post('/oauth/register', { data: { redirect_uris: [redirect], client_name: clientName } });
+      expect(registered.status()).toBe(201);
+      const clientId = (await registered.json() as { client_id: string }).client_id;
+      const begin = async () => {
+        const verifier = randomBytes(32).toString('base64url');
+        const state = randomBytes(12).toString('base64url');
+        const query = new URLSearchParams({
+          response_type: 'code', client_id: clientId, redirect_uri: redirect, state, resource: `${baseURL}/mcp`,
+          code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+        });
+        const authorized = page.waitForResponse((response) => new URL(response.url()).pathname === '/oauth/authorize');
+        await page.goto(`/oauth/authorize?${query}`);
+        expect((await authorized).status(), 'authorize redirects to the consent page').toBe(303);
+        return { verifier, state };
+      };
+      const main = page.getByRole('main');
+
+      // Read only: what Allow grants, and apart from it what the app asked for but will not get.
+      await saveOwn(true, ['tendo:read']);
+      const narrowed = await begin();
+      await expect(page.getByRole('heading', { level: 1, name: en['connect.heading'].replace('{client}', clientName) })).toBeVisible();
+      await expect(main.getByRole('list', { name: en['connect.scopes.intro'], exact: true }).getByRole('listitem')).toHaveText([en['connect.scope.read']]);
+      await expect(main.getByRole('list', { name: en['connect.scopes.withheld'], exact: true }).getByRole('listitem')).toHaveText([en['connect.scope.write']]);
+      await expectNoAxeViolations(page, 'mcp-consent-narrowed');
+      const allow = main.getByRole('button', { name: en['connect.allow'], exact: true });
+      await expect(allow).toBeEnabled();
+      const decided = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/decision'));
+      await allow.click();
+      const allowPost = await decided;
+      await expect.poll(() => callbacks.length).toBe(1);
+      const code = callbacks[0]!.searchParams.get('code') ?? '';
+      expect(callbacks[0]!.searchParams.get('state')).toBe(narrowed.state);
+      const token = await client.post('/oauth/token', { form: {
+        grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: narrowed.verifier,
+      } });
+      expect(token.status()).toBe(200);
+      expect((await token.json() as { scope: string }).scope, 'Allow issued what the screen showed').toBe('tendo:read');
+      // Allow named exactly what the screen showed.
+      expect(allowPost.postDataJSON()).toEqual({ decision: 'approve', scopes: ['tendo:read'] });
+
+      // Switched off: nothing asked for is allowed, so the one way out tells the app it was refused.
+      await saveOwn(false, ['tendo:read', 'tendo:write']);
+      const blocked = await begin();
+      await expect(page.getByRole('heading', { level: 1, name: en['connect.blocked.heading'].replace('{client}', clientName) })).toBeVisible();
+      await expect(main.getByText(en['connect.blocked.body'], { exact: true })).toBeVisible();
+      await expect(main.getByRole('button', { name: en['connect.allow'], exact: true })).toHaveCount(0);
+      await expect(main.getByRole('button', { name: en['connect.deny'], exact: true })).toHaveCount(0);
+      await expectNoAxeViolations(page, 'mcp-consent-blocked');
+      await main.getByRole('button', { name: en['connect.back'], exact: true }).click();
+      await expect.poll(() => callbacks.length).toBe(2);
+      expect(callbacks[1]!.searchParams.get('error')).toBe('access_denied');
+      expect(callbacks[1]!.searchParams.get('state')).toBe(blocked.state);
+      expect(callbacks[1]!.searchParams.get('code')).toBeNull();
+    } catch (error) { primaryFailure = error; }
+    // Each clean-up step runs whatever the others did, so a failed restore never leaves a live grant behind.
+    await page.unroute('http://127.0.0.1:9/**', callbackRoute).catch((error: unknown) => { cleanupFailure ??= error; });
+    try {
+      await saveOwn(start.enabled, start.scopes);
+    } catch (error) { cleanupFailure ??= error; }
+    try {
+      const left = await page.request.delete(grantsPath, { headers: { Origin: baseURL } });
+      if (left.status() !== 204) cleanupFailure ??= new Error(`Could not clear the owner’s apps: ${left.status()}`);
+    } catch (error) { cleanupFailure ??= error; }
+    await client.dispose().catch((error: unknown) => { cleanupFailure ??= error; });
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");

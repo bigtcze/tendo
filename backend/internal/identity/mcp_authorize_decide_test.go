@@ -30,18 +30,19 @@ func TestMCPGetAuthorizationRequestView(t *testing.T) {
 	fx := newMCPFixture(t)
 	pending := mcpBeginOK(t, fx)
 	fx.f.calls = nil
-	view, err := fx.svc.GetAuthorizationRequest(context.Background(), pending.Handle, pending.BrowserBinding)
+	view, err := fx.svc.GetAuthorizationRequest(context.Background(), mcpTestUser, pending.Handle, pending.BrowserBinding)
 	if err != nil {
 		t.Fatalf("GetAuthorizationRequest: %v", err)
 	}
 	if view.ClientName != "Test client" || view.RedirectURI != mcpTestRedirect ||
-		!slices.Equal(view.Scopes, []string{MCPScopeRead}) || !view.ExpiresAt.Equal(pending.ExpiresAt) {
+		!slices.Equal(view.Scopes, []string{MCPScopeRead}) || !slices.Equal(view.AllowedScopes, []string{MCPScopeRead}) ||
+		!view.ExpiresAt.Equal(pending.ExpiresAt) {
 		t.Fatalf("view = %+v", view)
 	}
 	if fx.f.requestCount() != 1 {
 		t.Fatal("reading the consent consumed it")
 	}
-	if want := []string{"WithMCPTransaction", "FindAuthorizationRequest"}; !slices.Equal(fx.f.calls, want) {
+	if want := []string{"WithMCPTransaction", "FindAuthorizationRequest", "ReadPolicy"}; !slices.Equal(fx.f.calls, want) {
 		t.Fatalf("calls = %v, want %v", fx.f.calls, want)
 	}
 }
@@ -74,7 +75,7 @@ func TestMCPGetAuthorizationRequestNotFound(t *testing.T) {
 			pending := mcpBeginOK(t, fx)
 			fx.f.now = mcpTestStart.Add(tt.clock)
 			fx.f.calls = nil
-			_, err := fx.svc.GetAuthorizationRequest(ctx, tt.handle(pending), tt.binding(pending))
+			_, err := fx.svc.GetAuthorizationRequest(ctx, mcpTestUser, tt.handle(pending), tt.binding(pending))
 			if !errors.Is(err, ErrMCPAuthorizationRequestNotFound) {
 				t.Fatalf("err = %v, want ErrMCPAuthorizationRequestNotFound", err)
 			}

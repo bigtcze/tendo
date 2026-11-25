@@ -1669,3 +1669,87 @@ Frontend only, on `listMcpPolicyEvents` as B4a3a left it. No API change.
 - The list is not filtered by level or account; an administrator reads one
   installation-wide record, as the route returns it.
 - Account settings consent (B4b) and B5 follow.
+
+## Slice B4b1: what the consent screen allows
+
+B4b is split: B4b1 (this slice) makes the consent screen show what the
+signed-in account may grant; B4b2 adds the person's own AI app settings on
+Account.
+
+### Decisions (B4b1)
+
+- `GET /api/v1/mcp/authorization-requests/{handle}` gains required
+  `allowedScopes`: the requested scopes the signed-in account's stored policy
+  (operator, installation, administrator and own settings) allows, read on
+  that request, never wider than `scopes`, empty when nothing is allowed.
+  The service now takes the session's user id; an empty one is
+  `ErrUnauthenticated` (401), and an installation switched off is the
+  unknown-path 404, as on every other MCP route.
+- It is a display only. The decision still reads the policy again under the
+  account lock and issues requested ∩ allowed, or `access_denied` when that
+  is empty (B1a). A narrower policy at the decision therefore wins over the
+  screen.
+- A wider policy must not: before this slice the screen listed everything
+  requested, so a grant could only be what was shown or less; now the screen
+  can show less than the request. The decision body gains optional `scopes`
+  (one or two distinct known scopes; empty, unknown or repeated is 400), and
+  an approval issues requested ∩ allowed-now ∩ `scopes`. The consent screen
+  always sends the `allowedScopes` it showed, so a policy widened between the
+  view and Allow (by an administrator, or by the person in another tab once
+  B4b2 lands) grants nothing the person did not see. A body without `scopes`
+  behaves as before, so the field is backward compatible.
+- The screen trusts `allowedScopes` only as far as it names a requested
+  scope (`grantedScopes`), in a fixed read-then-change order.
+- Some allowed: the card lists what Allow grants, then, muted and apart,
+  what the app asked for but will not get. Allow, its delay and Deny are
+  unchanged.
+- None allowed (the blocked state): the heading says the app can't be
+  connected, the card says why, that the administrator decides and to start
+  again from the app, lists what the app asked for, keeps the destination
+  (without the private-scheme Allow warning) and **Not you? Sign out**, and
+  offers one button, **Back to the app**, which sends `deny`. Allow is never
+  rendered or armed, and the hook refuses `approve` for a blocked request.
+  A failed answer keeps the button and shows the decision alert.
+
+### Tests (B4b1)
+
+- Go: the service view intersects the policy and refuses an empty user and a
+  disabled installation; the handler passes the session's user, serialises
+  `allowedScopes` (an empty array when blocked) and maps the refusals; real
+  PostgreSQL reads the view under the administrator maximum, the own
+  settings and the own switch, keeps another account's view separate, and,
+  after the owner widens their settings between the view and Allow, the
+  approval with the shown scopes still issues only what the view showed. The
+  service table (widened, narrowed, nothing shown still allowed, not sent)
+  failed on the widened and the nothing-left cases without the decision
+  change; the handler passes the sent scopes on and refuses empty, null,
+  unknown, repeated and non-array values.
+- Vitest: the narrowed list and its withheld list, no withheld list when all
+  is allowed, the blocked card (focus on its heading, no Allow or Deny after
+  the delay, Back sends one `deny` and follows the redirect, Allow sends the
+  shown scopes with `approve`, a failed Back
+  keeps the button, Czech), the hook never arming or sending `approve` when
+  blocked, and `grantedScopes` ignoring an allowed scope not requested. All
+  failed before the screen code.
+- Journey n33d: with the owner's own settings at read, the consent lists
+  read and withholds change, axe passes, Allow posts `scopes: [tendo:read]`
+  and the token's scope is `tendo:read`; switched off, the blocked heading is shown, no Allow or
+  Deny is shown, axe passes, and Back returns `access_denied` with the state
+  and no code. The starting settings are restored and the grant removed.
+- MCP smoke: the consent view's `allowedScopes` under the default policy.
+- Visual: the narrowed consent at 390/1440 and the blocked consent at
+  390/1440, dark at 390 and Czech at 390, from real requests after real
+  saves of the owner's own settings, which are put back afterwards.
+
+### Deviations and follow-ups (B4b1)
+
+- The blocked card points to the administrator, not to Account: the
+  person's own settings arrive in B4b2, which will add a way there.
+- The blocked card shows no expiry line. Back after the 5-minute request
+  expired shows the expired state and the app receives no `access_denied`;
+  the app's own flow times out, as for any abandoned consent.
+- B4b2 must revise the blocked hint: once a person has own settings, the
+  block can be their own choice, and on a one-person installation the reader
+  is the administrator. Point to Account there.
+- B4b2 (own settings on Account) and B5 follow.
+

@@ -6,7 +6,8 @@ const handle = 'A'.repeat(43);
 const path = `/api/v1/mcp/authorization-requests/${handle}`;
 const request = {
   clientName: 'Claude Code', clientNameVerified: false as const, redirectUri: 'http://localhost:54123/callback',
-  scopes: ['tendo:read'] as ('tendo:read' | 'tendo:write')[], expiresAt: '2026-11-20T10:05:00Z',
+  scopes: ['tendo:read'] as ('tendo:read' | 'tendo:write')[],
+  allowedScopes: ['tendo:read'] as ('tendo:read' | 'tendo:write')[], expiresAt: '2026-11-20T10:05:00Z',
 };
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -46,6 +47,16 @@ describe('decideConnectRequest', () => {
     });
     expect(fake.requests[0]?.body).toBe(JSON.stringify({ decision: 'approve' }));
     expect(fake.requests[0]?.headers.get('Origin')).toBe(window.location.origin);
+  });
+
+  it('sends the scopes the screen showed with an approval, and none with a denial or an empty list', async () => {
+    const fake = installFakeServer({ [`POST ${path}/decision`]: json(200, { redirectTo: 'http://localhost:54123/callback?code=x' }) });
+    await decideConnectRequest(handle, 'approve', ['tendo:read', 'tendo:write']);
+    await decideConnectRequest(handle, 'deny');
+    await decideConnectRequest(handle, 'approve', []);
+    expect(fake.requests.map((r) => JSON.parse(r.body))).toEqual([
+      { decision: 'approve', scopes: ['tendo:read', 'tendo:write'] }, { decision: 'deny' }, { decision: 'approve' },
+    ]);
   });
 
   it.each([

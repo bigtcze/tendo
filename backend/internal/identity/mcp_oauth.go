@@ -278,7 +278,7 @@ func (s *MCPService) IssueAuthorizationCode(ctx context.Context, in MCPAuthoriza
 		if !MCPRedirectURIMatches(client.RedirectURIs, in.RedirectURI) {
 			return ErrMCPInvalidRequest
 		}
-		allowed, e := allowedScopesLocked(ctx, tx, in.Principal.UserID)
+		allowed, e := readAllowedScopes(ctx, tx, in.Principal.UserID)
 		if e != nil {
 			return e
 		}
@@ -386,10 +386,11 @@ func (s *MCPService) VerifyAccessToken(ctx context.Context, token string) (MCPAc
 	return MCPAccess{GrantID: grant.ID, UserID: grant.UserID, ClientID: grant.ClientID, Scopes: scopes, Allowed: active.Policy.Allowed()}, nil
 }
 
-// allowedScopesLocked reads the account's policy after the account lock and
-// returns the allowed scopes. An installation that is switched off is
-// ErrMCPDisabled, exactly as the operator switch.
-func allowedScopesLocked(ctx context.Context, tx MCPTransaction, userID string) ([]string, error) {
+// readAllowedScopes reads the account's policy and returns the allowed scopes.
+// Issuing paths call it after the account lock; the consent view calls it
+// without, only to show what an approval would grant. An installation that is
+// switched off is ErrMCPDisabled, exactly as the operator switch.
+func readAllowedScopes(ctx context.Context, tx MCPTransaction, userID string) ([]string, error) {
 	policy, err := tx.ReadPolicy(ctx, userID)
 	if err != nil {
 		return nil, err
