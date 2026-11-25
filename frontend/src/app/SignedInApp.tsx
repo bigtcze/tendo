@@ -13,8 +13,6 @@ import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { InstallationHouseholdsScreen } from '../features/installation/InstallationHouseholdsScreen';
-import { InstallationAccountsScreen } from '../features/installation/InstallationAccountsScreen';
-import { InstallationAiAppsScreen } from '../features/installation/InstallationAiAppsScreen';
 import { InstallationHouseholdScreen, type SelfChangeKind } from '../features/installation/InstallationHouseholdScreen';
 import type { AdminHousehold } from '../features/installation/instanceAdminApi';
 import { rereadInstanceAdminSession } from '../features/installation/installationSession';
@@ -27,6 +25,7 @@ import { AccountActions } from './AccountActions';
 import { HouseholdDataProvider } from './HouseholdData';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
+import { renderAccountSections } from './installationSections';
 import type { Session } from '../features/auth/sessionApi';
 import type { NoticeSpec } from '../features/admin/useRoleChange';
 
@@ -280,16 +279,13 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
     onCreated={onCreated}
   />;
   if (route.kind === 'adminHouseholds') return householdList();
-  // The account directory: every account of the installation, and the only place one is deleted for good.
-  if (route.kind === 'adminAccounts') return <InstallationAccountsScreen {...shared} viewerId={session.userId} />;
-  if (route.kind === 'adminAiApps') return <InstallationAiAppsScreen {...shared} />;
+  const accountSection = renderAccountSections(route, shared, session.userId, navigation);
+  if (accountSection) return accountSection;
   if (route.kind === 'admin') {
     return session.instanceAdmin && !session.defaultHouseholdId ? householdList() : null;
   }
   if (route.kind !== 'adminHousehold') return null;
-  // The name is only ever the one this visit carried in; it is dropped when it belongs to another account or page.
-  const remembered = navigation.adminHouseholdName;
-  const name = remembered?.userId === session.userId && remembered.householdId === route.householdId ? remembered.name : null;
+  const name = navigation.adminTargetNameFor(route.householdId);
   const target = route.householdId;
   /**
    * The viewer's own membership in this household changed. The screen stays where it is — it never opens the

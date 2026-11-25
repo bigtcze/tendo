@@ -43,8 +43,14 @@ describe('readRoute for the installation Admin center', () => {
 describe('readRoute for the installation account list', () => {
   it.each([
     ['/admin/accounts', { kind: 'adminAccounts' }],
-    // The list is flat: a deeper address is a page that does not exist, not a detail screen.
+    // An account has no page of its own: only its AI apps, and a malformed identifier is not a page at all.
     ['/admin/accounts/x', { kind: 'notFound' }],
+    [`/admin/accounts/${householdId}`, { kind: 'notFound' }],
+    [`/admin/accounts/${householdId}/ai-apps`, { kind: 'adminAccountAiApps', userId: householdId }],
+    [`/admin/accounts/${householdId}/ai-apps/`, { kind: 'notFound' }],
+    [`/admin/accounts/${householdId}/ai-apps/x`, { kind: 'notFound' }],
+    [`/admin/accounts/${householdId}/other`, { kind: 'notFound' }],
+    ['/admin/accounts/not-a-uuid/ai-apps', { kind: 'notFound' }],
     ['/admin/accounts/', { kind: 'notFound' }],
     ['/admin/account', { kind: 'notFound' }],
   ] as const)('parses %s', (path, route) => {
@@ -94,6 +100,8 @@ describe('householdNavRoute', () => {
     [{ kind: 'adminAiApps' }, false, 'admin'],
     [{ kind: 'adminHousehold', householdId }, true, 'admin'],
     [{ kind: 'adminHousehold', householdId }, false, 'admin'],
+    [{ kind: 'adminAccountAiApps', userId: householdId }, true, 'admin'],
+    [{ kind: 'adminAccountAiApps', userId: householdId }, false, 'admin'],
   ] as const)('marks the single Admin center entry current for %o', (route, hasHousehold, expected) => {
     expect(householdNavRoute(route, hasHousehold)).toBe(expected);
   });

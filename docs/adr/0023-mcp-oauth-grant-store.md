@@ -1401,3 +1401,70 @@ B1b2 routes as they are.
 
 - The audit list and per-account access are B4a2 and B4a3; the account
   settings and consent states are B4b.
+
+## Slice B4a2a: one account's AI apps
+
+B4a2 is split again for reviewability: B4a2a one account's access, B4a2b that
+account's connected apps with revoke and revoke-all. B4a2a is frontend only
+and uses the B1b1 account policy routes as they are.
+
+### Decisions (B4a2a)
+
+- The screen is `/admin/accounts/{userId}/ai-apps`, reached from an **AI
+  apps** link on every row of the account directory, the viewer's own
+  included: the grant is about the installation, not about whose row it is.
+  The installation **AI apps** screen points to **Accounts** for this. The
+  route is an installation route (`householdNavRoute` maps it to `admin`), and
+  a malformed identifier or any deeper address is the ordinary not-found page.
+- The heading names the login the directory row carried in, as display state
+  for that visit only (never history or storage, and dropped for another
+  account or target); a direct visit, Back or Forward shows a generic heading
+  instead of a second read.
+- The screen shows, read only, what apps may do now (`effectiveScopes`, the
+  server's value, never worked out on screen) and the person's own choice
+  (`userEnabled`, `userScopes`), with the note that only they change it and it
+  can allow less, never more. The form holds the administrator's choice: a
+  three-way radio for the account (same as other accounts → `null`, allowed,
+  not allowed) and a four-way radio for the maximum (same as other accounts →
+  `null`, Read, Change, Read and change). A radio for the maximum has no empty
+  state, so nothing is refused locally; a 422 `maxScopes` still gets a field
+  message. "Not allowed" says that the account's apps are paused, not
+  disconnected.
+- Save sends the full replacement with the read's `ETag` as `If-Match`, with
+  the same states as B4a1: 412 and a 200 without `ETag` read again (the losing
+  edit is not kept, and the facts follow the re-read, since the owner's own
+  saves share the version), 428 and a foreign 403 are a refused save, 503 and
+  network failures keep the edit, a double submit sends one save. 404 on read
+  or save says the account no longer exists, without a retry; on save it takes
+  focus, like the calm `instance_admin_required` refusal.
+- B4a1's hook was split into a shared versioned-form hook used by both screens
+  (`useVersionedForm`) and its own field logic; its behaviour and tests are
+  unchanged.
+- The visible copy says "AI apps", "Read" and "Change". No scope, policy,
+  override, version or MCP vocabulary appears.
+
+### Tests (B4a2a)
+
+- Vitest with the network boundary replaced: the read and its states (loading,
+  503 with retry, a 200 without `ETag`, 401, the calm 403 on arrival without
+  focus, a foreign 403 without retry, 404 without retry), the facts in each
+  case (nothing, read only, change only, both, owner off), the saved body for
+  every choice and `null` for the defaults, the next save naming the new
+  version, a double submit, 412 and an unversioned 200 re-reading, 422 on the
+  field, 428 and a foreign 403 on save, 503 keeping the edit, 404 and the
+  grant refusal on save taking focus, outcomes cleared by the next edit, the
+  way in from the row with the login heading, Back to Accounts, browser Back
+  with the generic heading, the pointer from the installation screen, the
+  route parser and Czech.
+- Journey n33b (production binary, real PostgreSQL): the owner opens
+  `d1_admin_e2e` from its directory row, an axe scan passes, a real save
+  stores not allowed with read at most, a new `ETag` and one `account` audit
+  row naming the owner and the account; a reload shows it, a second save
+  hands both terms back to the installation, and a `finally` restores them
+  through the API if anything failed in between.
+- Visual: light at 390/1440 and 320, dark at 390/1440 and Czech at 390.
+
+### Deviations and follow-ups (B4a2a)
+
+- The account's connected apps with revoke and revoke-all are B4a2b; the
+  audit list is B4a3.

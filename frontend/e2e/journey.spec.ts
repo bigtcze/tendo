@@ -7842,6 +7842,93 @@ test.describe('Tendo production journey', () => {
     expect((await stored()).body).toEqual(before.body);
   }
 
+  test('n33b. the installation administrator sets one account’s AI apps from its row in Accounts, and the change is stored and audited', async () => {
+    // V5-13 B4a2a. The browser's part only: the way in from the directory row, a real save with its version, the
+    // account audit row and a second save that hands both terms back to the installation. The refusals (stale or
+    // missing version, foreign Origin, unknown account, MCP bearer tokens) are the backend tests'. n7i left
+    // d1_admin_e2e as an ordinary account; nothing after this step reads its AI apps.
+    test.setTimeout(60_000);
+    const targetLogin = 'd1_admin_e2e';
+    const matches = await page.request.get(`/api/v1/admin/accounts?limit=20&q=${encodeURIComponent(targetLogin)}`);
+    expect(matches.status()).toBe(200);
+    const target = (await matches.json() as { items: Array<{ userId: string; login: string }> }).items
+      .find((entry) => entry.login === targetLogin);
+    expect(target, 'n7i leaves d1_admin_e2e in place').toBeDefined();
+    const policyPath = `/api/v1/admin/accounts/${target!.userId}/mcp-policy`;
+    const stored = async () => {
+      const response = await page.request.get(policyPath);
+      expect(response.status()).toBe(200);
+      return { body: await response.json() as { enabled: boolean | null; maxScopes: string[] | null }, etag: response.headers().etag };
+    };
+    const before = await stored();
+    expect(before.body, 'nothing has set this account differently yet').toMatchObject({ enabled: null, maxScopes: null });
+
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      await setAndRestoreAccountAiApps(targetLogin, target!.userId, before.etag);
+    } catch (error) { primaryFailure = error; }
+    try {
+      const now = await stored();
+      if (now.body.enabled !== null || now.body.maxScopes !== null) {
+        const restored = await page.request.put(policyPath, {
+          headers: { Origin: baseURL, 'If-Match': now.etag }, data: { enabled: null, maxScopes: null },
+        });
+        if (restored.status() !== 200) cleanupFailure = new Error(`Could not restore the account's AI apps: ${restored.status()}`);
+      }
+    } catch (error) { cleanupFailure = error; }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
+  /** n33b's browser part: the row's way in, a real save checked against the store and its audit, and the save back. */
+  async function setAndRestoreAccountAiApps(targetLogin: string, targetId: string, startEtag: string) {
+    const policyPath = `/api/v1/admin/accounts/${targetId}/mcp-policy`;
+    const viewer = await (await page.request.get('/api/v1/session')).json() as { userId: string };
+    await page.goto('/admin/accounts');
+    const search = page.getByRole('form', { name: en['install.accounts.searchForm'], exact: true });
+    await search.getByLabel(en['install.add.query'], { exact: true }).fill(targetLogin);
+    await search.getByRole('button', { name: en['install.add.search'], exact: true }).click();
+    await page.getByRole('link', { name: en['accountAiApps.openLabel'].replace('{login}', targetLogin), exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/accounts/${targetId}/ai-apps$`));
+    await expect(page.getByRole('heading', { level: 1, name: en['accountAiApps.titleFor'].replace('{login}', targetLogin) })).toBeVisible();
+    const useGroup = page.getByRole('group', { name: en['accountAiApps.use.title'], exact: true });
+    const maxGroup = page.getByRole('group', { name: en['accountAiApps.max.title'], exact: true });
+    await expect(useGroup.getByRole('radio', { name: en['accountAiApps.use.default'], exact: true })).toBeChecked();
+    await expectNoAxeViolations(page, 'admin-account-ai-apps');
+
+    // Not allowed, read at most: the server keeps exactly that, with a new version and one account audit row.
+    await useGroup.getByRole('radio', { name: en['accountAiApps.use.off'], exact: true }).check();
+    await maxGroup.getByRole('radio', { name: en['aiApps.access.read'], exact: true }).check();
+    const saved = page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === policyPath);
+    await page.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+    const savedResponse = await saved;
+    expect(savedResponse.status()).toBe(200);
+    expect(savedResponse.request().headers()['if-match'], 'the save names the version it was read at').toBe(startEtag);
+    await expect(page.getByText(en['accountAiApps.notice.saved'], { exact: true })).toBeVisible();
+    await expect(page.locator('[data-account-ai-apps-now]')).toHaveText(en['accountAiApps.now.none']);
+    const after = await page.request.get(policyPath);
+    expect(await after.json()).toMatchObject({ userId: targetId, enabled: false, maxScopes: ['tendo:read'], effectiveScopes: [] });
+    expect(after.headers().etag).not.toBe(startEtag);
+    const events = await page.request.get('/api/v1/admin/mcp-policy-events?limit=5');
+    expect(events.status()).toBe(200);
+    expect((await events.json() as { items: Array<Record<string, unknown>> }).items[0]).toMatchObject({
+      policy: 'account', actorUserId: viewer.userId, targetUserId: targetId, enabled: false, scopes: ['tendo:read'],
+    });
+
+    // A reload shows what is stored; handing both terms back to the installation stores null for each.
+    await page.reload();
+    await expect(useGroup.getByRole('radio', { name: en['accountAiApps.use.off'], exact: true })).toBeChecked();
+    await useGroup.getByRole('radio', { name: en['accountAiApps.use.default'], exact: true }).check();
+    await maxGroup.getByRole('radio', { name: en['accountAiApps.max.default'], exact: true }).check();
+    await page.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+    await expect(page.getByText(en['accountAiApps.notice.saved'], { exact: true })).toBeVisible();
+    expect(await (await page.request.get(policyPath)).json()).toMatchObject({ enabled: null, maxScopes: null });
+
+    await page.getByRole('link', { name: en['accountAiApps.back'], exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/accounts$/);
+  }
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");

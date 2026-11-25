@@ -2,17 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { ItemGroup } from '../features/items/itemsApi';
 import type { BootState } from './useAppSession';
-import { ADMIN_ACCOUNTS_PATH, ADMIN_AI_APPS_PATH, ADMIN_HOUSEHOLDS_PATH, readRoute, type Route } from './routes';
+import {
+  ADMIN_ACCOUNTS_PATH, ADMIN_AI_APPS_PATH, ADMIN_HOUSEHOLDS_PATH, adminAccountAiAppsPath, readRoute, type Route,
+} from './routes';
 
 /** Where an open item detail was reached from, so the navigation highlights the route of origin. */
 export type ItemOrigin = 'home' | 'allItems' | 'archive' | null;
 
 /**
- * The name a drilled-down household list showed on the way in. It is display state for that visit only: it keeps
- * the detail heading truthful without a second read, is never written to history or storage, and names the account
- * it belongs to so it can never leak into another session's screen.
+ * The name a drilled-down installation list showed on the way in: a household's name, or an account's login. It is
+ * display state for that visit only: it keeps the detail heading truthful without a second read, is never written to
+ * history or storage, and names the account it belongs to so it can never leak into another session's screen.
  */
-export type AdminHouseholdName = { userId: string; householdId: string; name: string };
+export type AdminTargetName = { userId: string; targetId: string; name: string };
 
 type Options = {
   route: Route;
@@ -56,7 +58,7 @@ function useCanonicalUrl(route: Route, state: BootState, setRoute: Dispatch<SetS
 }
 
 /** Every way out of a screen: one place that records the destination, the address and the list it belongs to. */
-function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, setItemOrigin, setArchivedView, clearTransient, userId, setAdminHouseholdName }: {
+function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, setItemOrigin, setArchivedView, clearTransient, userId, setAdminTargetName }: {
   setRoute: Dispatch<SetStateAction<Route>>;
   transitionedRef: RefObject<boolean>;
   setAllItemsVisit: Dispatch<SetStateAction<number>>;
@@ -64,7 +66,7 @@ function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, set
   setArchivedView: Dispatch<SetStateAction<boolean>>;
   clearTransient: () => void;
   userId: string | null;
-  setAdminHouseholdName: Dispatch<SetStateAction<AdminHouseholdName | null>>;
+  setAdminTargetName: Dispatch<SetStateAction<AdminTargetName | null>>;
 }) {
   // All items destinations differ only in their query: subject, group status or the archive filter.
   const openItemsPath = useCallback((search = '') => {
@@ -84,11 +86,11 @@ function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, set
   const simple = useCallback((path: string, route: Route, transient: boolean) => {
     transitionedRef.current = true;
     setItemOrigin(null);
-    setAdminHouseholdName(null);
+    setAdminTargetName(null);
     if (transient) clearTransient();
     window.history.pushState(null, '', path);
     setRoute(route);
-  }, [clearTransient, setAdminHouseholdName, setItemOrigin, setRoute, transitionedRef]);
+  }, [clearTransient, setAdminTargetName, setItemOrigin, setRoute, transitionedRef]);
   const goHome = useCallback(() => simple('/', { kind: 'home' }, true), [simple]);
   const openPeople = useCallback(() => simple('/people', { kind: 'people' }, false), [simple]);
   const openAccount = useCallback(() => simple('/account', { kind: 'account' }, true), [simple]);
@@ -106,8 +108,13 @@ function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, set
   /** The list row already knows the household's name; the detail screen shows it instead of a generic heading. */
   const openAdminHousehold = useCallback((householdId: string, name: string) => {
     simple(`${ADMIN_HOUSEHOLDS_PATH}/${encodeURIComponent(householdId)}`, { kind: 'adminHousehold', householdId }, true);
-    setAdminHouseholdName(userId ? { userId, householdId, name } : null);
-  }, [setAdminHouseholdName, simple, userId]);
+    setAdminTargetName(userId ? { userId, targetId: householdId, name } : null);
+  }, [setAdminTargetName, simple, userId]);
+  /** The directory row already knows the login; the account's AI apps heading names it. */
+  const openAdminAccountAiApps = useCallback((accountId: string, login: string) => {
+    simple(adminAccountAiAppsPath(accountId), { kind: 'adminAccountAiApps', userId: accountId }, true);
+    setAdminTargetName(userId ? { userId, targetId: accountId, name: login } : null);
+  }, [setAdminTargetName, simple, userId]);
   const goBackFromItem = useCallback(() => {
     const returnTo = window.history.state?.returnTo;
     if (typeof returnTo === 'string' && returnTo.startsWith('/items')) {
@@ -134,25 +141,25 @@ function useNavigationActions({ setRoute, transitionedRef, setAllItemsVisit, set
   const reportItemsView = useCallback((archived: boolean) => setArchivedView(archived), [setArchivedView]);
 
   return { openAllItems, openAllItemsForStatus, openArchive, openPeople, openAccount, openMembers, openAdmin,
-    openAdminHouseholds, openAdminAccounts, openAdminAiApps, openAdminHousehold,
+    openAdminHouseholds, openAdminAccounts, openAdminAiApps, openAdminHousehold, openAdminAccountAiApps,
     goHome, goBackFromItem, openItemFromAllItems, openItemFromHome, reportItemsView };
 }
 
 /** Back and forward recompute everything the address says, including the list an item belongs to. */
-function usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, setItemOrigin, clearTransient, setAdminHouseholdName }: {
+function usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, setItemOrigin, clearTransient, setAdminTargetName }: {
   setRoute: Dispatch<SetStateAction<Route>>;
   transitionedRef: RefObject<boolean>;
   setArchivedView: Dispatch<SetStateAction<boolean>>;
   setItemOrigin: Dispatch<SetStateAction<ItemOrigin>>;
   clearTransient: () => void;
-  setAdminHouseholdName: Dispatch<SetStateAction<AdminHouseholdName | null>>;
+  setAdminTargetName: Dispatch<SetStateAction<AdminTargetName | null>>;
 }) {
   useEffect(() => {
     const onPop = () => {
       transitionedRef.current = true;
       clearTransient();
       // A history entry never carried the name, so a detail reached by Back or Forward keeps the generic heading.
-      setAdminHouseholdName(null);
+      setAdminTargetName(null);
       const next = readRoute();
       setArchivedView(next.kind === 'allItems' && isArchivedSearch(window.location.search));
       setItemOrigin(next.kind === 'item' ? historyOrigin() : null);
@@ -160,7 +167,7 @@ function usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, set
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [clearTransient, setAdminHouseholdName, setArchivedView, setItemOrigin, setRoute, transitionedRef]);
+  }, [clearTransient, setAdminTargetName, setArchivedView, setItemOrigin, setRoute, transitionedRef]);
 }
 
 export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, clearHomeNotice, state }: Options) {
@@ -169,7 +176,7 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   // entry an item was pushed with still names where it was opened from.
   const [itemOrigin, setItemOrigin] = useState<ItemOrigin>(() => (route.kind === 'item' ? historyOrigin() : null));
   const [archivedView, setArchivedView] = useState(false);
-  const [adminHouseholdName, setAdminHouseholdName] = useState<AdminHouseholdName | null>(null);
+  const [adminTargetName, setAdminTargetName] = useState<AdminTargetName | null>(null);
   const userId = state.kind === 'signedIn' ? state.session.userId : null;
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
   const clearTransient = useCallback(() => {
@@ -178,11 +185,15 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   }, [clearHomeNotice, setOidcOutcome]);
   const actions = useNavigationActions({
     setRoute, transitionedRef, setAllItemsVisit, setItemOrigin, setArchivedView, clearTransient,
-    userId, setAdminHouseholdName,
+    userId, setAdminTargetName,
   });
-  usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, setItemOrigin, clearTransient, setAdminHouseholdName });
+  usePopstateNavigation({ setRoute, transitionedRef, setArchivedView, setItemOrigin, clearTransient, setAdminTargetName });
   useCanonicalUrl(route, state, setRoute);
-  return { ...actions, itemOrigin, archivedView, adminHouseholdName };
+  /** The name this visit carried in for one target; dropped when it belongs to another account or page. */
+  const adminTargetNameFor = useCallback((targetId: string) => (
+    adminTargetName?.userId === userId && adminTargetName.targetId === targetId ? adminTargetName.name : null
+  ), [adminTargetName, userId]);
+  return { ...actions, itemOrigin, archivedView, adminTargetNameFor };
 }
 
 /** A deep link has no history to read, so an item reached without one belongs to the All items list. */
