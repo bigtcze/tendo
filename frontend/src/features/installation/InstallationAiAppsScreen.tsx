@@ -33,7 +33,14 @@ export function InstallationAiAppsScreen({ login, onSignedOut, onForbidden, onOp
   const forbiddenHeadingRef = useRef<HTMLHeadingElement>(null);
   const refusedRef = useRef(false);
   const [changesRefused, setChangesRefused] = useState(false);
-  const refuse = (duringAction: boolean) => { refusedRef.current = duringAction; onForbidden(); };
+  // Both reads can be refused for the grant; the session is read again once, for whichever said so first.
+  const reportedRef = useRef(false);
+  const refuse = (duringAction: boolean) => {
+    refusedRef.current = refusedRef.current || duringAction;
+    if (reportedRef.current) return;
+    reportedRef.current = true;
+    onForbidden();
+  };
   const settings = useAiAppsSettings({ onSignedOut, onForbidden: refuse });
   const changes = useAiAppsChanges({
     onSignedOut,

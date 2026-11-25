@@ -7760,8 +7760,9 @@ test.describe('Tendo production journey', () => {
 
   test('n33. the installation administrator changes the AI apps settings in the Admin center, and the change is stored, audited and listed', async () => {
     // V5-13 B4a1 and B4a3b. Only the browser's part is checked here: the section, the screen, a real save with its
-    // version, the save on Recent changes, and a second save that puts the starting settings back. The refusals (stale version, missing version, foreign
-    // Origin, MCP bearer tokens) are the backend tests'. The owner set up the installation, so it holds the grant.
+    // version, the save on Recent changes, and a second save that puts the starting settings back. The refusals
+    // (stale version, missing version, foreign Origin, MCP bearer tokens) are the backend tests'. The owner set up
+    // the installation, so it holds the grant.
     test.setTimeout(60_000);
     const policyPath = '/api/v1/admin/mcp-policy';
     const stored = async () => {

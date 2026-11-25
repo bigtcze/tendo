@@ -1,4 +1,5 @@
-import { useShowMoreList, type ShowMoreList } from '../../app/useShowMoreList';
+import { useMemo, useRef } from 'react';
+import { useAppendedRowFocus, useShowMoreList, type ShowMoreList } from '../../app/useShowMoreList';
 import { Button } from '../../components/ui/button';
 import { LoadError } from '../../components/ui/load-error';
 import { LoadingLine } from '../../components/ui/loading-line';
@@ -77,7 +78,9 @@ function changeBody(change: AiAppsChange, t: Translate): string {
 
 function ChangeRow({ change, format, t }: { change: AiAppsChange; format: Intl.DateTimeFormat; t: Translate }) {
   const when = format.format(new Date(change.occurredAt));
-  return <li className="min-w-0 py-4 [overflow-wrap:anywhere]">
+  // Focusable only by script: the first row Show more added when the button that had focus went away.
+  return <li tabIndex={-1}
+    className="min-w-0 py-4 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
     <p className="text-body font-semibold text-ink">{changeTitle(change, t)}</p>
     <p className="mt-1 max-w-prose text-body text-ink">{changeBody(change, t)}</p>
     <p className="mt-1 text-small text-muted">
@@ -92,7 +95,10 @@ function ChangeRow({ change, format, t }: { change: AiAppsChange; format: Intl.D
  */
 export function AiAppsChanges({ changes }: { changes: ShowMoreList<AiAppsChange> }) {
   const { t, locale } = useI18n();
-  const format = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const format = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }), [locale]);
+  const listRef = useRef<HTMLUListElement>(null);
+  const markMore = useAppendedRowFocus(listRef, changes.items.length, changes.loadingMore);
+  const more = () => { markMore(changes.items.length); void changes.loadMore(); };
   const empty = changes.state === 'ready' && changes.items.length === 0 && !changes.refreshFailed;
 
   return <section aria-labelledby={HEADING_ID} className="mt-8 grid max-w-2xl gap-1 border-t border-line pt-6">
@@ -104,16 +110,16 @@ export function AiAppsChanges({ changes }: { changes: ShowMoreList<AiAppsChange>
       : null}
     {empty ? <p className="mt-4 max-w-prose text-body text-ink">{t('aiApps.changes.empty')}</p> : null}
     {changes.items.length > 0
-      ? <ul aria-labelledby={HEADING_ID} className="mt-2 divide-y divide-line">
+      ? <ul ref={listRef} aria-labelledby={HEADING_ID} className="mt-2 divide-y divide-line">
         {changes.items.map((change) => <ChangeRow key={change.id} change={change} format={format} t={t} />)}
       </ul>
       : null}
     {changes.moreFailed
-      ? <LoadError className="mt-2" message={t('aiApps.changes.error.more')} retryLabel={t('app.error.retry')} onRetry={() => void changes.loadMore()} />
+      ? <LoadError className="mt-2" message={t('aiApps.changes.error.more')} retryLabel={t('app.error.retry')} onRetry={more} />
       : null}
     {changes.nextCursor
-      ? <Button variant="secondary" className="mt-2 w-full sm:w-auto sm:justify-self-start" disabled={changes.loadingMore}
-        onClick={() => void changes.loadMore()}>
+      ? <Button variant="secondary" className="mt-2 w-full sm:w-auto sm:justify-self-start" aria-disabled={changes.loadingMore}
+        onClick={more}>
         {t('aiApps.changes.more')}
       </Button>
       : null}

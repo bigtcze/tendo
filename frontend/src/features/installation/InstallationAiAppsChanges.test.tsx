@@ -120,6 +120,38 @@ describe('recent AI apps changes', () => {
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 
+  it('keeps focus in the list when the last page takes Show more away', async () => {
+    renderAt({
+      [`${changesPath}?limit=20`]: page([change({})], 'next-1'),
+      [`${changesPath}?limit=20&cursor=next-1`]: page([change({ enabled: false })]),
+    });
+    const more = await screen.findByRole('button', { name: 'Show more' });
+    more.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    await waitFor(() => expect(rows()[1]).toHaveFocus());
+  });
+
+  it('keeps Show more focusable while its page loads, and sends one read however often it is pressed', async () => {
+    let release!: (response: Response) => void;
+    const fake = renderAt({
+      [`${changesPath}?limit=20`]: page([change({})], 'next-1'),
+      [`${changesPath}?limit=20&cursor=next-1`]: () => new Promise<Response>((resolve) => { release = resolve; }),
+    });
+    const more = await screen.findByRole('button', { name: 'Show more' });
+    more.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(more).toHaveAttribute('aria-disabled', 'true'));
+    expect(more).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(changeReads(fake)).toHaveLength(2);
+    release(page([change({ enabled: false })], 'next-2'));
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(more).toHaveFocus();
+    expect(more).toHaveAttribute('aria-disabled', 'false');
+  });
+
   it('keeps the rows when Show more fails, and the retry appends the page', async () => {
     let more = 0;
     renderAt({
@@ -175,6 +207,40 @@ describe('recent AI apps changes', () => {
     expect(changeReads(fake)).toHaveLength(2);
   });
 
+  it('reads the changes again after a save answered without its version', async () => {
+    const fake = renderAt({
+      [changesPath]: page([]),
+      [savePath]: json(200, settings({ defaultMaxScopes: ['tendo:read'] })),
+    });
+    await userEvent.click(await screen.findByRole('checkbox', { name: /^Change/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('AI app settings saved.')).toBeVisible();
+    await waitFor(() => expect(changeReads(fake)).toHaveLength(2));
+  });
+
+  it('moves focus to the calm refusal when the read after a save is refused for the grant', async () => {
+    let reads = 0;
+    renderAt({
+      [changesPath]: () => (++reads === 1 ? page([change({})]) : problem(403, 'instance_admin_required')),
+      [savePath]: answer(settings({ defaultMaxScopes: ['tendo:read'] }), 2),
+    });
+    await userEvent.click(await screen.findByRole('checkbox', { name: /^Change/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const heading = await screen.findByRole('heading', { level: 2, name: refusal });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it('signs out when the session ends during Show more', async () => {
+    renderAt({
+      [`${changesPath}?limit=20`]: page([change({})], 'next-1'),
+      [`${changesPath}?limit=20&cursor=next-1`]: problem(401, 'unauthenticated'),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Show more' }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+
   it('keeps the rows and offers a retry when the read after a save fails', async () => {
     let reads = 0;
     renderAt({
@@ -188,12 +254,20 @@ describe('recent AI apps changes', () => {
     expect(rows()).toHaveLength(1);
   });
 
-  it('does not read the changes again after a save that changed nothing', async () => {
+  it('does not read the changes again after a save that failed', async () => {
     const fake = renderAt({ [changesPath]: page([]), [savePath]: problem(503, 'unavailable') });
     await userEvent.click(await screen.findByRole('checkbox', { name: /^Change/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('The settings couldn’t be saved. Check your connection and try again.')).toBeVisible();
     expect(changeReads(fake)).toHaveLength(1);
+  });
+
+  it('re-reads the session once when both reads are refused for the grant on arrival', async () => {
+    const fake = renderAt({ [readPath]: problem(403, 'instance_admin_required'), [changesPath]: problem(403, 'instance_admin_required') });
+    expect(await screen.findByRole('heading', { level: 2, name: refusal })).toBeVisible();
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/session')).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.requests.filter((request) => request.path === '/api/v1/session')).toHaveLength(2);
   });
 
   it('shows the calm refusal in place of the whole section when the list is refused for the grant', async () => {

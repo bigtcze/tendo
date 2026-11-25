@@ -813,7 +813,7 @@ export const cs: Record<MessageKey, string> = {
   'aiApps.error.rejected': 'Nastavení se nepodařilo uložit a nic se nezměnilo.',
   'aiApps.error.save': 'Nastavení se nepodařilo uložit. Zkontrolujte připojení a zkuste to znovu.',
   'aiApps.changes.title': 'Poslední změny',
-  'aiApps.changes.body': 'Kdo a kdy AI aplikace změnil, od nejnovějších: pro všechny, pro jeden účet, nebo vlastní volbu člověka. Každá změna ukazuje nastavení tak, jak bylo uloženo.',
+  'aiApps.changes.body': 'Změny AI aplikací od nejnovějších: pro všechny, pro jeden účet nebo vlastní volba člověka. U každé změny je vidět nastavení tak, jak bylo uloženo, a kterým účtem a kdy byla provedena.',
   'aiApps.changes.loading': 'Načítám poslední změny…',
   'aiApps.changes.empty': 'Zatím se nic nezměnilo.',
   'aiApps.changes.error.load': 'Poslední změny se nepodařilo načíst. Zkontrolujte připojení a zkuste to znovu.',
