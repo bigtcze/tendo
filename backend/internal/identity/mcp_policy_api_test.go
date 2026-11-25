@@ -37,6 +37,10 @@ type policyRepo struct {
 	base MCPPolicyRecord
 	// inst is the installation row (B1b2). Nil models a missing row.
 	inst *MCPInstallationRow
+	// grants and the revocations are the administrator grant state (B1b3).
+	grants             map[string]MCPGrantRecord
+	revocations        map[string]MCPRevocation
+	accountRevocations map[string]MCPRevocation
 }
 
 func newPolicyRepo() *policyRepo {
@@ -48,7 +52,10 @@ func newPolicyRepo() *policyRepo {
 			InstallationFound: true, InstallationEnabled: true,
 			DefaultAccountEnabled: true, DefaultMaxScopes: slices.Clone(mcpBoth),
 		},
-		inst: &MCPInstallationRow{Enabled: true, DefaultAccountEnabled: true, DefaultMaxScopes: slices.Clone(mcpBoth), Version: 1},
+		inst:               &MCPInstallationRow{Enabled: true, DefaultAccountEnabled: true, DefaultMaxScopes: slices.Clone(mcpBoth), Version: 1},
+		grants:             map[string]MCPGrantRecord{},
+		revocations:        map[string]MCPRevocation{},
+		accountRevocations: map[string]MCPRevocation{},
 	}
 }
 

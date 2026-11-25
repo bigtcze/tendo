@@ -850,6 +850,53 @@ assert st==403 and member_inst_put['code']=='instance_admin_required',('member w
 st,_,anon_events=call('GET',ADM_EVENTS,template=ADM_EVENTS,sink=fixtures)[:3]
 assert st==401 and anon_events['code']=='unauthenticated',('audit list without cookie',st,anon_events)
 assert psql("SELECT count(*) FROM mcp_policy_events WHERE policy='installation'")=='2','refusals must not write audit rows'
+# Administrator grant list and revocations (ADR 0023, slice B1b3). Two grants of
+# the member account use the smoke client seeded above; the owner revokes one,
+# then the rest. Each revocation is audited once with reason admin and the owner
+# as actor. These routes also answer with TENDO_MCP_ENABLED off.
+ADM_GRANTS='/api/v1/admin/accounts/{userId}/mcp-grants'
+ADM_GRANT='/api/v1/admin/accounts/{userId}/mcp-grants/{grantId}'
+member_grants_url=f'/api/v1/admin/accounts/{member_account_id}/mcp-grants'
+def seed_member_grant():
+ return psql(f"INSERT INTO mcp_grants(user_id,client_id,scopes,resource,created_at,expires_at) VALUES ('{member_account_id}','setupsmokeclient0001',ARRAY['tendo:read'],'{origin}/mcp',now(),now()+interval '1 day') RETURNING id").splitlines()[0]
+admin_grant_one,admin_grant_two=seed_member_grant(),seed_member_grant()
+st,h,member_grants=call('GET',member_grants_url+'?limit=1',template=ADM_GRANTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==200 and [x['id'] for x in member_grants['items']]==[admin_grant_two] and member_grants['nextCursor'] and h['Cache-Control']=='no-store',('admin lists member grants',st,member_grants,dict(h))
+st,_,member_grants_next=call('GET',member_grants_url+'?limit=1&cursor='+member_grants['nextCursor'],template=ADM_GRANTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==200 and [x['id'] for x in member_grants_next['items']]==[admin_grant_one] and member_grants_next['nextCursor'] is None,('admin grant list second page',st,member_grants_next)
+st,_,grants_bad_cursor=call('GET',member_grants_url+'?cursor=g1-not-a-cursor',template=ADM_GRANTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==400 and grants_bad_cursor['code']=='invalid_query' and grants_bad_cursor['parameter']=='cursor',('admin grant list malformed cursor',st,grants_bad_cursor)
+st,_,grants_missing=call('GET',f'/api/v1/admin/accounts/{random_id}/mcp-grants',template=ADM_GRANTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==404 and grants_missing['code']=='not_found',('admin grant list unknown account',st,grants_missing)
+st,_,anon_grants=call('GET',member_grants_url,template=ADM_GRANTS,sink=fixtures)[:3]
+assert st==401 and anon_grants['code']=='unauthenticated',('admin grant list without cookie',st,anon_grants)
+st,_,member_grants_forbidden=call('GET',member_grants_url,template=ADM_GRANTS,headers=member_cookie,sink=fixtures)[:3]
+assert st==403 and member_grants_forbidden['code']=='instance_admin_required',('member lists admin grants',st,member_grants_forbidden)
+st,_,member_revoke=call('DELETE',member_grants_url+'/'+admin_grant_one,template=ADM_GRANT,headers={**member_cookie,'Origin':origin},sink=fixtures)[:3]
+assert st==403 and member_revoke['code']=='instance_admin_required',('member revokes via admin route',st,member_revoke)
+st,_,member_revoke_all=call('DELETE',member_grants_url,template=ADM_GRANTS,headers={**member_cookie,'Origin':origin},sink=fixtures)[:3]
+assert st==403 and member_revoke_all['code']=='instance_admin_required',('member revokes all via admin route',st,member_revoke_all)
+st,_,foreign_revoke=call('DELETE',member_grants_url+'/'+admin_grant_one,template=ADM_GRANT,headers={**cookie_header,'Origin':'http://foreign.example'},sink=fixtures)[:3]
+assert st==403,('admin revoke with a foreign Origin',st,foreign_revoke)
+st,_,anon_revoke=call('DELETE',member_grants_url+'/'+admin_grant_one,template=ADM_GRANT,headers={'Origin':origin},sink=fixtures)[:3]
+assert st==401 and anon_revoke['code']=='unauthenticated',('admin revoke without cookie',st,anon_revoke)
+st,_,anon_revoke_all=call('DELETE',member_grants_url,template=ADM_GRANTS,headers={'Origin':origin},sink=fixtures)[:3]
+assert st==401 and anon_revoke_all['code']=='unauthenticated',('admin revoke all without cookie',st,anon_revoke_all)
+st,_,wrong_owner=call('DELETE',f'/api/v1/admin/accounts/{owner_account_id}/mcp-grants/{admin_grant_one}',template=ADM_GRANT,headers=owner_mut,sink=fixtures)[:3]
+assert st==404 and wrong_owner['code']=='not_found',('admin revoke under another account',st,wrong_owner)
+st,_,revoke_all_missing=call('DELETE',f'/api/v1/admin/accounts/{random_id}/mcp-grants',template=ADM_GRANTS,headers=owner_mut,sink=fixtures)[:3]
+assert st==404 and revoke_all_missing['code']=='not_found',('admin revoke all unknown account',st,revoke_all_missing)
+assert psql(f"SELECT count(*) FROM mcp_grants WHERE id IN ('{admin_grant_one}','{admin_grant_two}') AND revoked_at IS NULL")=='2','refused admin revocations changed a grant'
+st,h,_,_=call('DELETE',member_grants_url+'/'+admin_grant_one,template=ADM_GRANT,headers=owner_mut,sink=fixtures)
+assert st==204 and h['Cache-Control']=='no-store',('admin revokes one grant',st,dict(h))
+assert psql(f"SELECT count(*) FROM mcp_grant_events WHERE grant_id='{admin_grant_one}' AND event='revoked' AND reason='admin' AND actor_user_id='{owner_account_id}'")=='1','admin revocation not audited once'
+st,_,revoke_again=call('DELETE',member_grants_url+'/'+admin_grant_one,template=ADM_GRANT,headers=owner_mut,sink=fixtures)[:3]
+assert st==404 and revoke_again['code']=='not_found',('admin revokes a revoked grant',st,revoke_again)
+st,h,_,_=call('DELETE',member_grants_url,template=ADM_GRANTS,headers=owner_mut,sink=fixtures)
+assert st==204 and h['Cache-Control']=='no-store',('admin revokes all grants',st,dict(h))
+assert psql(f"SELECT string_agg(grant_id::text||':'||reason||':'||actor_user_id::text,',' ORDER BY grant_id) FROM mcp_grant_events WHERE user_id='{member_account_id}' AND event='revoked'")==f'{admin_grant_one}:admin:{owner_account_id},{admin_grant_two}:admin:{owner_account_id}','admin revoke-all must audit each live grant once'
+st,_,member_grants_after=call('GET',member_grants_url,template=ADM_GRANTS,headers=cookie_header,sink=fixtures)[:3]
+assert st==200 and member_grants_after=={'items':[],'nextCursor':None},('admin grant list after revoke-all',st,member_grants_after)
 # Instance-administrator household account center (ADR 0020). The owner is the
 # only instance administrator; other_id has one plain member and no admin, so a
 # plain-member assignment is refused and an admin assignment is audited with the

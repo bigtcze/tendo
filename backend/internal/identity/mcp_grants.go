@@ -76,27 +76,13 @@ func (s *MCPService) ListGrants(ctx context.Context, userID string, limit int, c
 	if s.grantStore == nil {
 		return MCPGrantPage{}, errMCPGrantStoreMissing
 	}
-	switch {
-	case limit <= 0:
-		limit = MCPGrantListDefaultLimit
-	case limit > MCPGrantListMaxLimit:
-		limit = MCPGrantListMaxLimit
-	}
+	limit = clampMCPGrantLimit(limit)
 	// One extra row tells whether another page exists without a count.
 	items, err := s.grantStore.ListLiveGrants(ctx, userID, s.now(), afterID, limit+1)
 	if err != nil {
 		return MCPGrantPage{}, err
 	}
-	page := MCPGrantPage{Items: items}
-	if len(items) > limit {
-		page.Items = items[:limit]
-		next, err := encodeMCPGrantCursor(page.Items[limit-1].ID)
-		if err != nil {
-			return MCPGrantPage{}, err
-		}
-		page.NextCursor = next
-	}
-	return page, nil
+	return mcpGrantPage(items, limit)
 }
 
 // RevokeGrantForUser revokes one of the signed-in account's own live grants

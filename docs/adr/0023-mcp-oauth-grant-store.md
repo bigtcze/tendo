@@ -140,7 +140,9 @@ Amended by #457 (see "Slice B1a: access policy"):
    order: `installation_state` `FOR SHARE`, the live instance-administrator
    check, the target `user_accounts` row, then the policy row `FOR UPDATE` or
    the grant (steps 4 onward). It never takes a lock an issuance path holds
-   before its account lock, so the two cannot deadlock.
+   before its account lock, so the two cannot deadlock. A revocation (slice
+   B1b3) takes the account row and then its `local_credentials` row
+   `FOR SHARE`, as issuance does, so it serializes with password replacement.
 
 ## Consequences
 
@@ -1081,3 +1083,85 @@ administrator grant list and revocation) is still separate.
   the identical 404 on the gated routes and with a valid token, checks that
   connected apps still answer, then switches it on and uses the same token
   again.
+
+## Slice B1b3: administrator grant list and revocation
+
+An instance administrator lists one account's live MCP grants, revokes one of
+them, or revokes all of them. The policy is not changed: the owner can connect
+again unless the policy forbids it. The routes are the administrator's
+counterpart of connected apps (A4b) and live on the policy service, which
+already owns the administrator transaction.
+
+### Routes
+
+| Method | Path | Answer |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/accounts/{userId}/mcp-grants` | `McpGrantList`, the `g1` cursor and limits of `listMcpGrants` |
+| `DELETE` | `/api/v1/admin/accounts/{userId}/mcp-grants/{grantId}` | `204`, one grant revoked |
+| `DELETE` | `/api/v1/admin/accounts/{userId}/mcp-grants` | `204`, every unrevoked grant revoked |
+
+- Session cookie only; an MCP bearer token is refused with `401`. The DELETEs
+  need the canonical `Origin`. None is a cross-origin route.
+- The instance-administrator check runs first and answers `403
+  instance_admin_required` before the query, the rate limit or any lookup.
+- Every `404` is `not_found`, the code of the other administrator routes, not
+  the connected-apps `mcp_grant_not_found`. An account id or grant id that is
+  not canonical lowercase, an unknown or deleted account, and a grant that is
+  unknown, owned by another account, revoked or expired all read the same.
+- The routes answer whether or not `TENDO_MCP_ENABLED` or the installation
+  switch is on, like connected apps and the policy routes, so paused grants
+  can be reviewed and revoked.
+- Both DELETEs share one per-administrator bucket (30 per minute, `429
+  rate_limited` with `Retry-After: 60`), charged after the administrator check
+  and before the transaction. No other route uses it; the list is not limited,
+  like the other administrator reads.
+
+### Revocation and audit
+
+A single revocation runs the connected-apps sequence with a different cause:
+an unlocked owner read (`FindGrantOwner`) refuses a grant of another account
+before any account or grant lock; then the account and grant are locked, the
+grant is re-checked live under the locks, and `RevokeGrant` writes reason
+`admin` with the administrator as actor and deletes the grant's codes and
+token rows. Revoke-all is the account-wide statement a password replacement
+uses (`revokeAccountMCPAccess`): every account code, then every unrevoked
+grant with one `admin` event each, then every access and refresh token row.
+An account with nothing to revoke writes no event. Like the password path,
+revoke-all also revokes an unrevoked grant past its expiry, so it can write an
+`admin` event for a grant the list no longer shows. Revoke-all takes the
+account and credential rows only `FOR SHARE`, so it does not exclude a
+concurrent authorization: a code or grant that commits while it runs can
+survive. That is accepted, because the policy is unchanged and the owner may
+connect again anyway. To stop new connections, the administrator changes the
+account policy. For a revoked grant the next `/mcp` request and the next
+refresh fail; a request already past verification finishes. Migration 032
+already allows `admin` in both reason checks, so no migration is needed.
+
+### Lock order
+
+Amendment 8: `installation_state` `FOR SHARE` and the live
+instance-administrator check, then the target `user_accounts` row `FOR SHARE`
+and its `local_credentials` row `FOR SHARE`, then codes, grant and token rows
+(step 4). The credential share lock is the issuance lock, unlike the policy
+writes: a revocation must serialize with password replacement so each grant
+ends with exactly one revocation event. Whichever commits first revokes; the
+other finds nothing live (single revoke: `404`; revoke-all: `204` with no
+event). Account deletion meets the command at `installation_state` and the
+later one sees the deleted account (`404`). A refresh holding the grant makes
+a single revoke wait in `LockGrant` (the grant's codes, then the grant); the
+revoke then removes both the presented and the rotated pair. The list reads
+inside the same transaction after the administrator check and the live-account
+read, without locks.
+
+### Deviations and follow-ups (B1b3)
+
+- The B1b1 `400` examples of `getAdminAccountMcpPolicy` and `getMcpSettings`
+  cited a code `invalid_forwarded_request` that the origin middleware never
+  sends: its forwarded-metadata `400` has no code. Both examples now carry no
+  code. The same wrong example on routes from before #457 is left for a
+  separate change.
+- The administrator screens for these routes are slice B4.
+- Smoke: `scripts/setup-smoke.sh` seeds two grants of the member account, pages
+  the list, checks the 401, 403, 404, foreign-Origin and malformed-cursor
+  refusals, revokes one grant and then the rest, and checks one `admin` event
+  per grant with the owner as actor.
