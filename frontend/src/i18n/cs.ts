@@ -784,7 +784,7 @@ export const cs: Record<MessageKey, string> = {
   'connectedApps.error.more': 'Další aplikace se nepodařilo načíst. Zkuste to znovu.',
   'connectedApps.error.rateLimited': 'Příliš mnoho odpojení najednou. Zkuste to znovu za minutu.',
   'connectedApps.error.action': 'Odpojení se nepovedlo. Zkontrolujte připojení a zkuste to znovu.',
-  'connectedApps.error.rejected': 'To se nepodařilo a nic se nezměnilo. Načtěte stránku znovu a zkuste to znovu.',
+  'connectedApps.error.rejected': 'To se nepodařilo a nic se nezměnilo. Načtěte stránku a zkuste to znovu.',
   'connectedApps.retry': 'Zkusit znovu',
   'connectedApps.more': 'Zobrazit další',
   'aiApps.title': 'AI aplikace',

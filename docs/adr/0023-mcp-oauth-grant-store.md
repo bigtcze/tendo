@@ -1524,7 +1524,8 @@ Frontend only, on the B1b3 administrator grant routes as they are
   load), 401, Disconnect all with its 204, focus on the heading while the
   re-read is held, foreign 403 in the dialog, 429/503, lost grant with
   focus, 401, Cancel focus and account gone, a list refused for the grant on
-  arrival without focus, and Czech. Before the change, the first 18 new
+  arrival without focus, a refusal after Retry or Show more with focus, and
+  Czech. Before the change, the first 18 new
   cases failed; the later focus cases fail without the action-focus effect.
 - Journey n33c (production binary, real PostgreSQL): the owner approves two
   consents for one registered client and exchanges both codes; the page lists
@@ -1543,4 +1544,9 @@ Frontend only, on the B1b3 administrator grant routes as they are
 ### Deviations and follow-ups (B4a2b)
 
 - The audit list is B4a3.
+- A refusal on arrival that answers after the reader has already moved focus
+  into the settings form leaves focus on the page body when the form leaves.
+  Falling back to the refusal heading whenever the body has focus would also
+  move focus on a first page load, which the arrival rule forbids; this rare
+  timing case is accepted.
 

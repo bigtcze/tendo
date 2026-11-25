@@ -289,6 +289,25 @@ describe('one account’s connected apps', () => {
     expect(await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] })).toHaveFocus();
   });
 
+  it('puts focus on the refusal when Retry finds the grant gone', async () => {
+    let answer = problem(503, 'unavailable');
+    renderAt({ [LIST]: () => answer });
+    await within(await screen.findByRole('region', { name: en['connectedApps.title'] })).findByText(en['connectedApps.error.load']);
+    answer = problem(403, 'instance_admin_required');
+    await userEvent.click(within(section()).getByRole('button', { name: en['connectedApps.retry'] }));
+    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
+  });
+
+  it('puts focus on the gone account when Show more finds it deleted', async () => {
+    renderAt({
+      [LIST]: page([A], 'g1next'),
+      [`${LIST}?limit=20&cursor=g1next`]: problem(404, 'not_found'),
+    });
+    await screen.findByText('Claude Code');
+    await userEvent.click(screen.getByRole('button', { name: en['connectedApps.more'] }));
+    expect(await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] })).toHaveFocus();
+  });
+
   it('gives the installation refusal when the list is refused for the grant', async () => {
     renderAt({ [LIST]: problem(403, 'instance_admin_required') });
     const heading = await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] });
