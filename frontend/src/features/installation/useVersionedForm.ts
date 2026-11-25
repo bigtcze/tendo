@@ -6,7 +6,8 @@ import type { VersionedRead, VersionedSave } from './aiAppsApi';
 export type VersionedFormState = 'loading' | 'ready' | 'forbidden' | 'notFound' | 'error' | 'refused';
 /** What the last save said; `error` outcomes go to the alert host, the others to the polite one. */
 export type VersionedOutcome = { key: MessageKey; tone: 'success' | 'neutral' | 'error' } | null;
-export type SaveResult = 'saved' | 'invalid' | 'other';
+/** `saved` and `stale` both mean the stored settings changed since they were read: by this save, or by someone else's. */
+export type SaveResult = 'saved' | 'stale' | 'invalid' | 'other';
 
 export type VersionedFormOptions<T, D> = {
   read: () => Promise<VersionedRead<T>>;
@@ -99,10 +100,10 @@ export function useVersionedForm<T, D>(options: VersionedFormOptions<T, D>) {
     else if (result.kind === 'invalidAccess') { setFieldInvalid(true); return 'invalid'; }
     // Both read again; a failed re-read leaves the screen's own load error, which already offers the retry.
     else if (result.kind === 'stale' || result.kind === 'savedUnversioned') {
-      const read = await load(true);
-      if (read) setOutcome(result.kind === 'stale' ? { key: messages.stale, tone: 'neutral' } : { key: messages.saved, tone: 'success' });
-    }
-    else setOutcome({ key: result.kind === 'rejected' ? messages.rejected : messages.failed, tone: 'error' });
+      const stale = result.kind === 'stale';
+      if (await load(true)) setOutcome(stale ? { key: messages.stale, tone: 'neutral' } : { key: messages.saved, tone: 'success' });
+      return stale ? 'stale' : 'saved';
+    } else setOutcome({ key: result.kind === 'rejected' ? messages.rejected : messages.failed, tone: 'error' });
     return 'other';
   }, [adopt, drop, load]);
 

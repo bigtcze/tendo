@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
-import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
+import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpPolicyEventDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
 import { assertArchiveSettled, assertHistoryPage, openMoreSheet, seedPagedHistory } from './archiveHistory';
 import { captureLargeDataset } from './largeData';
 import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
@@ -29,6 +29,7 @@ async function authenticated(browser: Browser): Promise<{ context: BrowserContex
   await pinInvitationDates(context);
   await pinHouseholdCreatedDates(context);
   await pinMcpGrantDates(context);
+  await pinMcpPolicyEventDates(context);
   const page = await context.newPage();
   await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   return { context, page };
@@ -183,6 +184,12 @@ async function assertTitleTargetGeometry(page: Page, width: number) {
   expect(geometry.top, `row target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
 }
 
+/** The installation's AI apps with both reads settled: the settings, and the two changes the capture seeded. */
+async function aiAppsSettled(page: Page, words: Record<keyof typeof en, string>) {
+  await expect(page.getByRole('switch', { name: words['aiApps.enabled'], exact: true })).toBeChecked();
+  await expect(page.getByRole('list', { name: words['aiApps.changes.title'], exact: true }).getByRole('listitem')).toHaveCount(2);
+}
+
 /** One account's AI apps with both reads settled: the facts, and the reference member's empty connected apps. */
 async function accountAiAppsSettled(page: Page, words: Record<keyof typeof en, string>) {
   await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
@@ -195,6 +202,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
   await pinInvitationDates(context);
   await pinHouseholdCreatedDates(context);
   await pinMcpGrantDates(context);
+  await pinMcpPolicyEventDates(context);
   const page = await context.newPage();
   await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   for (const width of [390, 1440]) {
@@ -215,7 +223,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     } else if (path === '/admin/accounts') {
       await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
     } else if (path === '/admin/ai-apps') {
-      await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
+      await aiAppsSettled(page, en);
     } else if (ACCOUNT_AI_APPS.test(path)) {
       await accountAiAppsSettled(page, en);
     } else {
@@ -231,7 +239,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     else if (path === '/admin') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
     else if (path === '/admin/households') await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
     else if (path === '/admin/accounts') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
-    else if (path === '/admin/ai-apps') await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
+    else if (path === '/admin/ai-apps') await aiAppsSettled(page, en);
     else if (ACCOUNT_AI_APPS.test(path)) await accountAiAppsSettled(page, en);
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
     if (path === '/items') await waitForAllItemsSummary(page);
@@ -882,12 +890,29 @@ test('Installation accounts and the delete dialog', async ({ browser }) => {
   await context.close();
 });
 
+/** Saves read only and then the starting settings back through the API: two changes, and nothing left changed. */
+async function seedAiAppsChanges(page: Page) {
+  const path = '/api/v1/admin/mcp-policy';
+  const settings = { enabled: true, defaultAccountEnabled: true, defaultMaxScopes: ['tendo:read', 'tendo:write'] };
+  const current = await api(page, 'get', path);
+  expect(current.status()).toBe(200);
+  expect(await current.json()).toEqual({ ...settings, operatorEnabled: true });
+  let version = current.headers().etag;
+  for (const defaultMaxScopes of [['tendo:read'], settings.defaultMaxScopes]) {
+    const saved = await page.request.put(path, { headers: { Origin: BASE_URL!, 'If-Match': version }, data: { ...settings, defaultMaxScopes } });
+    expect(saved.status()).toBe(200);
+    version = saved.headers().etag;
+  }
+}
+
 test('Installation AI apps', async ({ browser }) => {
   test.setTimeout(60_000);
   const { context, page } = await authenticated(browser);
   // The visual run starts with apps allowed by the server configuration and the shipped installation defaults: on,
-  // accounts on, read and change. The capture only reads them; nothing is saved, so the consent captures that follow
-  // still find apps allowed.
+  // accounts on, read and change. Two real saves through the API, read only and then back, give Recent changes its
+  // two rows and leave the settings as they were, so the consent captures that follow still find apps allowed. The
+  // browser itself saves nothing.
+  await seedAiAppsChanges(page);
   await page.goto('/admin/ai-apps');
   await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
   const switcher = page.getByRole('navigation', { name: en['admin.sections.label'] });
@@ -897,6 +922,11 @@ test('Installation AI apps', async ({ browser }) => {
   await expect(page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.read']}`) })).toBeChecked();
   await expect(page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.write']}`) })).toBeChecked();
   await expect(page.getByText(en['aiApps.serverOff'])).toHaveCount(0);
+  await aiAppsSettled(page, en);
+  const changes = page.getByRole('list', { name: en['aiApps.changes.title'], exact: true }).getByRole('listitem');
+  await expect(changes.nth(0)).toContainText(en['aiApps.changes.most'].replace('{access}', en['aiApps.changes.access.both']));
+  await expect(changes.nth(1)).toContainText(en['aiApps.changes.most'].replace('{access}', en['aiApps.changes.access.read']));
+  await expect(changes.nth(0)).toContainText(en['aiApps.changes.by'].replace('{login}', OWNER_LOGIN).replace('{when}', ''));
   await captureScreen(page, 'admin-ai-apps', true);
   await page.setViewportSize({ width: 320, height: 640 });
   await capture(page, 'admin-ai-apps-320', 320, 640, true);
@@ -910,13 +940,14 @@ test('Installation AI apps', async ({ browser }) => {
   await capture(page, 'admin-ai-apps-missing-390', 390, 900, true);
   await page.reload();
   await expect(page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.read']}`) })).toBeChecked();
+  await aiAppsSettled(page, en);
 
   await darkScreen(browser, statePath, '/admin/ai-apps', 'admin-ai-apps');
 
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
-  await expect(page.getByRole('switch', { name: cs['aiApps.enabled'], exact: true })).toBeChecked();
+  await aiAppsSettled(page, cs);
   await capture(page, 'admin-ai-apps-cs-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await context.close();

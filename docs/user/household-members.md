@@ -97,6 +97,8 @@ Removing someone from a single household stays in **Households**; **Accounts** i
 
 If someone else saved these settings while you were editing, Tendo shows their settings and keeps nothing of yours; make your change again. When whoever runs Tendo has switched AI apps off on the server, the screen says so: no app can connect until it is switched on there, but you can still change these settings.
 
+**Recent changes**, under the settings, lists every change to AI apps, newest first: for everyone, for one account, or a person's own choice in their Account. Each change shows the setting as it was saved, who saved it and when; an account that has since been deleted is shown as a deleted account. **Show more** loads older changes. Your own saves appear there as soon as they are saved.
+
 ### One account's AI apps
 
 To set one account differently, open **Accounts** and choose **AI apps** on its row. The page shows **What apps can do now** for that account and **The person's own choice**, which only they can change in their Account; it can allow less than you do, never more. Under **Your choice for this account**:

@@ -26,6 +26,8 @@ function renderAt(routes: Parameters<typeof installFakeServer>[0], path = '/admi
     'GET /api/v1/session': json(200, viewer),
     [`GET ${base}`]: json(200, household),
     ...itemRoutes(base, []),
+    // The record of changes is InstallationAiAppsChanges.test.tsx's; here it is always empty.
+    'GET /api/v1/admin/mcp-policy-events': json(200, { items: [], nextCursor: null }),
     ...routes,
   });
   window.history.replaceState(null, '', path);

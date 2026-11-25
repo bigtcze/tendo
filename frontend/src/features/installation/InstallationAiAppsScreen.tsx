@@ -11,14 +11,16 @@ import { Notice } from '../../components/ui/notice';
 import { Switch } from '../../components/ui/switch';
 import { useI18n, type Translate } from '../../i18n';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
+import { AiAppsChanges, useAiAppsChanges } from './AiAppsChanges';
 import { AccessChoice, OutcomeHosts } from './AiAppsFields';
 import { InstallationOnlyAdmins } from './InstallationStates';
 import { useAiAppsSettings, type AiAppsSettingsState } from './useAiAppsSettings';
 
 /**
  * The installation's AI apps: whether apps may connect at all, whether accounts may use them unless an administrator
- * sets one account differently, and what they may do by default. Nothing here changes on screen before the server
- * agrees, and turning apps off pauses connected apps — it never disconnects them.
+ * sets one account differently, and what they may do by default, above the record of recent changes. Nothing here
+ * changes on screen before the server agrees, and turning apps off pauses connected apps — it never disconnects them.
+ * Either read refused for the grant takes the whole section with it.
  */
 export function InstallationAiAppsScreen({ login, onSignedOut, onForbidden, onOpenAccounts }: {
   login: string;
@@ -30,30 +32,50 @@ export function InstallationAiAppsScreen({ login, onSignedOut, onForbidden, onOp
   const { t } = useI18n();
   const forbiddenHeadingRef = useRef<HTMLHeadingElement>(null);
   const refusedRef = useRef(false);
-  const settings = useAiAppsSettings({
+  const [changesRefused, setChangesRefused] = useState(false);
+  // Both reads can be refused for the grant; the session is read again once, for whichever said so first.
+  const reportedRef = useRef(false);
+  const refuse = (duringAction: boolean) => {
+    refusedRef.current = refusedRef.current || duringAction;
+    if (reportedRef.current) return;
+    reportedRef.current = true;
+    onForbidden();
+  };
+  const settings = useAiAppsSettings({ onSignedOut, onForbidden: refuse });
+  const changes = useAiAppsChanges({
     onSignedOut,
-    onForbidden: (duringSave) => { refusedRef.current = duringSave; onForbidden(); },
+    onForbidden: (duringAction) => { setChangesRefused(true); refuse(duringAction); },
   });
+  const forbidden = settings.state === 'forbidden' || changesRefused;
 
-  // A save refused for the grant takes the form, and the focus it held, with it: the refusal's heading takes over.
+  // An action refused for the grant takes the section, and the focus it held, with it: the refusal's heading takes over.
   useEffect(() => {
-    if (settings.state !== 'forbidden' || !refusedRef.current) return;
+    if (!forbidden || !refusedRef.current) return;
     refusedRef.current = false;
     forbiddenHeadingRef.current?.focus();
-  }, [settings.state]);
+  }, [forbidden]);
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
       <Heading className="text-h1 font-semibold text-ink">{t('install.page.title')}</Heading>
       <AdminSectionSwitcher current="aiApps" />
-      {settings.state === 'forbidden'
+      {forbidden
         ? <InstallationOnlyAdmins t={t} headingRef={forbiddenHeadingRef} />
-        : <AiAppsSection settings={settings} onOpenAccounts={onOpenAccounts} t={t} />}
+        : <>
+          <AiAppsSection settings={settings} onSaved={changes.reload} onOpenAccounts={onOpenAccounts} t={t} />
+          <AiAppsChanges changes={changes} />
+        </>}
     </section>
   </Layout>;
 }
 
-function AiAppsSection({ settings, onOpenAccounts, t }: { settings: AiAppsSettingsState; onOpenAccounts: () => void; t: Translate }) {
+function AiAppsSection({ settings, onSaved, onOpenAccounts, t }: {
+  settings: AiAppsSettingsState;
+  /** The stored settings changed, by this save or by someone else's: the record of changes reads again. */
+  onSaved: () => void;
+  onOpenAccounts: () => void;
+  t: Translate;
+}) {
   return <section aria-labelledby="ai-apps-heading" className="mt-6 sm:mt-8">
     <h2 id="ai-apps-heading" className="text-h2 text-ink">{t('aiApps.title')}</h2>
     <p className="mt-1 max-w-prose text-body text-muted">{t('aiApps.body')}</p>
@@ -69,11 +91,11 @@ function AiAppsSection({ settings, onOpenAccounts, t }: { settings: AiAppsSettin
       ? <LoadError className="mt-6" message={t('aiApps.error.load')} retryLabel={t('app.error.retry')} onRetry={settings.retry} />
       : null}
     {settings.state === 'refused' ? <Notice tone="error" className="mt-6">{t('aiApps.error.loadRejected')}</Notice> : null}
-    {settings.state === 'ready' ? <AiAppsForm settings={settings} t={t} /> : null}
+    {settings.state === 'ready' ? <AiAppsForm settings={settings} onSaved={onSaved} t={t} /> : null}
   </section>;
 }
 
-function AiAppsForm({ settings, t }: { settings: AiAppsSettingsState; t: Translate }) {
+function AiAppsForm({ settings, onSaved, t }: { settings: AiAppsSettingsState; onSaved: () => void; t: Translate }) {
   const uid = useId();
   const firstAccessRef = useRef<HTMLInputElement>(null);
   const [refusals, setRefusals] = useState(0);
@@ -86,7 +108,9 @@ function AiAppsForm({ settings, t }: { settings: AiAppsSettingsState; t: Transla
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (await settings.save() === 'invalid') setRefusals((count) => count + 1);
+    const result = await settings.save();
+    if (result === 'invalid') setRefusals((count) => count + 1);
+    else if (result === 'saved' || result === 'stale') onSaved();
   }
 
   return <form aria-labelledby="ai-apps-heading" noValidate onSubmit={(event) => void submit(event)} className="mt-6 grid max-w-2xl gap-6">

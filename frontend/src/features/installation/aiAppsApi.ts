@@ -104,3 +104,25 @@ export function saveAccountAiApps(userId: string, update: AccountAiAppsUpdate, v
     true,
   ));
 }
+
+export type AiAppsChange = components['schemas']['McpPolicyEvent'];
+
+/** `forbidden` is only the installation grant; any other failure is worth a retry, and nothing else is refused here. */
+export type AiAppsChangesPage =
+  | { kind: 'ok'; items: AiAppsChange[]; nextCursor: string | null }
+  | { kind: 'unauthenticated' | 'forbidden' | 'unavailable' };
+
+const CHANGES_PAGE_SIZE = 20;
+
+/** One newest-first page of every change to AI apps: the installation's, one account's and people's own. */
+export async function listAiAppsChanges(cursor?: string): Promise<AiAppsChangesPage> {
+  try {
+    const { data, error, response } = await api.GET('/api/v1/admin/mcp-policy-events', {
+      params: { query: { limit: CHANGES_PAGE_SIZE, ...(cursor ? { cursor } : {}) } },
+    });
+    if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor ?? null };
+    const refused = refusal(response.status, error, false);
+    if (refused?.kind === 'unauthenticated' || refused?.kind === 'forbidden') return { kind: refused.kind };
+  } catch { /* the retryable unavailable state */ }
+  return { kind: 'unavailable' };
+}

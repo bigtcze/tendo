@@ -137,3 +137,18 @@ export async function pinMcpRequestExpiry(context: BrowserContext) {
     await route.fulfill({ response, json: { ...request, expiresAt: MCP_REQUEST_EXPIRES_AT } });
   });
 }
+
+// AI app changes are stamped with the server's wall clock as well. Pin `occurredAt` in real policy-change pages to
+// the suite's instant; ids, logins and every other field pass through, as do non-200 responses.
+const MCP_POLICY_CHANGED_AT = '2026-05-14T08:00:00Z';
+
+export async function pinMcpPolicyEventDates(context: BrowserContext) {
+  await context.route((url) => url.pathname === '/api/v1/admin/mcp-policy-events', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 200) return route.fulfill({ response });
+    const page = await response.json() as components['schemas']['McpPolicyEventList'];
+    const items = page.items.map((event) => ({ ...event, occurredAt: MCP_POLICY_CHANGED_AT }));
+    await route.fulfill({ response, json: { ...page, items } });
+  });
+}

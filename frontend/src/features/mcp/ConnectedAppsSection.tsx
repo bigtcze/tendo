@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { useAppendedRowFocus } from '../../app/useAppendedRowFocus';
 import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
 import { LoadError } from '../../components/ui/load-error';
@@ -84,6 +85,8 @@ export function ConnectedAppsList({ apps, listRef, disconnect, voice }: {
 }) {
   const { t } = useI18n();
   const retry = () => apps.retry();
+  const markMore = useAppendedRowFocus(listRef, apps.grants.length, apps.loadingMore);
+  const more = () => { markMore(apps.grants.length); void apps.loadMore(); };
   if (apps.state === 'error') {
     return <LoadError className="mt-4" message={t('connectedApps.error.load')} retryLabel={t('connectedApps.retry')} onRetry={retry} />;
   }
@@ -98,8 +101,8 @@ export function ConnectedAppsList({ apps, listRef, disconnect, voice }: {
         onDisconnect={disconnect.request}
       />)}
     </ul>
-    {apps.moreFailed ? <LoadError message={t('connectedApps.error.more')} retryLabel={t('connectedApps.retry')} onRetry={() => void apps.loadMore()} /> : null}
-    {apps.nextCursor ? <Button variant="secondary" disabled={apps.loadingMore} onClick={() => void apps.loadMore()}>
+    {apps.moreFailed ? <LoadError message={t('connectedApps.error.more')} retryLabel={t('connectedApps.retry')} onRetry={more} /> : null}
+    {apps.nextCursor ? <Button variant="secondary" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60" aria-disabled={apps.loadingMore} onClick={more}>
       {t('connectedApps.more')}
     </Button> : null}
   </div>;

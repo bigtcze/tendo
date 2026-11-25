@@ -1596,3 +1596,76 @@ only).
 ### Deviations and follow-ups (B4a3a)
 
 - The audit list screen is B4a3b.
+
+## Slice B4a3b: recent changes on AI apps
+
+Frontend only, on `listMcpPolicyEvents` as B4a3a left it. No API change.
+
+### Decisions (B4a3b)
+
+- **Recent changes** follows the form on `/admin/ai-apps`: one row per audit
+  event, newest first, 20 a page, **Show more** by cursor. Each row says who
+  the change was for (everyone, one account by its login, or a person's own
+  choice), what the setting became in the words the settings already use,
+  and who made it and when (medium date, short time, in the browser's zone).
+  A `null` login reads as "a deleted account". No ids, scope codes or
+  "policy" vocabulary are shown.
+- A row is the whole setting as it stood after the change, never a diff: the
+  audit row stores the result, not the fields that changed. An account row
+  with `null` terms reads "Same as other accounts".
+- States: a loading line, a plain empty sentence, a load error with retry for
+  503, network and any other refusal, and a failed **Show more** or re-read
+  that keeps the rows. 401 signs out. The calm 403
+  `instance_admin_required` replaces the whole section with the installation
+  refusal, as a refused settings read does; focus moves to its heading only
+  when the refusal followed an action (Show more, a retry or a re-read).
+- A save that stored something (200, or 200 without a version) and a save
+  that found someone else's change (412) both read the list again, since
+  each puts a new row on it. A refused or failed save does not.
+- The append-only paging state that Connected apps used is now one shared
+  hook, `useShowMoreList`; `useConnectedApps` keeps its behaviour and adds
+  only disconnect on top. `useVersionedForm`'s save now also reports `stale`.
+- A first page that settles invalidates any Show more still in flight: its
+  cursor came from the rows the new page replaced, and appending its page
+  would skip a row. A re-read after every save makes this race common here;
+  the shared hook fixes it for Connected apps too.
+- Show more stays focusable while its page loads (`aria-disabled`, one read
+  however often it is pressed). When the last page takes the button away,
+  focus moves to the first row that page added (for Connected apps, its
+  Disconnect button). Both lists share this.
+- Both reads on the screen can be refused for the grant on arrival; the
+  session is re-read once.
+
+### Tests (B4a3b)
+
+- Vitest, network boundary replaced: every row form in English (the
+  installation on and off, an account allowed, not allowed and following the
+  default, a person's own choice on and off, deleted actor and target), no
+  ids or codes in the list, first page with `limit=20` and no cursor, loading,
+  empty, Show more with the cursor, a failed Show more keeping the rows and
+  its retry, a 503 with retry while the form stays usable, a foreign 403 as a
+  retryable failure, the re-read after a save and after a 412, a failed
+  re-read keeping the rows, no re-read after a failed save, the calm 403 on
+  arrival without focus and after Show more or a re-read with focus, 401 on
+  arrival and on Show more, a 200 save without its version re-reading the
+  list, both reads refused re-reading the session once, Show more keeping
+  focus while loading and handing it to the first new row on the last page,
+  and Czech. The first 14 cases were written before the screen code and all
+  failed; the 412 case was added with it. Review cases: the focus cases and
+  the single session re-read failed before their fixes. A `renderHook` test
+  of `useShowMoreList` holds a reload and a Show more and settles them out of
+  order; it failed before the generation fix. The existing AI apps and
+  Connected apps tests pass unchanged apart from an empty list route.
+- Journey n33: after the real save, the newest row names the owner and says
+  read only, without a reload; axe passes with the list on screen; after the
+  save back, the newest row says read and change above the read-only one.
+- Visual: before the AI apps captures, two real API saves (read only, then
+  back) give the list two rows and leave the settings unchanged; their
+  `occurredAt` is pinned to the suite's instant like other wall-clock
+  timestamps. Every AI apps capture now waits for both rows.
+
+### Deviations and follow-ups (B4a3b)
+
+- The list is not filtered by level or account; an administrator reads one
+  installation-wide record, as the route returns it.
+- Account settings consent (B4b) and B5 follow.

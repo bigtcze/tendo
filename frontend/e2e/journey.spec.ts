@@ -7758,10 +7758,11 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
-  test('n33. the installation administrator changes the AI apps settings in the Admin center, and the change is stored and audited', async () => {
-    // V5-13 B4a1. Only the browser's part is checked here: the section, the screen, a real save with its version and
-    // a second save that puts the starting settings back. The refusals (stale version, missing version, foreign
-    // Origin, MCP bearer tokens) are the backend tests'. The owner set up the installation, so it holds the grant.
+  test('n33. the installation administrator changes the AI apps settings in the Admin center, and the change is stored, audited and listed', async () => {
+    // V5-13 B4a1 and B4a3b. Only the browser's part is checked here: the section, the screen, a real save with its
+    // version, the save on Recent changes, and a second save that puts the starting settings back. The refusals
+    // (stale version, missing version, foreign Origin, MCP bearer tokens) are the backend tests'. The owner set up
+    // the installation, so it holds the grant.
     test.setTimeout(60_000);
     const policyPath = '/api/v1/admin/mcp-policy';
     const stored = async () => {
@@ -7832,6 +7833,13 @@ test.describe('Tendo production journey', () => {
       policy: 'installation', actorUserId: viewerId, targetUserId: null,
       enabled: true, defaultAccountEnabled: true, scopes: ['tendo:read'],
     });
+    // B4a3b: the save is read back onto Recent changes without a reload, newest first and naming the owner.
+    const recent = page.getByRole('list', { name: en['aiApps.changes.title'], exact: true }).getByRole('listitem');
+    const readOnly = en['aiApps.changes.most'].replace('{access}', en['aiApps.changes.access.read']);
+    await expect(recent.first()).toContainText(en['aiApps.changes.everyone']);
+    await expect(recent.first()).toContainText(readOnly);
+    await expect(recent.first()).toContainText(en['aiApps.changes.by'].replace('{login}', ownerLogin).replace('{when}', ''));
+    await expectNoAxeViolations(page, 'admin-ai-apps-changes');
 
     // A reload shows what is stored, and putting change back restores the starting settings for every later step.
     await page.reload();
@@ -7840,6 +7848,8 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
     await expect(page.getByText(en['aiApps.notice.saved'], { exact: true })).toBeVisible();
     expect((await stored()).body).toEqual(before.body);
+    await expect(recent.first()).toContainText(en['aiApps.changes.most'].replace('{access}', en['aiApps.changes.access.both']));
+    await expect(recent.nth(1)).toContainText(readOnly);
   }
 
   test('n33b. the installation administrator sets one account’s AI apps from its row in Accounts, and the change is stored and audited', async () => {
