@@ -114,8 +114,12 @@ describe('account page is a stack of flat sections', () => {
     }
   });
 
-  it('mounts connected apps after the household stack, as the last section of the page', async () => {
+  it('mounts AI apps and then connected apps after the household stack, as the last sections of the page', async () => {
     installFakeServer(signedInRoutes({
+      'GET /api/v1/mcp/settings': json(200, {
+        enabled: true, scopes: ['tendo:read', 'tendo:write'], maximumScopes: ['tendo:read', 'tendo:write'],
+        effectiveScopes: ['tendo:read', 'tendo:write'],
+      }, { ETag: '"1"' }),
       'GET /api/v1/mcp/grants': json(200, {
         items: [{
           id: '0198a2f0-0000-7000-8000-00000000000a',
@@ -135,9 +139,13 @@ describe('account page is a stack of flat sections', () => {
     if (!section) throw new Error('connected apps section missing');
     const householdSection = (await screen.findByRole('heading', { level: 2, name: 'Household' })).closest('section');
     if (!householdSection) throw new Error('household section missing');
-    // Household is the last section of the spaced stack; connected apps follows that stack as the page's final section.
+    const aiApps = (await screen.findByRole('heading', { level: 2, name: 'AI apps' })).closest('section');
+    if (!aiApps) throw new Error('AI apps section missing');
+    // Household is the last section of the spaced stack; AI apps follows it, and connected apps closes the page.
     expect(householdSection.parentElement?.lastElementChild).toBe(householdSection);
-    expect(householdSection.parentElement?.nextElementSibling).toBe(section);
+    expect(householdSection.parentElement?.nextElementSibling).toBe(aiApps);
+    expect(aiApps.nextElementSibling).toBe(section);
+    expect(aiApps.classList.contains('border-t'), 'AI apps separated by the shared top rule').toBe(true);
     expect(section.classList.contains('border-t'), 'separated by the shared top rule').toBe(true);
   });
 

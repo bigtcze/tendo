@@ -95,6 +95,8 @@ async function assertAccountSettled(page: Page, locale: 'en' | 'cs', activeLangu
   const language = main.getByRole('group', { name: catalog['language.label'] });
   await expect(language.getByRole('button', { name: activeLanguage === 'cs' ? 'Čeština' : 'English' })).toHaveAttribute('aria-pressed', 'true');
   await assertSegmentedLayout(language, 2);
+  // MCP is on in the visual run, so the own AI apps section reads and shows before the page is settled.
+  await expect(main.locator('[data-own-ai-apps-now]')).toHaveText(catalog['accountAiApps.now.both']);
 }
 
 async function assertMembersSettled(page: Page, locale: 'en' | 'cs') {

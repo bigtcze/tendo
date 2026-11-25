@@ -1753,3 +1753,65 @@ Account.
   is the administrator. Point to Account there.
 - B4b2 (own settings on Account) and B5 follow.
 
+## Slice B4b2: the person's own AI app settings on Account
+
+### Decisions (B4b2)
+
+- No API change: Account reads and saves the existing
+  `GET`/`PUT /api/v1/mcp/settings` (own switch and scopes, `maximumScopes`,
+  `effectiveScopes`, ETag version, `If-Match` and canonical `Origin` on PUT).
+- An **AI apps** section sits after the household stack and before
+  **Connected apps**. It shows what apps may do now (`effectiveScopes` in
+  words), the own switch (pauses, never disconnects) and the read / change
+  choice, saved whole with the version read, like the administrator forms
+  (`useVersionedForm`).
+- Shown only when it applies: when `maximumScopes` is non-empty, or the own
+  settings differ from the default (on, read and change), or the read failed.
+  Installations that never allow AI apps see no change unless the read
+  fails, which shows the section with its error. Once shown, it stays for the
+  visit, so a save never removes the form under the reader; a retry shows a
+  loading line in it.
+- The own choice can only narrow. An option the administrator does not allow
+  stays a choice and carries one line saying so; with nothing allowed, one
+  notice says the choice waits instead of a line under each option.
+- Saves: 412 reads again and says the settings changed elsewhere; 422 and an
+  empty choice (refused locally, no request) mark the field and move focus
+  to it; 429 says nothing changed and to try in a minute (`rateLimited`, new
+  in the shared save answer, with its own message where a form names one);
+  503 or no answer is the retryable message; 401 hands over to sign-in. A
+  403, a 428 (not sent without a version) and any other 4xx show the refusal
+  message, since no grant gates this resource. The administrator forms name
+  no `rateLimited` message and keep saying their refusal for a 429.
+- `SettingSwitch` moves to the shared AI apps fields; `AccessChoice` gains
+  optional per-option `notes`.
+- The blocked consent hint now says the administrator decides and, if the
+  person limited their own AI apps, to change that under AI apps in Your
+  account (B4b1 follow-up). It sends nobody to Account unconditionally, since
+  a person who never narrowed sees no section there while nothing is allowed.
+- The waiting notice says the choice applies once the administrator allows AI
+  apps; when the maximum is empty because of the server configuration or the
+  installation switch, the administrator is still who the person asks.
+
+### Tests (B4b2)
+
+- Vitest: hidden when nothing is allowed and the choice is the default;
+  the facts and choice in plain words with no protocol terms; the note on an
+  option the administrator withholds; the waiting notice; a save with
+  `If-Match` and the next save naming the answered version; staying shown
+  after a save; the empty choice refused locally with focus; 412, 429, 503,
+  422 (with focus), 403 and 401 on save; 401 and 403 on read; one request for
+  a double submit; load retry; Czech; the relevance rule as a table; and the
+  section order on Account. Removing the stickiness, the hide rule or the 429
+  mapping each fails a test.
+- Journey n33e: the owner unchecks change, saves, sees read only, axe
+  passes, the stored value and the version are checked, and the default is
+  put back from the same form (and through the API if the step fails).
+- Visual: the Account baselines now include the section, since the visual
+  run has MCP on.
+
+### Deviations and follow-ups (B4b2)
+
+- The section is not shown on Account for an account AI apps are not allowed
+  for, unless it narrowed its own choice; the blocked card's hint is
+  conditional for that reason.
+- B5 (live smoke, journey and DONE evidence) follows.

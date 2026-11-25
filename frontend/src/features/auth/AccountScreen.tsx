@@ -4,6 +4,7 @@ import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { useI18n } from '../../i18n';
 import { ConnectedAppsSection } from '../mcp/ConnectedAppsSection';
+import { OwnAiAppsSection } from '../mcp/OwnAiAppsSection';
 import { AccountAdminLink } from './AccountAdminLink';
 import { AccountHouseholdSection } from './AccountHouseholdSection';
 import { AccountPasswordSection } from './AccountPasswordSection';
@@ -14,7 +15,7 @@ import type { Session } from './sessionApi';
  * Account is a stack of flat settings sections separated by a top rule, matching Members and People. The header
  * already shows the account's initial, so the identity section states the login alone. The password section follows
  * the sign-in it belongs to, before the administrative settings; the household membership and display choices come
- * last, quiet and out of the way.
+ * after, quiet and out of the way. AI apps and the connected apps close the page, and only show once they apply.
  */
 export function AccountScreen({ session, onSessionChanged, onSignedOut, onSelfLeft }: {
   session: Session;
@@ -45,6 +46,7 @@ export function AccountScreen({ session, onSessionChanged, onSignedOut, onSelfLe
           <AccountPreferences />
           <AccountHouseholdSection session={session} onSignedOut={onSignedOut} onSelfLeft={onSelfLeft} />
         </div>
+        <OwnAiAppsSection onSignedOut={onSignedOut} />
         <ConnectedAppsSection onSignedOut={onSignedOut} pageHeadingRef={pageHeadingRef} />
       </section>
     </Layout>
