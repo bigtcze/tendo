@@ -5,7 +5,7 @@ import { NavLink } from '../../app/NavLink';
 import { ADMIN_ACCOUNTS_PATH, ADMIN_AI_APPS_PATH, ADMIN_HOUSEHOLDS_PATH, ADMIN_PATH } from '../../app/routes';
 import { useI18n, type MessageKey } from '../../i18n';
 
-const LINK = 'flex min-h-11 items-center border-b-2 px-1 text-small transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+const LINK = 'flex min-h-11 min-w-11 items-center justify-center border-b-2 px-1 text-small transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 const CURRENT = `${LINK} border-accent font-semibold text-ink`;
 const QUIET = `${LINK} border-transparent text-muted hover:text-ink`;
 

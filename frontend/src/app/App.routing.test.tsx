@@ -239,6 +239,18 @@ describe('App route characterization', () => {
       .getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')).toHaveLength(1);
   });
 
+  it.each([['/members', 'true'], ['/items?status=archived', 'true'], ['/', null], ['/account', null]])(
+    'marks the phone More button current only when %s lives in its sheet', async (path, current) => {
+      window.history.replaceState(null, '', path);
+      installFakeServer(signedInRoutes());
+      renderApp();
+      const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
+      await waitFor(() => expect(within(navigation).getAllByRole('link').some((link) => link.getAttribute('aria-current') === 'page')).toBe(true));
+      const more = within(navigation).getByRole('button', { name: 'More' });
+      if (current) expect(more).toHaveAttribute('aria-current', current);
+      else expect(more).not.toHaveAttribute('aria-current');
+    });
+
   it('late 401 cannot navigate away from a later signed-out invite visit', async () => {
     let releaseSubject!: (response: Response) => void;
     let releaseHistory!: (response: Response) => void;
