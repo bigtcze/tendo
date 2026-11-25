@@ -8202,6 +8202,149 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  test('n33f. 13. an MCP client completes and undoes a repeating item, and item detail shows the same dates and history as a Done in the app', async () => {
+    // V5-13 B5, TESTING journey 13. The item is n30's fixed monthly case anchored on the 31st, completed early today:
+    // MCP Done gives the clamped 28 February, a Done in the app then restores the 31st, an MCP Undo of that app
+    // completion returns to February, and an MCP Done again gives 31 March. Both paths write the same receipts and the
+    // detail screen draws them the same way. The golden table at every layer, the tool refusals and the
+    // administrator's controls are the PostgreSQL tests' and the deployment MCP smoke's. Budgets: 1 registration, 1
+    // authorization, 1 decision, 1 token call and 6 tool calls, far under their per-minute limits.
+    test.setTimeout(90_000);
+    const redirect = 'http://127.0.0.1:9/callback';
+    const title = 'Rotate the cellar stock';
+    const viewer = await (await page.request.get('/api/v1/session')).json() as { userId: string };
+    const grantsPath = `/api/v1/admin/accounts/${viewer.userId}/mcp-grants`;
+    const medium = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
+      .format(new Date(`${value}T00:00:00Z`)).replace(/\s/g, '\u00a0');
+    const historyRow = (doneKey: 'itemDetail.historyDone' | 'itemDetail.historyUndone', done: string, planned: string, next: string) => new RegExp(
+      `^${escapeRegExp(en[doneKey].replace('{date}', medium(done)))}\\s*`
+      + `${escapeRegExp(en['itemDetail.historyPlanned'].replace('{date}', medium(planned)))}\\s*`
+      + `${escapeRegExp(en['itemDetail.historyNext'].replace('{date}', medium(next)))}$`,
+    );
+    const main = page.getByRole('main');
+    const attentionFact = (value: string) => expect(page.locator('[data-item-fact="attention"] dd')).toHaveText(medium(value));
+    const historyRows = main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true })
+      .locator('xpath=ancestor::section[1]').getByRole('listitem');
+    const client = await request.newContext({ baseURL });
+    let itemId = '';
+    // By id, not by title on the first page of the active list, which this late in the journey holds many items.
+    const itemById = async () => {
+      const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+      expect(response.status()).toBe(200);
+      return await response.json() as ServerItem;
+    };
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      const registered = await client.post('/oauth/register', { data: { redirect_uris: [redirect], client_name: 'Journey task client' } });
+      expect(registered.status()).toBe(201);
+      const clientId = (await registered.json() as { client_id: string }).client_id;
+      const verifier = randomBytes(32).toString('base64url');
+      const query = new URLSearchParams({
+        response_type: 'code', client_id: clientId, redirect_uri: redirect, resource: `${baseURL}/mcp`,
+        code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+      });
+      const authorized = await page.request.get(`/oauth/authorize?${query}`, { maxRedirects: 0 });
+      expect(authorized.status()).toBe(303);
+      const handle = (authorized.headers()['location'] ?? '').replace(/^\/connect#request=/, '');
+      const decided = await page.request.post(`/api/v1/mcp/authorization-requests/${handle}/decision`, {
+        headers: { Origin: baseURL }, data: { decision: 'approve' },
+      });
+      expect(decided.status(), 'the owner approves').toBe(200);
+      const code = new URL((await decided.json() as { redirectTo: string }).redirectTo).searchParams.get('code') ?? '';
+      const exchanged = await client.post('/oauth/token', { form: {
+        grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: verifier,
+      } });
+      expect(exchanged.status()).toBe(200);
+      const token = (await exchanged.json() as { access_token: string; scope: string });
+      expect(token.scope).toBe('tendo:read tendo:write');
+      /** One tools/call by the MCP client; a tool error fails the step with its text. */
+      const callTool = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
+        const response = await client.post('/mcp', {
+          headers: { Authorization: `Bearer ${token.access_token}`, Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', 'MCP-Protocol-Version': '2025-11-25' },
+          data: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+        });
+        expect(response.status(), name).toBe(200);
+        const result = (await response.json() as { result: { isError?: boolean; content: Array<{ text: string }>; structuredContent: T } }).result;
+        expect(result.isError ?? false, `${name}: ${result.content[0]?.text}`).toBe(false);
+        return result.structuredContent;
+      };
+      type ToolCompletion = { completion: { id: string; completedOn: string; cycleAttentionOn: string; nextAttentionOn: string }; itemVersion: number };
+
+      const subjects = await callTool<{ subjects: Array<{ id: string; name: string }> }>('list_subjects', { householdId });
+      const subjectId = subjects.subjects.find((subject) => subject.name === 'Anička')?.id;
+      expect(subjectId, 'the person from onboarding').toBeDefined();
+      const created = await callTool<{ id: string; version: number }>('create_item', {
+        householdId, subjectId, title, attentionOn: '2026-01-31', idempotencyKey: 'journey-13-item',
+        recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' },
+      });
+      itemId = created.id;
+
+      // 1. MCP Done today, early: the clamped February occurrence, on the server and on the detail screen.
+      const first = await callTool<ToolCompletion>('complete_item', { householdId, itemId, version: created.version, idempotencyKey: 'journey-13-done-1' });
+      expect(first.completion).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-01-31', nextAttentionOn: '2026-02-28' });
+      expect(await itemById()).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      await page.goto(`/items/${itemId}`);
+      await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      await attentionFact('2026-02-28');
+      await expect(historyRows).toHaveCount(1);
+      await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-01-31', '2026-02-28'));
+
+      // 2. Done in the app continues the same cadence: the 31st is restored, exactly as after two app completions.
+      await main.getByRole('button', { name: en['items.done.label'].replace('{title}', title), exact: true }).click();
+      await expect(main.getByRole('status').filter({ hasText: title })).toHaveText(
+        en['items.notice.doneNext'].replace('{title}', title).replace('{date}', medium('2026-03-31')));
+      await attentionFact('2026-03-31');
+      await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(2);
+      const appReceipt = (await serverCompletions(itemId))[1]!;
+      expect(appReceipt).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: null });
+      await expect(historyRows).toHaveCount(2);
+      await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+
+      // 3. MCP Undo of the app's completion: February again, and the detail screen marks that receipt undone.
+      const read = await callTool<{ version: number; attentionOn: string }>('get_item', { householdId, itemId });
+      expect(read.attentionOn).toBe('2026-03-31');
+      const undone = await callTool<{ item: { attentionOn: string; version: number } }>('undo_completion', {
+        householdId, itemId, completionId: appReceipt.id, version: read.version,
+      });
+      expect(undone.item.attentionOn).toBe('2026-02-28');
+      expect(await itemById()).toMatchObject({ attentionOn: '2026-02-28', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      await page.reload();
+      await attentionFact('2026-02-28');
+      await expect(historyRows).toHaveCount(2);
+      await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyUndone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+      await expect(historyRows.nth(1)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-01-31', '2026-02-28'));
+
+      // 4. MCP Done again: no drift, the same restored 31 March, and a fresh receipt rather than the undone one.
+      const again = await callTool<ToolCompletion>('complete_item', { householdId, itemId, version: undone.item.version, idempotencyKey: 'journey-13-done-2' });
+      expect(again.completion).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31' });
+      expect(again.completion.id).not.toBe(appReceipt.id);
+      expect(await itemById()).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+      await page.reload();
+      await attentionFact('2026-03-31');
+      await expect(historyRows).toHaveCount(3);
+      await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+      await expect(historyRows.nth(1)).toHaveText(historyRow('itemDetail.historyUndone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+      await expect(historyRows.nth(2)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-01-31', '2026-02-28'));
+      await expectNoAxeViolations(page, 'item-detail-mcp-history');
+    } catch (error) { primaryFailure = error; }
+    // Later steps read the first page of active items and expect no connected app, so both are put back whatever failed.
+    if (itemId) {
+      try {
+        const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+        const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemId}`, { headers: { Origin: baseURL, 'If-Match': response.headers()['etag'] ?? '' }, data: { archived: true } });
+        if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive item ${itemId}: ${archived.status()}`);
+      } catch (error) { cleanupFailure ??= error; }
+    }
+    try {
+      const left = await page.request.delete(grantsPath, { headers: { Origin: baseURL } });
+      if (left.status() !== 204) cleanupFailure ??= new Error(`Could not clear the owner’s apps: ${left.status()}`);
+    } catch (error) { cleanupFailure ??= error; }
+    await client.dispose().catch((error: unknown) => { cleanupFailure ??= error; });
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
