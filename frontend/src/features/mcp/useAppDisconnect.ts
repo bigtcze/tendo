@@ -3,8 +3,8 @@ import type { MessageKey } from '../../i18n';
 import type { McpGrant } from './mcpGrantsApi';
 import type { ConnectedApps, DisconnectOutcome } from './useConnectedApps';
 
-/** A refusal that keeps the dialog open so the person can try again or cancel. */
-export type DialogError = 'rateLimited' | 'unavailable';
+/** A refusal that keeps the dialog open so the person can try again or cancel; `rejected` changed nothing. */
+export type DialogError = 'rateLimited' | 'unavailable' | 'rejected';
 
 export type AppNotice = { key: MessageKey; client: string };
 
@@ -72,7 +72,8 @@ export function useAppDisconnect(apps: Pick<ConnectedApps, 'grants' | 'disconnec
       setPending(null);
       return;
     }
-    if (outcome === 'signedOut') { setPending(null); return; }
+    // Both end the list's own work: the screen signs out, or says the installation grant is gone.
+    if (outcome === 'signedOut' || outcome === 'forbidden') { setPending(null); return; }
     setDialogError(outcome);
   }
 
@@ -99,6 +100,12 @@ export function useAppDisconnect(apps: Pick<ConnectedApps, 'grants' | 'disconnec
   return {
     pending, busy, dialogError, notice, triggerRef, takeFocusPlan,
     request, cancel, confirm: () => { void confirm(); },
+    /** Says an outcome the list reached some other way, such as disconnecting every app at once; null clears it. */
+    announce: (next: AppNotice | null) => {
+      if (next) { showNotice(next); return; }
+      clearNoticeTimer();
+      setNotice(null);
+    },
   };
 }
 

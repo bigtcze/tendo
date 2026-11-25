@@ -3,14 +3,21 @@ import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
 import { LoadError } from '../../components/ui/load-error';
 import { Notice, NoticeRegion } from '../../components/ui/notice';
-import { useI18n } from '../../i18n';
+import { useI18n, type MessageKey } from '../../i18n';
 import { cn } from '../../lib/cn';
-import { ConnectedAppRow } from './ConnectedAppRow';
-import type { McpGrant } from './mcpGrantsApi';
-import { useAppDisconnect, type AppDisconnect, type FocusPlan } from './useAppDisconnect';
+import { ConnectedAppRow, OWN_VOICE, type ConnectedAppsVoice } from './ConnectedAppRow';
+import { ownGrants, type McpGrant } from './mcpGrantsApi';
+import { useAppDisconnect, type AppDisconnect, type DialogError, type FocusPlan } from './useAppDisconnect';
 import { useConnectedApps, type ConnectedApps } from './useConnectedApps';
 
 const HEADING_ID = 'account-connected-apps-heading';
+
+/** What a refusal that kept the dialog open says; only an administrator's disconnect is ever `rejected`. */
+export const DIALOG_ERRORS: Record<DialogError, MessageKey> = {
+  rateLimited: 'connectedApps.error.rateLimited',
+  unavailable: 'connectedApps.error.action',
+  rejected: 'connectedApps.error.rejected',
+};
 
 /**
  * Moves focus after a removal: the row that took the removed row's place, else the row above it, else the section
@@ -33,7 +40,7 @@ export function ConnectedAppsSection({ onSignedOut, pageHeadingRef }: {
   pageHeadingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const { t } = useI18n();
-  const apps = useConnectedApps(onSignedOut);
+  const apps = useConnectedApps(ownGrants, { onSignedOut });
   const disconnect = useAppDisconnect(apps);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -51,13 +58,13 @@ export function ConnectedAppsSection({ onSignedOut, pageHeadingRef }: {
       <p className="mt-1 max-w-prose text-small text-muted">{t('connectedApps.body')}</p>
     </> : null}
     <NoticeRegion className="mt-4 empty:mt-0 [overflow-wrap:anywhere]" message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client }) : ''} />
-    {visible ? <ConnectedAppsList apps={apps} listRef={listRef} disconnect={disconnect} /> : null}
-    <DisconnectDialog disconnect={disconnect} />
+    {visible ? <ConnectedAppsList apps={apps} listRef={listRef} disconnect={disconnect} voice={OWN_VOICE} /> : null}
+    <DisconnectDialog disconnect={disconnect} voice={OWN_VOICE} />
   </section>;
 }
 
 /** Keeps the focus rule in one place: runs once the dialog has closed and the removed row has left the list. */
-function useFocusAfterRemoval(grants: McpGrant[], disconnect: AppDisconnect, listRef: RefObject<HTMLUListElement | null>, fallbacks: RefObject<HTMLElement | null>[]) {
+export function useFocusAfterRemoval(grants: McpGrant[], disconnect: AppDisconnect, listRef: RefObject<HTMLUListElement | null>, fallbacks: RefObject<HTMLElement | null>[]) {
   const { pending, takeFocusPlan } = disconnect;
   const fallbackRefs = useRef(fallbacks);
   useEffect(() => {
@@ -69,10 +76,11 @@ function useFocusAfterRemoval(grants: McpGrant[], disconnect: AppDisconnect, lis
 }
 
 /** The row list and its inline errors. Show more and retries live here; the section's notice does not depend on them. */
-function ConnectedAppsList({ apps, listRef, disconnect }: {
+export function ConnectedAppsList({ apps, listRef, disconnect, voice }: {
   apps: ConnectedApps;
   listRef: RefObject<HTMLUListElement | null>;
   disconnect: AppDisconnect;
+  voice: ConnectedAppsVoice;
 }) {
   const { t } = useI18n();
   const retry = () => apps.retry();
@@ -86,6 +94,7 @@ function ConnectedAppsList({ apps, listRef, disconnect }: {
         key={grant.id}
         grant={grant}
         busy={disconnect.busy && disconnect.pending?.id === grant.id}
+        voice={voice}
         onDisconnect={disconnect.request}
       />)}
     </ul>
@@ -97,7 +106,7 @@ function ConnectedAppsList({ apps, listRef, disconnect }: {
 }
 
 /** Asks before an app loses access. Its refusals stay in the dialog, and the confirm control is disabled only while in flight. */
-function DisconnectDialog({ disconnect }: { disconnect: AppDisconnect }) {
+export function DisconnectDialog({ disconnect, voice }: { disconnect: AppDisconnect; voice: ConnectedAppsVoice }) {
   const { t } = useI18n();
   const { pending, busy, dialogError, triggerRef, cancel, confirm } = disconnect;
   const client = pending?.clientName ?? '';
@@ -109,9 +118,9 @@ function DisconnectDialog({ disconnect }: { disconnect: AppDisconnect }) {
     triggerRef={triggerRef}
   >
     <div className="space-y-4">
-      <p className="max-w-prose text-body text-ink [overflow-wrap:anywhere]">{t('connectedApps.dialog.body', { client })}</p>
+      <p className="max-w-prose text-body text-ink [overflow-wrap:anywhere]">{t(voice.dialogBody, { client })}</p>
       {dialogError ? <Notice tone="error">
-        {t(dialogError === 'rateLimited' ? 'connectedApps.error.rateLimited' : 'connectedApps.error.action')}
+        {t(DIALOG_ERRORS[dialogError])}
       </Notice> : null}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="quiet" disabled={busy} onClick={cancel}>{t('admin.action.cancel')}</Button>

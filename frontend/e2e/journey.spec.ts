@@ -7939,6 +7939,102 @@ test.describe('Tendo production journey', () => {
     await expect(page).toHaveURL(/\/admin\/accounts$/);
   }
 
+  test('n33c. the installation administrator disconnects one account’s apps from its AI apps page, and their tokens stop working', async () => {
+    // V5-13 B4a2b. The browser's part only: two real grants for the owner, one disconnected from its row and the other
+    // by Disconnect all, each after its dialog, each ending that app's token. That each revocation is audited once with
+    // reason admin, and the refusals (foreign Origin, another account's grant, members, MCP bearer tokens), are
+    // setup-smoke's and the backend tests'. Budgets: 1 registration, 2 authorizations, 2 decisions, 2 token calls and
+    // 2 revocations, far under their per-minute limits; n32 left no grant behind.
+    test.setTimeout(90_000);
+    const redirect = 'http://127.0.0.1:9/callback';
+    const viewer = await (await page.request.get('/api/v1/session')).json() as { userId: string; login: string };
+    const grantsPath = `/api/v1/admin/accounts/${viewer.userId}/mcp-grants`;
+    const serverGrants = async () => {
+      const response = await page.request.get(grantsPath);
+      expect(response.status()).toBe(200);
+      return (await response.json() as { items: Array<{ id: string; clientName: string }> }).items;
+    };
+    expect(await serverGrants(), 'n32 left no connected app').toEqual([]);
+    const client = await request.newContext({ baseURL });
+    try {
+      const registered = await client.post('/oauth/register', { data: { redirect_uris: [redirect], client_name: 'Journey admin client' } });
+      expect(registered.status()).toBe(201);
+      const clientId = (await registered.json() as { client_id: string }).client_id;
+      /** One approved consent in the owner's own browser session, exchanged by the client for its access token. */
+      const connect = async () => {
+        const verifier = randomBytes(32).toString('base64url');
+        const query = new URLSearchParams({
+          response_type: 'code', client_id: clientId, redirect_uri: redirect, resource: `${baseURL}/mcp`,
+          code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+        });
+        const authorized = await page.request.get(`/oauth/authorize?${query}`, { maxRedirects: 0 });
+        expect(authorized.status()).toBe(303);
+        const handle = (authorized.headers()['location'] ?? '').replace(/^\/connect#request=/, '');
+        const decided = await page.request.post(`/api/v1/mcp/authorization-requests/${handle}/decision`, {
+          headers: { Origin: baseURL }, data: { decision: 'approve' },
+        });
+        expect(decided.status(), 'the owner approves').toBe(200);
+        const code = new URL((await decided.json() as { redirectTo: string }).redirectTo).searchParams.get('code') ?? '';
+        const exchanged = await client.post('/oauth/token', { form: {
+          grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: verifier,
+        } });
+        expect(exchanged.status()).toBe(200);
+        return (await exchanged.json() as { access_token: string }).access_token;
+      };
+      const works = async (token: string) => (await client.post('/mcp', {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', 'MCP-Protocol-Version': '2025-11-25' },
+        data: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+      })).status();
+      const first = await connect();
+      const second = await connect();
+      expect(await works(first)).toBe(200);
+      expect(await works(second)).toBe(200);
+      const [newer, older] = await serverGrants();
+      expect(older, 'two grants, newest first').toBeDefined();
+
+      await page.goto(`/admin/accounts/${viewer.userId}/ai-apps`);
+      const section = page.getByRole('region', { name: en['connectedApps.title'], exact: true });
+      const rows = section.locator('li[data-grant-id]');
+      await expect(rows).toHaveCount(2);
+      await expect(rows.first()).toHaveAttribute('data-grant-id', newer!.id);
+      await expect(rows.first()).toContainText(en['connectedApps.access.write']);
+      await expectNoAxeViolations(page, 'admin-account-connected-apps');
+
+      // One app from its row: nothing is removed before the confirmation, and the 204 ends that app's token only.
+      const label = en['connectedApps.disconnectLabel'].replace('{client}', 'Journey admin client');
+      await rows.first().getByRole('button', { name: label, exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: en['connectedApps.dialog.title'].replace('{client}', 'Journey admin client'), exact: true });
+      await expect(dialog).toBeVisible();
+      expect(await serverGrants(), 'nothing is removed before the confirmation').toHaveLength(2);
+      const removal = page.waitForResponse((response) => response.request().method() === 'DELETE' && new URL(response.url()).pathname === `${grantsPath}/${newer!.id}`);
+      await dialog.getByRole('button', { name: en['connectedApps.dialog.confirm'], exact: true }).click();
+      expect((await removal).status()).toBe(204);
+      await expect(page.getByText(en['connectedApps.notice.disconnected'].replace('{client}', 'Journey admin client'), { exact: true })).toBeVisible();
+      await expect(rows).toHaveCount(1);
+      expect((await serverGrants()).map((grant) => grant.id)).toEqual([older!.id]);
+      expect(await works(second), 'the disconnected app’s token no longer works').toBe(401);
+      expect(await works(first), 'the other app keeps working').toBe(200);
+
+      // Every remaining app at once, after its own dialog.
+      await section.getByRole('button', { name: en['accountApps.all.open'], exact: true }).click();
+      const all = page.getByRole('dialog', { name: en['accountApps.all.title'], exact: true });
+      await expect(all).toBeVisible();
+      const cleared = page.waitForResponse((response) => response.request().method() === 'DELETE' && new URL(response.url()).pathname === grantsPath);
+      await all.getByRole('button', { name: en['accountApps.all.confirm'], exact: true }).click();
+      expect((await cleared).status()).toBe(204);
+      await expect(page.getByText(en['accountApps.notice.allDisconnected'], { exact: true })).toBeVisible();
+      await expect(section.getByText(en['accountApps.empty'], { exact: true })).toBeVisible();
+      await expect(rows).toHaveCount(0);
+      expect(await serverGrants()).toEqual([]);
+      expect(await works(first), 'Disconnect all ends the last token too').toBe(401);
+    } finally {
+      // A failure above must not leave a live grant for later steps or projects.
+      const left = await page.request.delete(grantsPath, { headers: { Origin: baseURL } });
+      await client.dispose();
+      expect(left.status(), 'the owner’s apps are cleared').toBe(204);
+    }
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");

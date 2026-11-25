@@ -106,6 +106,8 @@ To set one account differently, open **Accounts** and choose **AI apps** on its 
 
 Nothing changes until you select **Save**. If someone else, including the person themselves, changed the account's AI apps while you were editing, Tendo shows them as they are now and keeps nothing of yours; make your change again. Each app still does only what the person approved for it.
 
+**Connected apps** on the same page lists the apps the person has connected, newest first, with when each was connected, what it may do and when its access ends at the latest. **Disconnect** on a row ends that app's access right away, after you confirm; **Disconnect all** does the same for every app of the account at once. Nothing is disconnected until you confirm. A disconnected app has to be connected again by the person to work with Tendo; to keep them from doing that, choose **Not allowed** under **AI apps for this account**. If an app was already disconnected, Tendo says so and refreshes the list.
+
 ## Delete an account (installation administrators)
 
 **Accounts** lists every account in Tendo, including people who belong to no household; search by login to find one.

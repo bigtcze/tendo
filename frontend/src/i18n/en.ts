@@ -781,6 +781,7 @@ export const en = {
   'connectedApps.error.more': 'More apps couldn’t be loaded. Try again.',
   'connectedApps.error.rateLimited': 'Too many disconnects just now. Try again in a minute.',
   'connectedApps.error.action': 'That didn’t work. Check your connection and try again.',
+  'connectedApps.error.rejected': 'That couldn’t be done, and nothing was changed.',
   'connectedApps.retry': 'Try again',
   'connectedApps.more': 'Show more',
   'aiApps.title': 'AI apps',
@@ -846,6 +847,17 @@ export const en = {
   'accountAiApps.max.refused': 'That choice couldn’t be saved. Choose another one.',
   'accountAiApps.notice.saved': 'This account’s AI apps were saved.',
   'accountAiApps.notice.stale': 'Someone else changed this account’s AI apps in the meantime. They are shown as they are now; make your change again.',
+  'accountApps.body': 'Apps this person connected to Tendo. Each one can use their households until it is disconnected.',
+  'accountApps.loading': 'Loading this account’s connected apps…',
+  'accountApps.empty': 'This account has no connected apps.',
+  'accountApps.access.read': 'Read only: can see the account’s households, items and people.',
+  'accountApps.dialog.body': '{client} loses access to this account right away. To use it again, the person will have to connect it again.',
+  'accountApps.all.open': 'Disconnect all',
+  'accountApps.all.title': 'Disconnect all of this account’s apps?',
+  'accountApps.all.body': 'Every app connected to this account loses access right away. To use one again, the person will have to connect it again.',
+  'accountApps.all.again': 'To keep apps from being connected again, choose Not allowed under AI apps for this account.',
+  'accountApps.all.confirm': 'Disconnect all',
+  'accountApps.notice.allDisconnected': 'All of this account’s apps were disconnected.',
 } as const;
 
 export type MessageKey = keyof typeof en;

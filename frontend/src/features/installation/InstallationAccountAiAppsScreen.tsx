@@ -12,6 +12,7 @@ import { useI18n, type MessageKey, type Translate } from '../../i18n';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
 import type { AccountAiApps } from './aiAppsApi';
 import { ChoiceOption, OutcomeHosts } from './AiAppsFields';
+import { AccountConnectedApps } from './AccountConnectedApps';
 import { BACK_LINK, InstallationOnlyAdmins } from './InstallationStates';
 import {
   accessWord, useAccountAiApps, type AccountAiAppsState, type AccountMaximum, type AccountSwitch,
@@ -57,7 +58,10 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
   // Focus after a refusal comes from useRefusalFocus, which also covers the account being gone, so the hook's
   // during-save flag is not needed here.
   const account = useAccountAiApps({ userId, onSignedOut, onForbidden: () => onForbidden() });
-  useRefusalFocus(account.state, refusalHeadingRef);
+  // The connected apps read on their own and can be the first to find the grant or the account gone.
+  const [lost, setLost] = useState<'forbidden' | 'notFound' | null>(null);
+  const state = lost ?? account.state;
+  useRefusalFocus(state, refusalHeadingRef);
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
@@ -66,16 +70,20 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
       </Heading>
       <AdminSectionSwitcher current="accounts" />
       <NavLink href={ADMIN_ACCOUNTS_PATH} onNavigate={onBack} className={BACK_LINK}>{t('accountAiApps.back')}</NavLink>
-      {account.state === 'forbidden' ? <InstallationOnlyAdmins t={t} headingRef={refusalHeadingRef} /> : null}
-      {account.state === 'notFound' ? <AccountGone t={t} headingRef={refusalHeadingRef} /> : null}
-      {account.state === 'forbidden' || account.state === 'notFound' ? null : <AccountSection account={account} t={t} />}
+      {state === 'forbidden' ? <InstallationOnlyAdmins t={t} headingRef={refusalHeadingRef} /> : null}
+      {state === 'notFound' ? <AccountGone t={t} headingRef={refusalHeadingRef} /> : null}
+      {state === 'forbidden' || state === 'notFound' ? null : <>
+        <AccountSection account={account} t={t} />
+        <AccountConnectedApps userId={userId} onSignedOut={onSignedOut}
+          onForbidden={() => { setLost('forbidden'); onForbidden(); }} onGone={() => setLost('notFound')} />
+      </>}
     </section>
   </Layout>;
 }
 
 /**
- * A refusal that took the form away — the grant gone, or the account deleted, during a save or its re-read — puts the
- * reader on the refusal's heading. A refusal on arrival leaves focus where the page put it.
+ * A refusal that took the page away — the grant gone, or the account deleted, during a save, a disconnect or a re-read
+ * — puts the reader on the refusal's heading. A refusal on arrival leaves focus where the page put it.
  */
 function useRefusalFocus(state: VersionedFormState, headingRef: RefObject<HTMLHeadingElement | null>) {
   const previous = useRef(state);

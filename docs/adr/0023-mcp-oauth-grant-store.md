@@ -1473,3 +1473,60 @@ and uses the B1b1 account policy routes as they are.
 
 - The account's connected apps with revoke and revoke-all are B4a2b; the
   audit list is B4a3.
+
+## Slice B4a2b: one account's connected apps
+
+Frontend only, on the B1b3 administrator grant routes as they are
+(`listAdminAccountMcpGrants`, `revokeAdminAccountMcpGrant`,
+`revokeAllAdminAccountMcpGrants`). No API change.
+
+### Decisions (B4a2b)
+
+- A **Connected apps** section follows the form on
+  `/admin/accounts/{userId}/ai-apps`. It reuses the Account list, row,
+  disconnect dialog and its state machine; the hook now takes a grant source
+  (`list`, `revoke`) instead of calling the signed-in account's routes, and
+  the Account section passes the old ones unchanged. Unlike Account the
+  section always shows, with a loading line, a plain empty sentence and the
+  same load error with retry, because an administrator came here to check.
+- Sentences that said "your" or "you" have administrator forms (the section
+  body, read-only access, the dialog body); a "voice" picks them. The write
+  access sentence and every other string are shared.
+- **Disconnect all** shows only while there are rows. It asks once, says that
+  the person can connect apps again and points to **Not allowed** to prevent
+  that, and sends one `DELETE .../mcp-grants`. Rows leave only on 204, then
+  the list is read again; focus goes to the section heading, since the button
+  left with the rows. A cancelled dialog returns focus to the button.
+- Answers: 204 removes; a row 404 drops the row and re-reads quietly (the
+  re-read's 404 means the account is gone); 429, 503, network failures and a
+  foreign 403 (Origin) stay in the dialog with the row kept; 401 signs out.
+  The calm 403 `instance_admin_required` and an account 404, from the list or
+  either revocation, replace the whole page with the installation refusal or
+  "This account no longer exists", taking focus when the page was ready.
+- No new identifier or scope vocabulary appears; the copy says apps,
+  connect and disconnect.
+
+### Tests (B4a2b)
+
+- Vitest, network boundary replaced: the client's answers for all three
+  routes (200, 401, calm and foreign 403, 404, 429, 503, network), the
+  section's list, paging, empty and load-error states, the administrator
+  wording, one disconnect with the canonical Origin and focus on the next row,
+  429/foreign 403/503 in the dialog, 404 re-reading, account gone and grant
+  lost during a disconnect, 401, Disconnect all with its 204, refusals,
+  Cancel focus and account gone, a list refused for the grant, and Czech.
+  Before the change, all 18 new cases failed.
+- Journey n33c (production binary, real PostgreSQL): the owner approves two
+  consents for one registered client and exchanges both codes; the page lists
+  both newest first, an axe scan passes, Disconnect on the newer row after
+  its dialog answers 204 and ends only that token, then Disconnect all after
+  its dialog answers 204, shows the empty sentence and ends the last token. A
+  `finally` revokes anything left through the API. The `admin` grant events
+  for both routes are asserted by setup-smoke (B1b3).
+- Visual: the account AI apps captures now include the section (the
+  reference member has no connected apps, so the empty sentence).
+
+### Deviations and follow-ups (B4a2b)
+
+- The audit list is B4a3.
+
