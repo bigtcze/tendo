@@ -31,7 +31,7 @@ The app then opens a Tendo page in your browser. If you are not signed in, sign 
 
 Select **Allow** to connect the app or **Deny** to refuse. **Allow** becomes available a moment after the page appears, and again a moment after you come back to the tab, so a click meant for something else cannot approve it. Tendo then shows **Returning to the app…** and hands you back to the app; you can close the tab if nothing happens. A request lasts 5 minutes and can be answered once; to try again, start connecting again in the app.
 
-The app acts as you: it sees only what you can see. In this version it can list your households and your role in each, list and search a household's items, read an item and its history of completions, and list the people and things items are about. It cannot change anything yet, even though the page lists that.
+The app acts as you: it sees and changes only what you could in Tendo yourself, and what it changes is recorded as done by you. With read access it can list your households and your role in each, list and search a household's items, read an item and its history of completions, and list the people and things items are about. With change access it can also create items, change an item (including its date and how it repeats), mark an item done, undo a completion, and add a person or thing. It cannot invite or remove people, change roles, or change your account. If you connected an app to only read and it tries to change something, Tendo tells the app which access it needs, so it can ask you to connect it again with change access.
 
 ## Connected apps
 

@@ -58,3 +58,13 @@ func MCPRange(low, high int) func(*jsonschema.Schema) {
 func MCPMaxLength(n int) func(*jsonschema.Schema) {
 	return func(s *jsonschema.Schema) { s.MaxLength = &n }
 }
+
+// MCPIdempotencyKeyPattern is the input pattern of an idempotencyKey argument:
+// the HTTP Idempotency-Key rule, 1 to 128 bytes of visible ASCII.
+const MCPIdempotencyKeyPattern = `^[!-~]{1,128}$`
+
+// MCPIdempotencyKeyArg constrains an idempotencyKey property and describes it.
+func MCPIdempotencyKeyArg(s *jsonschema.Schema) {
+	s.Pattern = MCPIdempotencyKeyPattern
+	s.Description = "a new unique value (for example a UUID) for each distinct action; reuse it only to retry the same action"
+}

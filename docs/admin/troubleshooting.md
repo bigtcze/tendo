@@ -91,6 +91,7 @@ For problems with **Sign in with …**, see the [OIDC troubleshooting table](oid
   - the app presented an old refresh token again, which ends the whole connection as a safeguard.
 
   A connection that was disconnected, revoked or reached its 90-day end is no longer listed under **Connected apps**; one that lapsed after 30 days without use stays listed until its end date and can be disconnected there. Connect the app again from the app.
+- **The app gets 403 `insufficient_scope`:** it was connected with less access than the tool it called needs, for example read-only access for a tool that changes items. The response names the access to request; connect the app again from the app and approve the wider access. If the person's or the administrator's MCP settings do not allow that access, there is no 403: the call returns the tool error "the token does not grant the scope this tool requires".
 
 ## Restore a forgotten password from the host
 

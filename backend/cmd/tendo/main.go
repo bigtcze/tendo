@@ -220,10 +220,25 @@ func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessi
 // same application service the HTTP API uses. No instance-admin, member,
 // invitation, role, account or policy tool exists (#457); the composition test
 // pins this list and each tool's scope.
-func mcpTools(households householdmcp.Lister, items itemmcp.Reader, subjects subjectmcp.Reader) []identityhttp.MCPTool {
+func mcpTools(households householdmcp.Lister, items mcpItems, subjects mcpSubjects) []identityhttp.MCPTool {
 	tools := []identityhttp.MCPTool{householdmcp.ListHouseholds(households)}
 	tools = append(tools, itemmcp.ReadTools(items)...)
-	return append(tools, subjectmcp.ReadTools(subjects)...)
+	tools = append(tools, subjectmcp.ReadTools(subjects)...)
+	tools = append(tools, itemmcp.WriteTools(items)...)
+	return append(tools, subjectmcp.WriteTools(subjects)...)
+}
+
+// mcpItems is the item service as the MCP tools see it: the pinned read and
+// write ports and nothing else.
+type mcpItems interface {
+	itemmcp.Reader
+	itemmcp.Writer
+}
+
+// mcpSubjects is the subject service as the MCP tools see it.
+type mcpSubjects interface {
+	subjectmcp.Reader
+	subjectmcp.Writer
 }
 
 // newMCPService builds the installation's MCP service. The TENDO_MCP_ENABLED

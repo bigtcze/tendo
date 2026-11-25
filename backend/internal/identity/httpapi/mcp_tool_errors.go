@@ -11,6 +11,11 @@ var (
 	ErrMCPToolNotFound    = errors.New("the household or record was not found")
 	ErrMCPToolUnavailable = errors.New("the service is temporarily unavailable")
 	ErrMCPToolBadCursor   = errors.New("the argument cursor is not valid")
+	// Write tool refusals (#457 slice B3).
+	ErrMCPToolVersionChanged = errors.New("the record has changed; read it again and use its current version")
+	ErrMCPToolKeyReused      = errors.New("the idempotencyKey was already used for a different action; use a new key")
+	ErrMCPToolBadKey         = errors.New("the argument idempotencyKey is not valid")
+	ErrMCPToolNoChange       = errors.New("the call changes nothing; pass at least one field to change")
 )
 
 // MCPInvalidArgument is the tool error for an argument the service refused.

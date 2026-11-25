@@ -57,9 +57,8 @@ type MCPEndpoint struct {
 	perIP    *limiter
 	perGrant *limiter
 	perUser  *limiter
-	// allowed is the union of the scopes the registered tools require. A token
-	// holding none of them cannot use any tool.
-	allowed []string
+	// required is each registered tool's scope, for the step-up challenge.
+	required map[string]string
 	// guard is the SDK bearer middleware in front of the SDK handler.
 	guard http.Handler
 }
@@ -71,7 +70,7 @@ type MCPEndpoint struct {
 // falls back to mcpEndpointDefaultVerifyTimeout (5s) so a zero-value
 // configuration cannot make every verification fail immediately.
 func NewMCPEndpoint(service mcpTokenVerifier, publicURL string, dbTimeout time.Duration, tools []MCPTool) (*MCPEndpoint, error) {
-	server, allowed, err := buildMCPServer(tools)
+	server, required, err := buildMCPServer(tools)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +94,7 @@ func NewMCPEndpoint(service mcpTokenVerifier, publicURL string, dbTimeout time.D
 		perIP:     newLimiter(mcpEndpointIPPerMinute),
 		perGrant:  newLimiter(mcpEndpointGrantPerMin),
 		perUser:   newLimiter(mcpEndpointUserPerMin),
-		allowed:   allowed,
+		required:  required,
 		guard: auth.RequireBearerToken(sdkTokenVerifier, &auth.RequireBearerTokenOptions{
 			AllowMissingExpiration: true,
 		})(stripCredentials(sdk)),
@@ -122,8 +121,8 @@ func (e *MCPEndpoint) Register(r chi.Router) {
 }
 
 // ServeHTTP runs the front checks in order: per-IP limit, bearer
-// authentication, the per-grant and per-user limits, the scope admission, the
-// body checks, and finally the SDK.
+// authentication, the per-grant and per-user limits, the body checks, the
+// step-up challenge, and finally the SDK.
 func (e *MCPEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	on, err := e.service.Available(r.Context())
 	if err != nil {
@@ -153,12 +152,12 @@ func (e *MCPEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeMCPRateLimited(w)
 		return
 	}
-	if !e.admitScopes(access.Scopes) {
-		e.writeInsufficientScope(w)
-		return
-	}
 	body, ok := readMCPBody(w, r)
 	if !ok {
+		return
+	}
+	if scope, challenge := e.stepUpScope(body, access); challenge {
+		e.writeInsufficientScope(w, scope)
 		return
 	}
 	r.Header.Del("Mcp-Session-Id")
@@ -241,19 +240,6 @@ func bearerFromHeader(values []string) (token string, present, ok bool) {
 	return fields[1], true, true
 }
 
-// admitScopes reports whether the token holds at least one scope that a
-// registered tool requires.
-func (e *MCPEndpoint) admitScopes(scopes []string) bool {
-	for _, held := range scopes {
-		for _, required := range e.allowed {
-			if held == required {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // writeChallenge writes the 401 with the protected-resource challenge. errCode is
 // empty for a request that carries no credential at all.
 func (e *MCPEndpoint) writeChallenge(w http.ResponseWriter, errCode, description string) {
@@ -267,9 +253,11 @@ func (e *MCPEndpoint) writeChallenge(w http.ResponseWriter, errCode, description
 	writeOAuthError(w, http.StatusUnauthorized, body, description)
 }
 
-func (e *MCPEndpoint) writeInsufficientScope(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="tendo:read", `+e.resourceParams())
-	writeOAuthError(w, http.StatusForbidden, "insufficient_scope", "The token does not grant a scope this endpoint requires.")
+// writeInsufficientScope writes the step-up 403. scope is computed by
+// stepUpScope from the grant and the policy, never fixed.
+func (e *MCPEndpoint) writeInsufficientScope(w http.ResponseWriter, scope string) {
+	w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+scope+`", `+e.resourceParams())
+	writeOAuthError(w, http.StatusForbidden, "insufficient_scope", "The token does not grant a scope this request requires.")
 }
 
 // resourceParams is the resource_metadata parameter shared by every challenge.

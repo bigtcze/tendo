@@ -347,6 +347,10 @@ func normalizeMCPScopes(requested []string) ([]string, error) {
 type MCPAccess struct {
 	GrantID, UserID, ClientID string
 	Scopes                    []string
+	// Allowed is the scopes the account's policy allows now (Scopes is the
+	// subset the grant was consented for). It decides the step-up challenge at
+	// the endpoint and never reaches a tool.
+	Allowed []string
 }
 
 // VerifyAccessToken resolves a bearer token for the configured resource. The
@@ -379,7 +383,7 @@ func (s *MCPService) VerifyAccessToken(ctx context.Context, token string) (MCPAc
 	if len(scopes) == 0 {
 		return MCPAccess{}, ErrMCPInvalidToken
 	}
-	return MCPAccess{GrantID: grant.ID, UserID: grant.UserID, ClientID: grant.ClientID, Scopes: scopes}, nil
+	return MCPAccess{GrantID: grant.ID, UserID: grant.UserID, ClientID: grant.ClientID, Scopes: scopes, Allowed: active.Policy.Allowed()}, nil
 }
 
 // allowedScopesLocked reads the account's policy after the account lock and

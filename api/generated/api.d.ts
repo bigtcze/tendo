@@ -16112,14 +16112,14 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
-            /** @description The token holds no scope any tool requires (insufficient_scope with a WWW-Authenticate challenge), or a present Origin is not the public origin (problem+json from the origin check). */
+            /** @description Step-up: a tools/call request for a tool whose scope the account policy allows but the grant lacks (insufficient_scope with a WWW-Authenticate challenge whose scope lists the held scopes plus the missing one), or a present Origin is not the public origin (problem+json from the origin check). A scope the policy does not allow is a tool error result inside a 200 instead. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
                     /**
                      * @description Sent only for insufficient_scope.
-                     * @example Bearer error="insufficient_scope", scope="tendo:read", resource_metadata="https://tendo.example/.well-known/oauth-protected-resource/mcp"
+                     * @example Bearer error="insufficient_scope", scope="tendo:read tendo:write", resource_metadata="https://tendo.example/.well-known/oauth-protected-resource/mcp"
                      */
                     "WWW-Authenticate"?: string;
                     [name: string]: unknown;
@@ -16128,7 +16128,7 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": "insufficient_scope",
-                     *       "error_description": "The token does not grant a scope this endpoint requires."
+                     *       "error_description": "The token does not grant a scope this request requires."
                      *     }
                      */
                     "application/json": components["schemas"]["OAuthError"];

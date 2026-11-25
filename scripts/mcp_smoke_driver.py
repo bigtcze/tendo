@@ -17,7 +17,7 @@ and refresh replay revoke the whole grant (ADR 0023):
   C  /mcp protocol checks, then RFC 7009 revocation by the client
   D  disconnect through Connected apps
   E  stays live across the disable and re-enable phases
-  W  tendo:write only: no tool scope, so /mcp is 403 insufficient_scope
+  W  tendo:write only: a write tool runs; a read tool is the step-up 403
   M  a second account: cross-household isolation
 """
 import base64, hashlib, json, os, secrets as rnd, subprocess, sys, traceback
@@ -229,6 +229,7 @@ def households(access):
 
 
 READ_TOOLS = ['list_households', 'list_items', 'get_item', 'list_completions', 'list_subjects', 'get_subject']
+WRITE_TOOLS = ['create_item', 'update_item', 'complete_item', 'undo_completion', 'create_subject']
 
 
 def tool(access, name, arguments):
@@ -396,7 +397,7 @@ def grant_c(cid, owner, home):
     check(body['result']['protocolVersion'] == PROTOCOL, body)
     mcp(access, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}, expect=202)
     _, body = mcp(access, {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
-    check(sorted(tool['name'] for tool in body['result']['tools']) == sorted(READ_TOOLS), body)
+    check(sorted(tool['name'] for tool in body['result']['tools']) == sorted(READ_TOOLS + WRITE_TOOLS), body)
     check(households(access) == {(home, 'MCP Smoke', 'admin')}, 'grant C households')
     read_tools(access, owner, home)
     status, _, body = request('POST', '/oauth/revoke', '/oauth/revoke', form={'client_id': cid})
@@ -408,12 +409,21 @@ def grant_c(cid, owner, home):
     return grant_id
 
 
-def grant_w(cid, owner):
-    """A tendo:write-only grant holds no scope any tool requires."""
+def grant_w(cid, owner, home):
+    """A tendo:write-only grant runs a write tool, and a read tool is the
+    step-up 403 naming the held and the missing scope (#457 B3)."""
     tokens = connect(cid, owner, scope='tendo:write')
+    access = tokens['access_token']
     check(tokens['scope'] == 'tendo:write', tokens['scope'])
-    h, body = mcp(tokens['access_token'], {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, expect=403)
-    check(body['error'] == 'insufficient_scope' and 'error="insufficient_scope"' in h['WWW-Authenticate'], (h, body))
+    arguments = {'householdId': home, 'name': 'Smoke write', 'type': 'home', 'idempotencyKey': 'mcp-smoke-w'}
+    created, err = tool(access, 'create_subject', arguments)
+    check(err is None and created['name'] == 'Smoke write', ('create_subject', created, err))
+    replayed, err = tool(access, 'create_subject', arguments)
+    check(err is None and replayed['id'] == created['id'], ('create_subject replay', replayed, err))
+    h, body = mcp(access, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                           'params': {'name': 'list_subjects', 'arguments': {'householdId': home}}}, expect=403)
+    want = f'Bearer error="insufficient_scope", scope="tendo:read tendo:write", resource_metadata="{ORIGIN}/.well-known/oauth-protected-resource/mcp"'
+    check(body['error'] == 'insufficient_scope' and h['WWW-Authenticate'] == want, (h, body))
 
 
 def grant_d(cid, owner):
@@ -484,7 +494,7 @@ def phase_enabled(state):
     denial(cid, owner)
     revoked[grant_b(cid, owner, home)] = 'replay'
     revoked[grant_c(cid, owner, home)] = 'client'
-    grant_w(cid, owner)
+    grant_w(cid, owner, home)
     revoked[grant_d(cid, owner)] = 'user'
     grant_m(cid, owner, home)
     tokens = connect(cid, owner)  # grant E survives the switch-off

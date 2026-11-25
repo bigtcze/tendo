@@ -113,7 +113,7 @@ func TestMCPPolicyNarrowsScopesAgainstPostgres(t *testing.T) {
 	write := []string{identity.MCPScopeWrite}
 
 	env.setPolicy(t, `UPDATE mcp_account_policies SET admin_max_scopes=ARRAY['tendo:read'], user_scopes=ARRAY['tendo:read','tendo:write'] WHERE user_id=$1::uuid`, user)
-	if access, err := env.svc.VerifyAccessToken(env.ctx, tokens.AccessToken); err != nil || !slices.Equal(access.Scopes, read) {
+	if access, err := env.svc.VerifyAccessToken(env.ctx, tokens.AccessToken); err != nil || !slices.Equal(access.Scopes, read) || !slices.Equal(access.Allowed, read) {
 		t.Fatalf("admin maximum read: %+v %v", access, err)
 	}
 	rotated, err := env.refresh(tokens.RefreshToken)
@@ -126,7 +126,7 @@ func TestMCPPolicyNarrowsScopesAgainstPostgres(t *testing.T) {
 	}
 
 	env.setPolicy(t, `UPDATE mcp_account_policies SET admin_max_scopes=NULL, user_scopes=ARRAY['tendo:write'] WHERE user_id=$1::uuid`, user)
-	if access, err := env.svc.VerifyAccessToken(env.ctx, rotated.AccessToken); err != nil || !slices.Equal(access.Scopes, write) {
+	if access, err := env.svc.VerifyAccessToken(env.ctx, rotated.AccessToken); err != nil || !slices.Equal(access.Scopes, write) || !slices.Equal(access.Allowed, write) {
 		t.Fatalf("user narrows to write: %+v %v", access, err)
 	}
 

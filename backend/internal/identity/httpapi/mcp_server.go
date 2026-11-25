@@ -30,11 +30,11 @@ type MCPTool struct {
 }
 
 // buildMCPServer builds the one shared MCP server. It validates every tool
-// before any is installed, and returns the union of required scopes. It is the
-// only place tools are registered; the server is never mutated afterwards.
-func buildMCPServer(tools []MCPTool) (*mcp.Server, []string, error) {
+// before any is installed, and returns each tool's required scope by name. It
+// is the only place tools are registered; the server is never mutated
+// afterwards.
+func buildMCPServer(tools []MCPTool) (*mcp.Server, map[string]string, error) {
 	required := make(map[string]string, len(tools))
-	var allowed []string
 	for _, tool := range tools {
 		if tool.Tool == nil || tool.Tool.Name == "" || tool.Install == nil {
 			return nil, nil, errors.New("mcp tool is incomplete")
@@ -46,9 +46,6 @@ func buildMCPServer(tools []MCPTool) (*mcp.Server, []string, error) {
 			return nil, nil, fmt.Errorf("mcp tool %q is registered twice", tool.Tool.Name)
 		}
 		required[tool.Tool.Name] = tool.Scope
-		if !slices.Contains(allowed, tool.Scope) {
-			allowed = append(allowed, tool.Scope)
-		}
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion}, &mcp.ServerOptions{
 		Capabilities:              &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: false}},
@@ -61,7 +58,7 @@ func buildMCPServer(tools []MCPTool) (*mcp.Server, []string, error) {
 		return nil, nil, err
 	}
 	server.AddReceivingMiddleware(requireToolScope(required))
-	return server, allowed, nil
+	return server, required, nil
 }
 
 // verifyListedTools connects an in-memory client and lists the server's tools.
