@@ -1840,6 +1840,10 @@ use.
   revocation ends the grant, and its one `revoked` event has reason `admin`.
   Each override is cleared in a `finally`, so a failure never leaves the
   owner switched off for the later phases.
+- Grant M's cross-household check now covers the write tools too:
+  `complete_item`, `update_item`, `create_item` and `create_subject` against
+  another household's records give the same not-found result as an unknown
+  id, and PostgreSQL shows nothing written.
 - Journey n33f (TESTING primary journey 13) runs on the fixed journey clock:
   an MCP client creates and completes the same kind of item today, and the
   item detail draws that receipt exactly as it draws an app completion. Done in
@@ -1857,6 +1861,9 @@ use.
 
 ### Deviations and follow-ups (B5)
 
+- Independent review approved it. Its nits were taken: the switch-off is inside
+  the restoring block, a failed restore no longer hides the original failure,
+  n33f checks every history row, and the live smoke refuses foreign writes.
 - The golden table is not repeated in the live smoke; it runs at the domain,
   PostgreSQL, API, UI and MCP tool layers already (B3). The smoke and n33f pin
   the fixed short-month clamp and anchor restoration end to end.

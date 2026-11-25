@@ -8208,7 +8208,7 @@ test.describe('Tendo production journey', () => {
     // completion returns to February, and an MCP Done again gives 31 March. Both paths write the same receipts and the
     // detail screen draws them the same way. The golden table at every layer, the tool refusals and the
     // administrator's controls are the PostgreSQL tests' and the deployment MCP smoke's. Budgets: 1 registration, 1
-    // authorization, 1 decision, 1 token call and 5 tool calls, far under their per-minute limits.
+    // authorization, 1 decision, 1 token call and 6 tool calls, far under their per-minute limits.
     test.setTimeout(90_000);
     const redirect = 'http://127.0.0.1:9/callback';
     const title = 'Rotate the cellar stock';
@@ -8298,6 +8298,7 @@ test.describe('Tendo production journey', () => {
       await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(2);
       const appReceipt = (await serverCompletions(itemId))[1]!;
       expect(appReceipt).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31', undoneAt: null });
+      await expect(historyRows).toHaveCount(2);
       await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
 
       // 3. MCP Undo of the app's completion: February again, and the detail screen marks that receipt undone.
@@ -8316,12 +8317,15 @@ test.describe('Tendo production journey', () => {
 
       // 4. MCP Done again: no drift, the same restored 31 March, and a fresh receipt rather than the undone one.
       const again = await callTool<ToolCompletion>('complete_item', { householdId, itemId, version: undone.item.version, idempotencyKey: 'journey-13-done-2' });
-      expect(again.completion).toMatchObject({ cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31' });
+      expect(again.completion).toMatchObject({ completedOn: expectedCompletionDate, cycleAttentionOn: '2026-02-28', nextAttentionOn: '2026-03-31' });
       expect(again.completion.id).not.toBe(appReceipt.id);
+      expect(await itemById()).toMatchObject({ attentionOn: '2026-03-31', attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
       await page.reload();
       await attentionFact('2026-03-31');
       await expect(historyRows).toHaveCount(3);
       await expect(historyRows.nth(0)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+      await expect(historyRows.nth(1)).toHaveText(historyRow('itemDetail.historyUndone', expectedCompletionDate, '2026-02-28', '2026-03-31'));
+      await expect(historyRows.nth(2)).toHaveText(historyRow('itemDetail.historyDone', expectedCompletionDate, '2026-01-31', '2026-02-28'));
       await expectNoAxeViolations(page, 'item-detail-mcp-history');
     } catch (error) { primaryFailure = error; }
     // Later steps read the first page of active items and expect no connected app, so both are put back whatever failed.

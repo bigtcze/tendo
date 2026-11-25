@@ -524,6 +524,23 @@ def admin_account_policy(owner, owner_id, enabled, max_scopes):
     check(status == 200 and body['enabled'] == enabled and body['maxScopes'] == max_scopes, ('admin policy write', status, body))
 
 
+def with_account_override(owner, owner_id, enabled, max_scopes, probe):
+    """Runs probe under an administrator override of the owner's account and
+    always clears it again, so a failure never leaves the owner narrowed for
+    the later phases. A failed restore is added to the probe's failure rather
+    than replacing it."""
+    try:
+        admin_account_policy(owner, owner_id, enabled, max_scopes)
+        probe()
+    except BaseException as probe_error:
+        try:
+            admin_account_policy(owner, owner_id, None, None)
+        except Exception as restore_error:
+            probe_error.add_note(f'account override restore also failed: {restore_error!r}')
+        raise
+    admin_account_policy(owner, owner_id, None, None)
+
+
 def grant_r(cid, owner, home):
     """MCP Done/Undo on the live app, then the administrator's controls reach
     the same grant on its next call: the account switched off refuses /mcp and
@@ -538,26 +555,23 @@ def grant_r(cid, owner, home):
     item, version = mcp_done_undo(tokens['access_token'], owner, owner_id, home)
     expected = {(home, 'MCP Smoke', 'admin')}
 
-    admin_account_policy(owner, owner_id, False, None)
-    try:
+    def switched_off():
         mcp_refused(tokens['access_token'])
         refresh(cid, tokens, 400, 'invalid_grant')
-    finally:
-        admin_account_policy(owner, owner_id, None, None)
+    with_account_override(owner, owner_id, False, None, switched_off)
     check(households(tokens['access_token']) == expected, 'the same token after the account is allowed again')
+    # refresh() asserts 200: the refusal above did not consume the refresh token.
     tokens = refresh(cid, tokens)
-    check(tokens['scope'] == 'tendo:read tendo:write', ('the refused refresh was not consumed', tokens['scope']))
+    check(tokens['scope'] == 'tendo:read tendo:write', ('scope after the account is allowed again', tokens['scope']))
 
-    admin_account_policy(owner, owner_id, None, ['tendo:read'])
-    try:
+    def read_only():
         _, refused = tool(tokens['access_token'], 'complete_item', {
             'householdId': home, 'itemId': item['id'], 'version': version, 'idempotencyKey': 'mcp-smoke-r-refused'})
         check(refused == SCOPE_REFUSAL, ('read-only maximum', refused))
         check(households(tokens['access_token']) == expected, 'read still works under a read-only maximum')
         found, etag, _ = browser_item(owner, home, item['id'])
         check(etag == f'"{version}"' and found['attentionOn'] == '2026-02-28', ('the refused write changed the item', found, etag))
-    finally:
-        admin_account_policy(owner, owner_id, None, None)
+    with_account_override(owner, owner_id, None, ['tendo:read'], read_only)
 
     status, _, body = request('DELETE', f'/api/v1/admin/accounts/{owner_id}/mcp-grants/{grant_id}', ADM_GRANT,
                               headers={'Origin': ORIGIN, 'Cookie': owner})
@@ -607,6 +621,19 @@ def foreign_records(access, member, home, other):
         tool(access, 'list_subjects', {'householdId': other})[1],
     ]
     check(refusals == ['the household or record was not found'] * len(refusals), ('foreign refusals', refusals))
+    # The write tools refuse the same records identically and write nothing.
+    writes = [
+        tool(access, 'complete_item', {'householdId': other, 'itemId': item['id'], 'version': 1, 'idempotencyKey': 'mcp-smoke-foreign'})[1],
+        tool(access, 'complete_item', {'householdId': home, 'itemId': item['id'], 'version': 1, 'idempotencyKey': 'mcp-smoke-foreign'})[1],
+        tool(access, 'update_item', {'householdId': other, 'itemId': item['id'], 'version': 1, 'title': 'Taken'})[1],
+        tool(access, 'create_item', {'householdId': home, 'subjectId': subject['id'], 'title': 'Planted', 'idempotencyKey': 'mcp-smoke-foreign'})[1],
+        tool(access, 'create_subject', {'householdId': other, 'name': 'Planted', 'type': 'home', 'idempotencyKey': 'mcp-smoke-foreign'})[1],
+    ]
+    check(writes == ['the household or record was not found'] * len(writes), ('foreign write refusals', writes))
+    check(psql(f"SELECT version||':'||(SELECT count(*) FROM item_completions WHERE item_id='{item['id']}') FROM items WHERE id='{item['id']}'") == '1:0',
+          'a refused foreign write changed the item')
+    check(psql("SELECT count(*) FROM items WHERE title='Planted'") + psql("SELECT count(*) FROM subjects WHERE name='Planted'") == '00',
+          'a refused foreign write created a record')
     found, err = tool(access, 'list_items', {'householdId': home, 'q': 'Foreign'})
     check(err is None and found['items'] == [], ('foreign search', found, err))
 
