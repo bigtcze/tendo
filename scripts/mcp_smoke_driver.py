@@ -448,6 +448,29 @@ def grant_m(cid, owner, home):
           'member households')
     owner_check = connect(cid, owner)
     check(households(owner_check['access_token']) == {(home, 'MCP Smoke', 'admin')}, 'owner sees a foreign household')
+    foreign_records(owner_check['access_token'], member, home, other['id'])
+
+
+def foreign_records(access, member, home, other):
+    """The owner's read tools refuse the member's household and its records
+    exactly as they refuse an unknown id."""
+    status, _, subject = request('POST', f'/api/v1/households/{other}/subjects', json_body={'type': 'home', 'name': 'Foreign flat'},
+                                 headers={'Cookie': member, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-foreign-subject'})
+    check(status == 201, ('foreign subject', status, subject))
+    status, _, item = request('POST', f'/api/v1/households/{other}/items', json_body={'subjectId': subject['id'], 'title': 'Foreign boiler'},
+                              headers={'Cookie': member, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-foreign-item'})
+    check(status == 201, ('foreign item', status, item))
+    refusals = [
+        tool(access, 'list_items', {'householdId': other})[1],
+        tool(access, 'get_item', {'householdId': other, 'itemId': item['id']})[1],
+        tool(access, 'get_item', {'householdId': home, 'itemId': item['id']})[1],
+        tool(access, 'list_completions', {'householdId': home, 'itemId': item['id']})[1],
+        tool(access, 'get_subject', {'householdId': home, 'subjectId': subject['id']})[1],
+        tool(access, 'list_subjects', {'householdId': other})[1],
+    ]
+    check(refusals == ['the household or record was not found'] * len(refusals), ('foreign refusals', refusals))
+    found, err = tool(access, 'list_items', {'householdId': home, 'q': 'Foreign'})
+    check(err is None and found['items'] == [], ('foreign search', found, err))
 
 
 def phase_enabled(state):

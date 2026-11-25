@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -162,6 +163,9 @@ func newMCPToolsWorld(t *testing.T, f *mcpEndpointFixture) mcpToolsWorld {
 	w.subjectB = f.addSubject(w.houseB, "Beta car", "")
 	w.itemA = f.addItem(w.houseA, w.subjectA, "Zebra oil alpha", w.userA, false, false)
 	w.itemB = f.addItem(w.houseB, w.subjectB, "Zebra oil beta", w.userB, false, false)
+	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET notes = 'Quokka gasket' WHERE id = $1::uuid`, w.itemB); err != nil {
+		t.Fatalf("foreign notes: %v", err)
+	}
 	w.completionA = f.addCompletion(w.houseA, w.itemA, w.userA, "key-a")
 	w.completionB = f.addCompletion(w.houseB, w.itemB, w.userB, "key-b")
 	w.tokenA = f.mint(t, w.userA, identityapp.MCPScopeRead).AccessToken
@@ -266,6 +270,7 @@ func TestMCPListItemsForeignFiltersMatchNothingAgainstPostgres(t *testing.T) {
 		"foreign responsible": {"householdId": w.houseA, "responsibleUserId": w.userB},
 		"foreign title":       {"householdId": w.houseA, "q": "beta"},
 		"foreign title exact": {"householdId": w.houseA, "q": "Zebra oil beta"},
+		"foreign notes":       {"householdId": w.houseA, "q": "Quokka"},
 	} {
 		out := f.mustCall(t, w.tokenA, "list_items", args)
 		if got := rowIDs(out, "items"); len(got) != 0 || out["nextCursor"] != "" {
@@ -274,6 +279,32 @@ func TestMCPListItemsForeignFiltersMatchNothingAgainstPostgres(t *testing.T) {
 	}
 	if got := rowIDs(f.mustCall(t, w.tokenA, "list_items", map[string]any{"householdId": w.houseA, "q": "Zebra"}), "items"); len(got) != 1 || got[0] != w.itemA {
 		t.Fatalf("shared search term: %v want only %s", got, w.itemA)
+	}
+	if got := rowIDs(f.mustCall(t, w.tokenB, "list_items", map[string]any{"householdId": w.houseB, "q": "quokka"}), "items"); len(got) != 1 || got[0] != w.itemB {
+		t.Fatalf("notes search in the own household: %v want %s", got, w.itemB)
+	}
+}
+
+// TestMCPReadToolsRefuseAWriteOnlyGrantAgainstPostgres calls every read tool
+// with a real grant holding only tendo:write: tendo:write does not imply
+// tendo:read, so the endpoint's front check answers each call with 403
+// insufficient_scope before any tool runs.
+func TestMCPReadToolsRefuseAWriteOnlyGrantAgainstPostgres(t *testing.T) {
+	f := newMCPToolsFixture(t)
+	w := newMCPToolsWorld(t, f)
+	token := f.mint(t, w.userA, identityapp.MCPScopeWrite).AccessToken
+	for tool, args := range map[string]map[string]any{
+		"list_items":       {"householdId": w.houseA},
+		"get_item":         {"householdId": w.houseA, "itemId": w.itemA},
+		"list_completions": {"householdId": w.houseA, "itemId": w.itemA},
+		"list_subjects":    {"householdId": w.houseA},
+		"get_subject":      {"householdId": w.houseA, "subjectId": w.subjectA},
+	} {
+		params, _ := json.Marshal(map[string]any{"name": tool, "arguments": args})
+		reply := f.post(token, fmt.Sprintf(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":%s}`, params))
+		if reply.code != http.StatusForbidden || reply.body["error"] != "insufficient_scope" {
+			t.Fatalf("%s with tendo:write only: status=%d body=%s; want 403 insufficient_scope", tool, reply.code, reply.raw)
+		}
 	}
 }
 
@@ -387,6 +418,10 @@ func TestMCPReadToolsConcurrentCallersStayIsolatedAgainstPostgres(t *testing.T) 
 	w := newMCPToolsWorld(t, f)
 	type caller struct{ token, house, item, foreignItem string }
 	callers := []caller{{w.tokenA, w.houseA, w.itemA, w.itemB}, {w.tokenB, w.houseB, w.itemB, w.itemA}}
+	refusal := f.callTool(w.tokenA, "get_item", map[string]any{"householdId": w.houseA, "itemId": mcpToolsMissingID}).error
+	if !strings.Contains(refusal, identityhttp.ErrMCPToolNotFound.Error()) {
+		t.Fatalf("reference refusal %s", refusal)
+	}
 	const perCaller = 25
 	var wg sync.WaitGroup
 	errs := make(chan error, perCaller*len(callers)*2)
@@ -403,8 +438,8 @@ func TestMCPReadToolsConcurrentCallersStayIsolatedAgainstPostgres(t *testing.T) 
 				if got := rowIDs(r.out, "items"); r.error != "" || len(got) != 1 || got[0] != c.item {
 					errs <- fmt.Errorf("list_items for %s: %v %s", c.house, got, r.error)
 				}
-				if r := f.callTool(c.token, "get_item", map[string]any{"householdId": c.house, "itemId": c.foreignItem}); r.error == "" {
-					errs <- fmt.Errorf("foreign item %s leaked: %v", c.foreignItem, r.out)
+				if r := f.callTool(c.token, "get_item", map[string]any{"householdId": c.house, "itemId": c.foreignItem}); r.error != refusal {
+					errs <- fmt.Errorf("foreign item %s: %v %s; want the not-found refusal", c.foreignItem, r.out, r.error)
 				}
 			}(c, n)
 		}

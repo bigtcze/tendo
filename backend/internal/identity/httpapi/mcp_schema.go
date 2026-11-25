@@ -6,10 +6,13 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+// MCPUUIDExpr is the unanchored identifier expression, for building patterns.
+const MCPUUIDExpr = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`
+
 // MCPUUIDPattern is the input pattern for an identifier argument. Matching it
 // does not make the identifier canonical; the service still decides and an
 // unknown or foreign identifier is not found.
-const MCPUUIDPattern = `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
+const MCPUUIDPattern = `^` + MCPUUIDExpr + `$`
 
 // MCPInputSchema infers the input schema of T (an object that refuses unknown
 // properties) and lets the tool tighten its properties: enums, bounds, lengths

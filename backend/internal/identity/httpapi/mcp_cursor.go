@@ -9,15 +9,20 @@ import (
 )
 
 // MaxMCPCursorLength bounds a bound cursor before it is decoded. The longest
-// service cursor (the item list i2 cursor) wraps to well under this.
+// service cursor, the item list i2 cursor, encodes 163 bytes as 218
+// characters; bound, it is base64url of 3+64+1+218 bytes, 382 characters.
 const MaxMCPCursorLength = 512
 
 const mcpCursorVersion = "m1"
 
-// BindMCPCursor wraps a service cursor so that it continues only the call that
-// produced it: the same tool, the same caller and the same arguments. A service
-// cursor is not always bound to its household, item or filters, so a tool
-// returns only bound cursors. An empty service cursor stays empty (last page).
+// BindMCPCursor wraps a service cursor so that an issued cursor is accepted
+// only by the same tool, caller and collection arguments; replaying it anywhere
+// else is refused. The fingerprint is not keyed, so it is a replay check, not an
+// authorization boundary: a client can wrap any service cursor for its own call,
+// which is harmless because the service authorizes every call and owns its
+// keyset. A service cursor is not always bound to its household, item or
+// filters (the plain item cursor is not), so tools return only bound cursors.
+// An empty service cursor stays empty (last page).
 func BindMCPCursor(inner, tool, userID string, context ...string) string {
 	if inner == "" {
 		return ""

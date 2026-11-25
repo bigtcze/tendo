@@ -44,6 +44,8 @@ func TestMCPCursorEmptyMeansFirstAndLastPage(t *testing.T) {
 }
 
 func TestMCPCursorLongestServiceCursorFits(t *testing.T) {
+	// The item i2 cursor is at most 218 characters (bound: 382); 300 leaves
+	// headroom for a longer service cursor.
 	inner := strings.Repeat("x", 300)
 	bound := BindMCPCursor(inner, "list_items", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "a", "b")
 	if len(bound) > MaxMCPCursorLength {

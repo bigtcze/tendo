@@ -7,14 +7,13 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/item"
 )
 
-// toolError maps an item service error to a fixed tool error. Not found covers
+// toolError maps an item read service error to a fixed tool error. Not found covers
 // a malformed, unknown or foreign household, item or completion, and a caller
 // who is not a member, identically. A refused query parameter names the tool
 // argument from args (service parameter -> argument); an unmapped parameter or
 // any other error is reported as unavailable without detail.
 func toolError(err error, args map[string]string) error {
 	var query *item.InvalidQueryError
-	var validation *item.ValidationError
 	switch {
 	case errors.Is(err, item.ErrNotFound):
 		return identityhttp.ErrMCPToolNotFound
@@ -23,10 +22,6 @@ func toolError(err error, args map[string]string) error {
 			return identityhttp.ErrMCPToolBadCursor
 		}
 		if name, ok := args[query.Parameter]; ok {
-			return identityhttp.MCPInvalidArgument(name)
-		}
-	case errors.As(err, &validation):
-		if name, ok := args[validation.Field]; ok {
 			return identityhttp.MCPInvalidArgument(name)
 		}
 	}

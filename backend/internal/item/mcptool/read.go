@@ -101,7 +101,7 @@ func ListItems(service Reader) identityhttp.MCPTool {
 			"q":           identityhttp.MCPMaxLength(item.MaxSearchRunes),
 			"subjectId":   identityhttp.MCPUUID,
 			"responsibleUserId": func(s *jsonschema.Schema) {
-				s.Pattern = `^(unassigned|` + strings.Trim(identityhttp.MCPUUIDPattern, "^$") + `)$`
+				s.Pattern = `^(unassigned|` + identityhttp.MCPUUIDExpr + `)$`
 			},
 			"workflowState": identityhttp.MCPEnum(workflowStates...),
 			"attention":     identityhttp.MCPEnum("needs_attention", "upcoming"),

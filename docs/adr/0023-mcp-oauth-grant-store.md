@@ -1186,7 +1186,10 @@ service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
 
 - Input schemas are inferred from the typed input and tightened (UUID pattern,
   enums, `limit` range, `q` at most 200 characters, cursor at most 512), and
-  refuse unknown properties, so malformed input never reaches a service.
+  refuse unknown properties, so malformed input is refused before a service
+  call. Checks the schema cannot express (a whitespace-only `q`, control
+  characters) are the service's and are refused as that argument; neither kind
+  of refusal depends on stored data.
 - Every tool cursor is bound. `BindMCPCursor` wraps the service cursor with a
   SHA-256 fingerprint of the tool, the verified user and every argument that
   selects the collection (household, item, search, filters, sort, order,
@@ -1194,6 +1197,10 @@ service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
   tool, user, household, item or filter is refused with one fixed text before
   any service call. A service cursor alone is not always bound to its household
   (the plain item `i1` cursor is not), so the binding is what stops a replay.
+  The fingerprint is unkeyed: it is a replay check, not an authorization
+  boundary. A client that wraps a service cursor for its own call gains
+  nothing, because the service authorizes every call and the cursor only
+  carries a keyset position in the caller's own query.
 - Errors are fixed texts (`identityhttp` `ErrMCPTool*`): one not-found text for
   an unknown, foreign or no-longer-visible household, item, completion or
   subject and for a caller who is not a member; invalid arguments name only the
@@ -1201,10 +1208,14 @@ service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
   text.
 - Outputs omit `householdId` (the caller supplied it). Dates are `YYYY-MM-DD` in
   the household's time zone and timestamps RFC 3339 UTC.
-- `cmd/tendo` builds the tool set in `mcpTools`; a composition test pins every
-  tool name and scope, requires `readOnlyHint` exactly for read tools and
-  refuses names that reach an excluded area (instance administration, members,
-  invitations, roles, accounts, policy, grants).
+- `cmd/tendo` builds the tool set in `mcpTools`. The exclusion of instance
+  administration, member, invitation, role, account and policy tools rests on
+  three tests: the architecture scan lets a tool package import only its own
+  module's application package and the shared MCP packages, and use only the
+  scope constants of `identity`; a composition test pins the method set of each
+  port the tools receive (`Lister`, item and subject `Reader`); and the same
+  test pins every tool name and scope, requires `readOnlyHint` exactly for read
+  tools and refuses names that point at an excluded area.
 
 ### Tests (B2)
 
@@ -1221,7 +1232,15 @@ service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
   of both households in another household, search, partition, order or item, or
   by another user, are refused; membership removed between two calls with the
   real removal service refuses the next call and its continuation cursor; and
-  two users calling concurrently see only their own records.
+  two users calling concurrently see only their own records and get the exact
+  not-found refusal for each other's. Search covers notes as well as titles.
+- A real grant holding only `tendo:write` gets `403 insufficient_scope` from the
+  endpoint's front check for every read tool.
+- Not applicable in B2: "a completion id from another item" needs a tool that
+  takes a completion id; it lands with `undo_completion` in B3.
 - Smoke: `scripts/mcp_smoke_driver.py` checks the full tool list, calls every
   read tool against records created through the browser API, and checks that
-  an unknown household and an unknown item give the same refusal.
+  an unknown id, the member's household the owner does not belong to, and that
+  household's item and subject under the owner's household id all give the same
+  refusal, and that search does not find the foreign item. This exercises the
+  production `cmd/tendo` adapters, which the PostgreSQL fixture rebuilds.
