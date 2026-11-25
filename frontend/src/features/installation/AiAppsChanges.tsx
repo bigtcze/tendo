@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
-import { useAppendedRowFocus, useShowMoreList, type ShowMoreList } from '../../app/useShowMoreList';
+import { useAppendedRowFocus } from '../../app/useAppendedRowFocus';
+import { useShowMoreList, type ShowMoreList } from '../../app/useShowMoreList';
 import { Button } from '../../components/ui/button';
 import { LoadError } from '../../components/ui/load-error';
 import { LoadingLine } from '../../components/ui/loading-line';
@@ -118,7 +119,7 @@ export function AiAppsChanges({ changes }: { changes: ShowMoreList<AiAppsChange>
       ? <LoadError className="mt-2" message={t('aiApps.changes.error.more')} retryLabel={t('app.error.retry')} onRetry={more} />
       : null}
     {changes.nextCursor
-      ? <Button variant="secondary" className="mt-2 w-full sm:w-auto sm:justify-self-start" aria-disabled={changes.loadingMore}
+      ? <Button variant="secondary" className="mt-2 w-full sm:w-auto sm:justify-self-start aria-disabled:cursor-not-allowed aria-disabled:opacity-60" aria-disabled={changes.loadingMore}
         onClick={more}>
         {t('aiApps.changes.more')}
       </Button>

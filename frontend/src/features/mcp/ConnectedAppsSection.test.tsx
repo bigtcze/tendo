@@ -317,6 +317,24 @@ describe('ConnectedAppsSection pagination', () => {
     expect(screen.queryByRole('button', { name: en['connectedApps.more'] })).toBeNull();
   });
 
+  it('keeps Show more focusable while loading, then hands focus to the first new row on the last page', async () => {
+    let release!: (response: Response) => void;
+    installFakeServer({
+      [LIST]: (req) => (req.query.get('cursor') === 'c1'
+        ? new Promise<Response>((resolve) => { release = resolve; })
+        : page([A, B], 'c1')),
+    });
+    renders();
+    const more = await screen.findByRole('button', { name: en['connectedApps.more'] });
+    more.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(more).toHaveAttribute('aria-disabled', 'true'));
+    expect(more).toHaveFocus();
+    release(page([C]));
+    const disconnect = await screen.findByRole('button', { name: en['connectedApps.disconnectLabel'].replace('{client}', 'Mail bot') });
+    await waitFor(() => expect(disconnect).toHaveFocus());
+  });
+
   it('shows an inline error with Try again when a later page fails', async () => {
     let fail = true;
     installFakeServer({

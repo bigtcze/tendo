@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { useAppendedRowFocus } from '../../app/useAppendedRowFocus';
 import { Button } from '../../components/ui/button';
 import { Dialog } from '../../components/ui/dialog';
 import { LoadError } from '../../components/ui/load-error';
@@ -9,7 +10,6 @@ import { ConnectedAppRow, OWN_VOICE, type ConnectedAppsVoice } from './Connected
 import { ownGrants, type McpGrant } from './mcpGrantsApi';
 import { useAppDisconnect, type AppDisconnect, type DialogError, type FocusPlan } from './useAppDisconnect';
 import { useConnectedApps, type ConnectedApps } from './useConnectedApps';
-import { useAppendedRowFocus } from '../../app/useShowMoreList';
 
 const HEADING_ID = 'account-connected-apps-heading';
 
@@ -102,7 +102,7 @@ export function ConnectedAppsList({ apps, listRef, disconnect, voice }: {
       />)}
     </ul>
     {apps.moreFailed ? <LoadError message={t('connectedApps.error.more')} retryLabel={t('connectedApps.retry')} onRetry={more} /> : null}
-    {apps.nextCursor ? <Button variant="secondary" aria-disabled={apps.loadingMore} onClick={more}>
+    {apps.nextCursor ? <Button variant="secondary" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60" aria-disabled={apps.loadingMore} onClick={more}>
       {t('connectedApps.more')}
     </Button> : null}
   </div>;
