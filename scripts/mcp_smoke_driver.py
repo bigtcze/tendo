@@ -228,6 +228,43 @@ def households(access):
     return {(row['id'], row['name'], row['role']) for row in result['structuredContent']['households']}
 
 
+READ_TOOLS = ['list_households', 'list_items', 'get_item', 'list_completions', 'list_subjects', 'get_subject']
+
+
+def tool(access, name, arguments):
+    """One tools/call; returns (structuredContent, None) or (None, error text)."""
+    _, body = mcp(access, {'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call',
+                           'params': {'name': name, 'arguments': arguments}})
+    result = body['result']
+    if result.get('isError'):
+        return None, result['content'][0]['text']
+    return result['structuredContent'], None
+
+
+def read_tools(access, owner, home):
+    """The read tools against records created through the browser API."""
+    status, _, subject = request('POST', f'/api/v1/households/{home}/subjects', json_body={'type': 'vehicle', 'name': 'Smoke car'},
+                                 headers={'Cookie': owner, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-subject'})
+    check(status == 201, ('create subject', status, subject))
+    status, _, item = request('POST', f'/api/v1/households/{home}/items', json_body={'subjectId': subject['id'], 'title': 'Smoke oil change'},
+                              headers={'Cookie': owner, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-item'})
+    check(status == 201, ('create item', status, item))
+    found, err = tool(access, 'list_items', {'householdId': home, 'q': 'oil'})
+    check(err is None and [row['id'] for row in found['items']] == [item['id']] and found['nextCursor'] == '', ('list_items', found, err))
+    found, err = tool(access, 'get_item', {'householdId': home, 'itemId': item['id']})
+    check(err is None and found['title'] == 'Smoke oil change' and found['subjectId'] == subject['id'], ('get_item', found, err))
+    found, err = tool(access, 'list_completions', {'householdId': home, 'itemId': item['id']})
+    check(err is None and found['completions'] == [], ('list_completions', found, err))
+    found, err = tool(access, 'list_subjects', {'householdId': home})
+    check(err is None and subject['id'] in {row['id'] for row in found['subjects']}, ('list_subjects', found, err))
+    found, err = tool(access, 'get_subject', {'householdId': home, 'subjectId': subject['id']})
+    check(err is None and found['name'] == 'Smoke car', ('get_subject', found, err))
+    missing = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4bff'
+    _, unknown_house = tool(access, 'list_items', {'householdId': missing})
+    _, unknown_item = tool(access, 'get_item', {'householdId': home, 'itemId': missing})
+    check(unknown_house == unknown_item == 'the household or record was not found', (unknown_house, unknown_item))
+
+
 def mcp_refused(access):
     h, body = mcp(access, {'jsonrpc': '2.0', 'id': 9, 'method': 'tools/list'}, expect=401)
     check(body['error'] == 'invalid_token' and 'error="invalid_token"' in h['WWW-Authenticate'], (h, body))
@@ -359,8 +396,9 @@ def grant_c(cid, owner, home):
     check(body['result']['protocolVersion'] == PROTOCOL, body)
     mcp(access, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}, expect=202)
     _, body = mcp(access, {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
-    check([tool['name'] for tool in body['result']['tools']] == ['list_households'], body)
+    check(sorted(tool['name'] for tool in body['result']['tools']) == sorted(READ_TOOLS), body)
     check(households(access) == {(home, 'MCP Smoke', 'admin')}, 'grant C households')
+    read_tools(access, owner, home)
     status, _, body = request('POST', '/oauth/revoke', '/oauth/revoke', form={'client_id': cid})
     check(status == 400 and body['error'] == 'invalid_request', ('revoke without token', status, body))
     status, _, body = request('POST', '/oauth/revoke', '/oauth/revoke', form={'token': tokens['refresh_token'], 'client_id': cid})
@@ -410,6 +448,29 @@ def grant_m(cid, owner, home):
           'member households')
     owner_check = connect(cid, owner)
     check(households(owner_check['access_token']) == {(home, 'MCP Smoke', 'admin')}, 'owner sees a foreign household')
+    foreign_records(owner_check['access_token'], member, home, other['id'])
+
+
+def foreign_records(access, member, home, other):
+    """The owner's read tools refuse the member's household and its records
+    exactly as they refuse an unknown id."""
+    status, _, subject = request('POST', f'/api/v1/households/{other}/subjects', json_body={'type': 'home', 'name': 'Foreign flat'},
+                                 headers={'Cookie': member, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-foreign-subject'})
+    check(status == 201, ('foreign subject', status, subject))
+    status, _, item = request('POST', f'/api/v1/households/{other}/items', json_body={'subjectId': subject['id'], 'title': 'Foreign boiler'},
+                              headers={'Cookie': member, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-foreign-item'})
+    check(status == 201, ('foreign item', status, item))
+    refusals = [
+        tool(access, 'list_items', {'householdId': other})[1],
+        tool(access, 'get_item', {'householdId': other, 'itemId': item['id']})[1],
+        tool(access, 'get_item', {'householdId': home, 'itemId': item['id']})[1],
+        tool(access, 'list_completions', {'householdId': home, 'itemId': item['id']})[1],
+        tool(access, 'get_subject', {'householdId': home, 'subjectId': subject['id']})[1],
+        tool(access, 'list_subjects', {'householdId': other})[1],
+    ]
+    check(refusals == ['the household or record was not found'] * len(refusals), ('foreign refusals', refusals))
+    found, err = tool(access, 'list_items', {'householdId': home, 'q': 'Foreign'})
+    check(err is None and found['items'] == [], ('foreign search', found, err))
 
 
 def phase_enabled(state):

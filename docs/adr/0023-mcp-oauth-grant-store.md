@@ -1165,3 +1165,82 @@ read, without locks.
   the list, checks the 401, 403, 404, foreign-Origin and malformed-cursor
   refusals, revokes one grant and then the rest, and checks one `admin` event
   per grant with the owner as actor.
+
+## Slice B2: read tools
+
+Five read tools join `list_households`. Each is a thin adapter in the owning
+module (`internal/item/mcptool`, `internal/subject/mcptool`) over the same
+application service the HTTP API uses, called with the verified user ID and the
+household argument, so membership, visibility and not-found rules are the
+service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
+
+| Tool | Input | Output |
+| --- | --- | --- |
+| `list_items` | `householdId`, optional `q`, `subjectId`, `responsibleUserId` (UUID or `unassigned`), `workflowState`, `attention`, `recurring`, `archived`, `done`, `sort` (`created`, `attention_on`), `limit` 1–100, `cursor` | `{items, nextCursor}` |
+| `get_item` | `householdId`, `itemId` | one item |
+| `list_completions` | `householdId`, `itemId`, optional `order` (`oldest`, `newest`), `limit`, `cursor` | `{completions, nextCursor}`, undone entries included |
+| `list_subjects` | `householdId`, optional `archived`, `limit`, `cursor` | `{subjects, nextCursor}` |
+| `get_subject` | `householdId`, `subjectId` | one subject |
+
+### Decisions
+
+- Input schemas are inferred from the typed input and tightened (UUID pattern,
+  enums, `limit` range, `q` at most 200 characters, cursor at most 512), and
+  refuse unknown properties, so malformed input is refused before a service
+  call. Checks the schema cannot express (a whitespace-only `q`, control
+  characters) are the service's and are refused as that argument; neither kind
+  of refusal depends on stored data.
+- Every tool cursor is bound. `BindMCPCursor` wraps the service cursor with a
+  SHA-256 fingerprint of the tool, the verified user and every argument that
+  selects the collection (household, item, search, filters, sort, order,
+  archived, done); the page size may change. A cursor replayed under another
+  tool, user, household, item or filter is refused with one fixed text before
+  any service call. A service cursor alone is not always bound to its household
+  (the plain item `i1` cursor is not), so the binding is what stops a replay.
+  The fingerprint is unkeyed: it is a replay check, not an authorization
+  boundary. A client that wraps a service cursor for its own call gains
+  nothing, because the service authorizes every call and the cursor only
+  carries a keyset position in the caller's own query.
+- Errors are fixed texts (`identityhttp` `ErrMCPTool*`): one not-found text for
+  an unknown, foreign or no-longer-visible household, item, completion or
+  subject and for a caller who is not a member; invalid arguments name only the
+  schema argument; anything else is "temporarily unavailable" with no driver
+  text.
+- Outputs omit `householdId` (the caller supplied it). Dates are `YYYY-MM-DD` in
+  the household's time zone and timestamps RFC 3339 UTC.
+- `cmd/tendo` builds the tool set in `mcpTools`. The exclusion of instance
+  administration, member, invitation, role, account and policy tools rests on
+  three tests: the architecture scan lets a tool package import only its own
+  module's application package and the shared MCP packages, and use only the
+  scope constants of `identity`; a composition test pins the method set of each
+  port the tools receive (`Lister`, item and subject `Reader`); and the same
+  test pins every tool name and scope, requires `readOnlyHint` exactly for read
+  tools and refuses names that point at an excluded area.
+
+### Tests (B2)
+
+- Unit tests run each tool over an in-memory SDK session: missing principal and
+  a write-only token never reach the service, schema refusals, error mapping
+  with no driver text, and cursor binding per context. Removing the household
+  from the binding, or the not-found mapping, fails them.
+- Real PostgreSQL (`household/postgres/mcp_tools_test.go`) serves the
+  production tools over the production services with tokens from the real
+  flow: own records; a foreign household, a foreign item, subject or item
+  history under the caller's own household id, a completion or item id in the
+  wrong role, and unknown ids all give a byte-identical refusal; foreign
+  subject, member and title filters match nothing; cursors replayed by a member
+  of both households in another household, search, partition, order or item, or
+  by another user, are refused; membership removed between two calls with the
+  real removal service refuses the next call and its continuation cursor; and
+  two users calling concurrently see only their own records and get the exact
+  not-found refusal for each other's. Search covers notes as well as titles.
+- A real grant holding only `tendo:write` gets `403 insufficient_scope` from the
+  endpoint's front check for every read tool.
+- Not applicable in B2: "a completion id from another item" needs a tool that
+  takes a completion id; it lands with `undo_completion` in B3.
+- Smoke: `scripts/mcp_smoke_driver.py` checks the full tool list, calls every
+  read tool against records created through the browser API, and checks that
+  an unknown id, the member's household the owner does not belong to, and that
+  household's item and subject under the owner's household id all give the same
+  refusal, and that search does not find the foreign item. This exercises the
+  production `cmd/tendo` adapters, which the PostgreSQL fixture rebuilds.
