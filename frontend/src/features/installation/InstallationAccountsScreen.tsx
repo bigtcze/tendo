@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 're
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
-import { Button } from '../../components/ui/button';
+import { NavLink } from '../../app/NavLink';
+import { adminAccountAiAppsPath } from '../../app/routes';
+import { Button, buttonVariants } from '../../components/ui/button';
 import { CursorPager } from '../../components/ui/cursor-pager';
 import { Input } from '../../components/ui/input';
 import { ListSkeleton } from '../../components/ui/list-skeleton';
@@ -31,11 +33,13 @@ const QUERY_ERROR_ID = `${QUERY_ID}-error`;
  * answers. Nothing is deleted locally: the dialog asks the reader to repeat the login, the server decides, and the
  * list is then read again.
  */
-export function InstallationAccountsScreen({ login, viewerId, onSignedOut, onForbidden }: {
+export function InstallationAccountsScreen({ login, viewerId, onSignedOut, onForbidden, onOpenAiApps }: {
   login: string;
   viewerId: string;
   onSignedOut: () => void;
   onForbidden: () => void;
+  /** Opens one account's AI apps; the row's login names the page on the way in. */
+  onOpenAiApps: (userId: string, login: string) => void;
 }) {
   const { t } = useI18n();
   const queryRef = useRef<HTMLInputElement>(null);
@@ -101,6 +105,7 @@ export function InstallationAccountsScreen({ login, viewerId, onSignedOut, onFor
           onQuery={setQuery}
           onSearch={submitSearch}
           onDelete={deletion.request}
+          onOpenAiApps={onOpenAiApps}
           t={t}
         />}
     </section>
@@ -122,6 +127,7 @@ type DirectorySectionProps = {
   onQuery: (value: string) => void;
   onSearch: () => void;
   onDelete: (account: DirectoryAccount, trigger: HTMLElement) => void;
+  onOpenAiApps: (userId: string, login: string) => void;
   t: Translate;
 };
 
@@ -133,7 +139,7 @@ function DirectoryHeading({ headingRef, t }: { headingRef: RefObject<HTMLHeading
 }
 
 /** The directory section: its heading, the login search, and the state that is in the rows' place instead. */
-function DirectorySection({ list, needle, query, invalid, queryRef, viewerId, deleteBusy, onQuery, onSearch, onDelete, t }: DirectorySectionProps) {
+function DirectorySection({ list, needle, query, invalid, queryRef, viewerId, deleteBusy, onQuery, onSearch, onDelete, onOpenAiApps, t }: DirectorySectionProps) {
   return <section aria-labelledby="install-directory-heading" className="mt-6 sm:mt-8">
     <DirectoryHeading headingRef={list.headingRef} t={t} />
     <p className="mt-1 max-w-prose text-small text-muted">{t('install.accounts.explained')}</p>
@@ -155,6 +161,7 @@ function DirectorySection({ list, needle, query, invalid, queryRef, viewerId, de
       onNext={list.next}
       onRetryPage={list.retryPage}
       onDelete={onDelete}
+      onOpenAiApps={onOpenAiApps}
       t={t}
     /> : null}
   </section>;
@@ -187,7 +194,7 @@ function SearchField({ query, invalid, fieldRef, onQuery, onSearch }: {
 }
 
 /** The directory rows and their pager; a page failure keeps the rows on screen and offers that page again. */
-function Rows({ accounts, needle, viewerId, stack, nextCursor, busy, deleteBusy, pageFailure, onPrevious, onNext, onRetryPage, onDelete, t }: {
+function Rows({ accounts, needle, viewerId, stack, nextCursor, busy, deleteBusy, pageFailure, onPrevious, onNext, onRetryPage, onDelete, onOpenAiApps, t }: {
   accounts: DirectoryAccount[];
   needle: string;
   viewerId: string;
@@ -201,6 +208,7 @@ function Rows({ accounts, needle, viewerId, stack, nextCursor, busy, deleteBusy,
   onNext: (event: MouseEvent<HTMLButtonElement>) => void;
   onRetryPage: () => void;
   onDelete: (account: DirectoryAccount, trigger: HTMLElement) => void;
+  onOpenAiApps: (userId: string, login: string) => void;
   t: Translate;
 }) {
   return <>
@@ -212,6 +220,7 @@ function Rows({ accounts, needle, viewerId, stack, nextCursor, busy, deleteBusy,
           self={account.userId === viewerId}
           busy={deleteBusy}
           onDelete={onDelete}
+          onOpenAiApps={onOpenAiApps}
           t={t}
         />)}
       </ul>
@@ -228,14 +237,15 @@ function Rows({ accounts, needle, viewerId, stack, nextCursor, busy, deleteBusy,
 }
 
 /**
- * One flat account row: the login, which wraps rather than clipping, and the one action. The viewer's own row says
- * so and offers no action at all — no account deletes itself, and the server refuses it too.
+ * One flat account row: the login, which wraps rather than clipping, the way to the account's AI apps and the delete
+ * action. The viewer's own row says so and offers no delete — no account deletes itself, and the server refuses it too.
  */
-function AccountRow({ account, self, busy, onDelete, t }: {
+function AccountRow({ account, self, busy, onDelete, onOpenAiApps, t }: {
   account: DirectoryAccount;
   self: boolean;
   busy: boolean;
   onDelete: (account: DirectoryAccount, trigger: HTMLElement) => void;
+  onOpenAiApps: (userId: string, login: string) => void;
   t: Translate;
 }) {
   return <li data-install-directory-id={account.userId} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
@@ -243,14 +253,22 @@ function AccountRow({ account, self, busy, onDelete, t }: {
       <span data-install-login>{account.login}</span>
       {self ? <span className="font-normal text-muted"> ({t('members.you')})</span> : null}
     </p>
-    {self ? null : <Button
-      variant="secondary"
-      size="small"
-      disabled={busy}
-      aria-label={t('install.accounts.delete.label', { login: account.login })}
-      onClick={(event) => onDelete(account, event.currentTarget)}
-    >
-      {t('install.accounts.delete.action')}
-    </Button>}
+    {/* The actions wrap together, so a narrow row never splits them across the login. */}
+    <div className="flex flex-wrap gap-2">
+      <NavLink href={adminAccountAiAppsPath(account.userId)} onNavigate={() => onOpenAiApps(account.userId, account.login)}
+        aria-label={t('accountAiApps.openLabel', { login: account.login })}
+        className={buttonVariants({ variant: 'secondary', size: 'small' })}>
+        {t('accountAiApps.open')}
+      </NavLink>
+      {self ? null : <Button
+        variant="secondary"
+        size="small"
+        disabled={busy}
+        aria-label={t('install.accounts.delete.label', { login: account.login })}
+        onClick={(event) => onDelete(account, event.currentTarget)}
+      >
+        {t('install.accounts.delete.action')}
+      </Button>}
+    </div>
   </li>;
 }

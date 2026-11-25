@@ -60,6 +60,9 @@ async function captureScreen(page: Page, base: string, fullPage = false) {
   }
 }
 
+/** One account's AI apps; the screen is settled once what apps may do now is shown. */
+const ACCOUNT_AI_APPS = /^\/admin\/accounts\/[^/]+\/ai-apps$/;
+
 /** The Account groups must be settled and every choice must be either on one row or fully stacked, never partly wrapped. */
 async function assertSegmentedLayout(group: Locator, count: number) {
   const geometry = await group.evaluate((element) => {
@@ -207,6 +210,8 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
       await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
     } else if (path === '/admin/ai-apps') {
       await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
+    } else if (ACCOUNT_AI_APPS.test(path)) {
+      await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
     } else {
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     }
@@ -221,6 +226,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     else if (path === '/admin/households') await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
     else if (path === '/admin/accounts') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
     else if (path === '/admin/ai-apps') await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
+    else if (ACCOUNT_AI_APPS.test(path)) await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
     if (path === '/items') await waitForAllItemsSummary(page);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -906,6 +912,39 @@ test('Installation AI apps', async ({ browser }) => {
   await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
   await expect(page.getByRole('switch', { name: cs['aiApps.enabled'], exact: true })).toBeChecked();
   await capture(page, 'admin-ai-apps-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await context.close();
+});
+
+test('Installation account AI apps', async ({ browser }) => {
+  test.setTimeout(60_000);
+  const { context, page } = await authenticated(browser);
+  // Reached from the reference member's row in Accounts. Nothing is set for that account and nothing is saved, so it
+  // follows the shipped installation defaults and the captures that follow find apps as they were.
+  await page.goto('/admin/accounts');
+  const openLabel = en['accountAiApps.openLabel'].replace('{login}', REFERENCE_MEMBER_LOGIN);
+  const link = page.getByRole('link', { name: openLabel, exact: true });
+  const href = await link.getAttribute('href');
+  expect(href).toMatch(/^\/admin\/accounts\/[0-9a-f-]{36}\/ai-apps$/);
+  await link.click();
+  const heading = en['accountAiApps.titleFor'].replace('{login}', REFERENCE_MEMBER_LOGIN);
+  await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+  const useGroup = page.getByRole('group', { name: en['accountAiApps.use.title'], exact: true });
+  await expect(useGroup.getByRole('radio', { name: en['accountAiApps.use.default'], exact: true })).toBeChecked();
+  await expect(page.locator('[data-account-ai-apps-now]')).toHaveText(en['accountAiApps.now.both']);
+  await captureScreen(page, 'admin-account-ai-apps', true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await capture(page, 'admin-account-ai-apps-320', 320, 640, true);
+
+  // A direct visit carries no login, so the dark pass and Czech show the generic heading.
+  await darkScreen(browser, statePath, href!, 'admin-account-ai-apps');
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: cs['accountAiApps.title'] })).toBeVisible();
+  await expect(page.getByRole('radio', { name: cs['accountAiApps.use.default'], exact: true }).first()).toBeChecked();
+  await capture(page, 'admin-account-ai-apps-cs-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await context.close();
 });

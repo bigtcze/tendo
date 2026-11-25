@@ -17,7 +17,9 @@ export type Route =
   | { kind: 'item'; itemId: string }
   | { kind: 'invalidItem' }
   /** The installation-wide administration screens; they belong to the account, not to a household. */
-  | { kind: 'adminHousehold'; householdId: string };
+  | { kind: 'adminHousehold'; householdId: string }
+  /** One account's AI apps, reached from its row in the account directory. */
+  | { kind: 'adminAccountAiApps'; userId: string };
 
 const SIMPLE_ROUTES = new Map<string, Route>([
   [PEOPLE_PATH, { kind: 'people' }],
@@ -50,18 +52,34 @@ export function readRoute(path = window.location.pathname): Route {
     const segments = path.slice('/items/'.length).split('/');
     return segments.length === 1 ? { kind: 'invalidItem' } : { kind: 'notFound' };
   }
+  return readInstallationTarget(path);
+}
+
+/**
+ * One household's accounts, or one account's AI apps. A malformed identifier and any other address are both simply
+ * not a page; there is no partial screen for them.
+ */
+function readInstallationTarget(path: string): Route {
   if (path.startsWith(`${ADMIN_HOUSEHOLDS_PATH}/`)) {
-    // A malformed identifier and a deeper address are both simply not a page; there is no partial screen for them.
     const [householdId, ...rest] = path.slice(ADMIN_HOUSEHOLDS_PATH.length + 1).split('/');
-    return rest.length === 0 && householdId && UUID.test(householdId)
-      ? { kind: 'adminHousehold', householdId }
-      : { kind: 'notFound' };
+    if (rest.length === 0 && householdId && UUID.test(householdId)) return { kind: 'adminHousehold', householdId };
+  }
+  if (path.startsWith(`${ADMIN_ACCOUNTS_PATH}/`)) {
+    const [userId, page, ...rest] = path.slice(ADMIN_ACCOUNTS_PATH.length + 1).split('/');
+    if (rest.length === 0 && page === 'ai-apps' && userId && UUID.test(userId)) return { kind: 'adminAccountAiApps', userId };
   }
   return { kind: 'notFound' };
 }
 
+/** The address of one account's AI apps. */
+export function adminAccountAiAppsPath(userId: string) {
+  return `${ADMIN_ACCOUNTS_PATH}/${encodeURIComponent(userId)}/ai-apps`;
+}
+
 /** The installation-wide Admin center screens, which an account without any household still reaches. */
-const INSTALLATION_KINDS: ReadonlySet<Route['kind']> = new Set(['adminHouseholds', 'adminAccounts', 'adminAiApps', 'adminHousehold']);
+const INSTALLATION_KINDS: ReadonlySet<Route['kind']> = new Set([
+  'adminHouseholds', 'adminAccounts', 'adminAiApps', 'adminHousehold', 'adminAccountAiApps',
+]);
 
 export function householdNavRoute(route: Route, hasHousehold: boolean): HouseholdRoute {
   if (route.kind === 'notFound') return 'home';
