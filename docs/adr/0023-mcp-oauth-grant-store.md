@@ -1861,9 +1861,6 @@ use.
 
 ### Deviations and follow-ups (B5)
 
-- Independent review approved it. Its nits were taken: the switch-off is inside
-  the restoring block, a failed restore no longer hides the original failure,
-  n33f checks every history row, and the live smoke refuses foreign writes.
 - The golden table is not repeated in the live smoke; it runs at the domain,
   PostgreSQL, API, UI and MCP tool layers already (B3). The smoke and n33f pin
   the fixed short-month clamp and anchor restoration end to end.

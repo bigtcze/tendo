@@ -604,8 +604,9 @@ def grant_m(cid, owner, home):
 
 
 def foreign_records(access, member, home, other):
-    """The owner's read tools refuse the member's household and its records
-    exactly as they refuse an unknown id."""
+    """The owner's read and write tools refuse the member's household and its
+    records exactly as they refuse an unknown id, and a refused write leaves
+    nothing written."""
     status, _, subject = request('POST', f'/api/v1/households/{other}/subjects', json_body={'type': 'home', 'name': 'Foreign flat'},
                                  headers={'Cookie': member, 'Origin': ORIGIN, 'Idempotency-Key': 'mcp-smoke-foreign-subject'})
     check(status == 201, ('foreign subject', status, subject))
