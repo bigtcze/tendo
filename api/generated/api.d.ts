@@ -630,7 +630,7 @@ export interface paths {
         };
         /**
          * List the MCP policy audit
-         * @description Instance administrator only (ADR 0023, slice B1b2). One newest-first page of the policy audit across the installation, account and user levels, ordered by the uuidv7 id. limit defaults to 50 and is capped at 100. cursor is opaque and versioned; a malformed cursor is a 400 invalid_query on cursor and reads nothing. Session cookie only. Reads need no Origin header.
+         * @description Instance administrator only (ADR 0023, slice B1b2). One newest-first page of the policy audit across the installation, account and user levels, ordered by the uuidv7 id. limit defaults to 50 and is capped at 100. cursor is opaque and versioned; a malformed cursor is a 400 invalid_query on cursor and reads nothing. Each row names its actor and target by their current login, read in the same statement (slice B4a3a); a deleted account reads as null and its former login is never returned. Session cookie only. Reads need no Origin header.
          */
         get: operations["listMcpPolicyEvents"];
         put?: never;
@@ -1386,11 +1386,15 @@ export interface components {
             policy: "installation" | "account" | "user";
             /** Format: uuid */
             actorUserId: string;
+            /** @description The actor's current login, read with the list. null when the account has been deleted; a deleted account's former login is never returned. */
+            actorLogin: string | null;
             /**
              * Format: uuid
              * @description The account the change applies to. null for the installation level.
              */
             targetUserId: string | null;
+            /** @description The target account's current login, read with the list. null for the installation level and when the account has been deleted. */
+            targetLogin: string | null;
             enabled: boolean | null;
             /** @description Set only for the installation level. */
             defaultAccountEnabled: boolean | null;
@@ -10112,7 +10116,9 @@ export interface operations {
                      *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
                      *           "policy": "installation",
                      *           "actorUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                     *           "actorLogin": "owner",
                      *           "targetUserId": null,
+                     *           "targetLogin": null,
                      *           "enabled": true,
                      *           "defaultAccountEnabled": true,
                      *           "scopes": [

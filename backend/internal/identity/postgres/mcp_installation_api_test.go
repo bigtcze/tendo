@@ -318,3 +318,72 @@ func (e *mcpEnv) installationVersion(t *testing.T) int64 {
 	}
 	return version
 }
+
+// TestMCPPolicyEventsNameLiveAccounts (slice B4a3a): each audit row names its
+// actor and target by login, read in the same statement. The installation
+// level has no target login, and a deleted account is named by neither its old
+// login nor its tombstone: both read as empty.
+func TestMCPPolicyEventsNameLiveAccounts(t *testing.T) {
+	env := newMCPEnv(t)
+	env.resetInstallation(t)
+	t.Cleanup(func() { env.resetInstallation(t) })
+	policies := env.installationService(t, true)
+	adminID, _ := env.newAccount(t, "mcp_names_admin")
+	env.grantInstanceAdmin(t, adminID)
+	user, _ := env.newAccount(t, "mcp_names_owner")
+
+	view, err := policies.InstallationPolicy(env.ctx, adminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := policies.UpdateInstallationPolicy(env.ctx, adminID, identity.MCPInstallationChange{Enabled: true, DefaultAccountEnabled: false, DefaultMaxScopes: view.DefaultMaxScopes}, view.Version); err != nil {
+		t.Fatal(err)
+	}
+	account, err := policies.AccountPolicy(env.ctx, adminID, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err = policies.UpdateAccountPolicy(env.ctx, adminID, user, identity.MCPAccountPolicyChange{MaxScopes: []string{identity.MCPScopeRead}}, account.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := policies.UpdateSettings(env.ctx, user, identity.MCPSettingsChange{Enabled: true, Scopes: []string{identity.MCPScopeRead}}, account.Version); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := policies.PolicyEvents(env.ctx, adminID, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("events=%d want 3: %+v", len(page.Items), page.Items)
+	}
+	userEvent, accountEvent, installationEvent := page.Items[0], page.Items[1], page.Items[2]
+	if userEvent.Kind != identity.MCPPolicyEventUser || userEvent.ActorLogin != "mcp_names_owner" || userEvent.TargetLogin != "mcp_names_owner" {
+		t.Fatalf("user event names: %+v", userEvent)
+	}
+	if accountEvent.Kind != identity.MCPPolicyEventAccount || accountEvent.ActorLogin != "mcp_names_admin" || accountEvent.TargetLogin != "mcp_names_owner" {
+		t.Fatalf("account event names: %+v", accountEvent)
+	}
+	if installationEvent.Kind != identity.MCPPolicyEventInstallation || installationEvent.ActorLogin != "mcp_names_admin" || installationEvent.TargetLogin != "" {
+		t.Fatalf("installation event names: %+v", installationEvent)
+	}
+
+	eraseAccountAdmin(t, env, user, adminID)
+	page, err = policies.PolicyEvents(env.ctx, adminID, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("events after deletion=%d want 3: %+v", len(page.Items), page.Items)
+	}
+	if got := page.Items[0]; got.ActorUserID != user || got.ActorLogin != "" || got.TargetLogin != "" {
+		t.Fatalf("a deleted actor is still named: %+v", got)
+	}
+	if got := page.Items[1]; got.TargetUserID != user || got.TargetLogin != "" || got.ActorLogin != "mcp_names_admin" {
+		t.Fatalf("a deleted target is still named: %+v", got)
+	}
+	if got := page.Items[2]; got.ActorLogin != "mcp_names_admin" || got.TargetLogin != "" {
+		t.Fatalf("installation event after deletion: %+v", got)
+	}
+}

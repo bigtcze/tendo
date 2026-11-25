@@ -74,10 +74,13 @@ func (q *Queries) IsMCPPolicyInstanceAdmin(ctx context.Context, userID pgtype.UU
 }
 
 const listMCPPolicyEvents = `-- name: ListMCPPolicyEvents :many
-SELECT id, policy, actor_user_id, target_user_id, enabled, default_account_enabled, scopes, occurred_at
-FROM mcp_policy_events
-WHERE ($1::uuid IS NULL OR id < $1::uuid)
-ORDER BY id DESC
+SELECT e.id, e.policy, e.actor_user_id, e.target_user_id, e.enabled, e.default_account_enabled, e.scopes, e.occurred_at,
+  actor.login AS actor_login, target.login AS target_login
+FROM mcp_policy_events e
+LEFT JOIN user_accounts actor ON actor.id = e.actor_user_id AND actor.deleted_at IS NULL
+LEFT JOIN user_accounts target ON target.id = e.target_user_id AND target.deleted_at IS NULL
+WHERE ($1::uuid IS NULL OR e.id < $1::uuid)
+ORDER BY e.id DESC
 LIMIT $2::int
 `
 
@@ -95,10 +98,14 @@ type ListMCPPolicyEventsRow struct {
 	DefaultAccountEnabled pgtype.Bool
 	Scopes                []string
 	OccurredAt            pgtype.Timestamptz
+	ActorLogin            pgtype.Text
+	TargetLogin           pgtype.Text
 }
 
 // The audit list across all levels, newest first by uuidv7 id. A null after_id
-// is the first page.
+// is the first page. Each row names its actor and target by their login in the
+// same statement (slice B4a3a). A deleted account reads as NULL, so neither its
+// old login nor its tombstone is shown; the installation level has no target.
 func (q *Queries) ListMCPPolicyEvents(ctx context.Context, arg ListMCPPolicyEventsParams) ([]ListMCPPolicyEventsRow, error) {
 	rows, err := q.db.Query(ctx, listMCPPolicyEvents, arg.AfterID, arg.PageLimit)
 	if err != nil {
@@ -117,6 +124,8 @@ func (q *Queries) ListMCPPolicyEvents(ctx context.Context, arg ListMCPPolicyEven
 			&i.DefaultAccountEnabled,
 			&i.Scopes,
 			&i.OccurredAt,
+			&i.ActorLogin,
+			&i.TargetLogin,
 		); err != nil {
 			return nil, err
 		}

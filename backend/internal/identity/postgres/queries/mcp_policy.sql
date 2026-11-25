@@ -84,9 +84,14 @@ WHERE singleton AND version = sqlc.arg(version)::bigint - 1;
 
 -- name: ListMCPPolicyEvents :many
 -- The audit list across all levels, newest first by uuidv7 id. A null after_id
--- is the first page.
-SELECT id, policy, actor_user_id, target_user_id, enabled, default_account_enabled, scopes, occurred_at
-FROM mcp_policy_events
-WHERE (sqlc.narg(after_id)::uuid IS NULL OR id < sqlc.narg(after_id)::uuid)
-ORDER BY id DESC
+-- is the first page. Each row names its actor and target by their login in the
+-- same statement (slice B4a3a). A deleted account reads as NULL, so neither its
+-- old login nor its tombstone is shown; the installation level has no target.
+SELECT e.id, e.policy, e.actor_user_id, e.target_user_id, e.enabled, e.default_account_enabled, e.scopes, e.occurred_at,
+  actor.login AS actor_login, target.login AS target_login
+FROM mcp_policy_events e
+LEFT JOIN user_accounts actor ON actor.id = e.actor_user_id AND actor.deleted_at IS NULL
+LEFT JOIN user_accounts target ON target.id = e.target_user_id AND target.deleted_at IS NULL
+WHERE (sqlc.narg(after_id)::uuid IS NULL OR e.id < sqlc.narg(after_id)::uuid)
+ORDER BY e.id DESC
 LIMIT sqlc.arg(page_limit)::int;

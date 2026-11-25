@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -175,5 +176,45 @@ func TestInstallationPolicyRoutesRequireSessionAndAdmin(t *testing.T) {
 	}
 	if svc.readCalls != 0 || svc.updCalls != 0 || svc.total() != 3 {
 		t.Fatalf("a non-admin reached a command: total=%d", svc.total())
+	}
+}
+
+// TestPolicyEventsNameAccountsByLogin (slice B4a3a): each audit row carries the
+// actor's and the target's login next to their ids, and an account without a
+// login (installation level, or a deleted account) is null, never omitted.
+func TestPolicyEventsNameAccountsByLogin(t *testing.T) {
+	enabled, defaultOn := true, false
+	svc := &fakeMCPPolicyService{eventsOut: identity.MCPPolicyEventList{Items: []identity.MCPPolicyEvent{
+		{
+			ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b72", Kind: identity.MCPPolicyEventAccount,
+			ActorUserID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62", ActorLogin: "owner",
+			TargetUserID: policyTarget, TargetLogin: "bob", Scopes: []string{"tendo:read"},
+			OccurredAt: time.Date(2026, 11, 24, 10, 1, 0, 0, time.UTC),
+		},
+		{
+			ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70", Kind: identity.MCPPolicyEventInstallation,
+			ActorUserID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63", Enabled: &enabled, DefaultAccountEnabled: &defaultOn,
+			Scopes: []string{"tendo:read"}, OccurredAt: time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC),
+		},
+	}}}
+	w := policyServe(policyRouter(svc, signedIn()), policyCall{method: http.MethodGet, target: mcpPolicyEventsPath, cookie: sessionCookieHeader})
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	var page struct {
+		Items []map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Items) != 2 {
+		t.Fatalf("body=%s err=%v", w.Body, err)
+	}
+	for i, want := range []map[string]string{
+		{"actorLogin": `"owner"`, "targetLogin": `"bob"`, "targetUserId": `"` + policyTarget + `"`},
+		{"actorLogin": "null", "targetLogin": "null", "targetUserId": "null"},
+	} {
+		for key, value := range want {
+			if got, ok := page.Items[i][key]; !ok || string(got) != value {
+				t.Errorf("item %d %s=%s (present=%v) want %s", i, key, got, ok, value)
+			}
+		}
 	}
 }

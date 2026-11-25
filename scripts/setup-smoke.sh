@@ -831,7 +831,7 @@ st,h,inst_noop=ainst_req('PUT',{**owner_mut,'If-Match':'"2"'},body={'enabled':Fa
 assert st==200 and inst_noop['enabled'] is False and h['ETag']=='"2"',('installation mcp no-op PUT',st,inst_noop,dict(h))
 assert psql("SELECT count(*) FROM mcp_policy_events WHERE policy='installation'")=='1','installation no-op PUT wrote an audit row'
 st,_,events=call('GET',ADM_EVENTS,template=ADM_EVENTS,headers=cookie_header,sink=fixtures)[:3]
-assert st==200 and events['items'] and events['items'][0]['policy']=='installation' and events['items'][0]['actorUserId']==owner_account_id and events['items'][0]['targetUserId'] is None and events['items'][0]['defaultAccountEnabled'] is True,('installation mcp policy audit list',st,events)
+assert st==200 and events['items'] and events['items'][0]['policy']=='installation' and events['items'][0]['actorUserId']==owner_account_id and events['items'][0]['actorLogin']=='owner_smoke' and events['items'][0]['targetUserId'] is None and events['items'][0]['targetLogin'] is None and events['items'][0]['defaultAccountEnabled'] is True,('installation mcp policy audit list',st,events)
 st,_,bad_cursor=call('GET',ADM_EVENTS+'?cursor=p1-not-a-cursor',template=ADM_EVENTS,headers=cookie_header,sink=fixtures)[:3]
 assert st==400 and bad_cursor['code']=='invalid_query' and bad_cursor['parameter']=='cursor',('audit list malformed cursor',st,bad_cursor)
 st,_,member_events=call('GET',ADM_EVENTS,template=ADM_EVENTS,headers={'Cookie':member_token},sink=fixtures)[:3]

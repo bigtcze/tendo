@@ -48,10 +48,15 @@ const (
 // TargetUserID is empty for the installation level, and DefaultAccountEnabled
 // is set only for that level.
 type MCPPolicyEvent struct {
-	ID                    string
-	Kind                  MCPPolicyEventKind
-	ActorUserID           string
-	TargetUserID          string
+	ID           string
+	Kind         MCPPolicyEventKind
+	ActorUserID  string
+	TargetUserID string
+	// ActorLogin and TargetLogin are read with the list only (slice B4a3a) and
+	// never written. Empty means the account is deleted, or, for the target,
+	// that the event is at the installation level.
+	ActorLogin            string
+	TargetLogin           string
 	Enabled               *bool
 	DefaultAccountEnabled *bool
 	Scopes                []string
