@@ -1815,3 +1815,48 @@ Account.
   for, unless it narrowed its own choice; the blocked card's hint is
   conditional for that reason.
 - B5 (live smoke, journey and DONE evidence) follows.
+
+## Slice B5: live smoke and journey 13
+
+No product change. The write tools and the administrator's controls are
+proved on the production build, through the same paths a person and an AI app
+use.
+
+### Decisions (B5)
+
+- The deployment MCP smoke gets grant R, between W and D. With a full grant it
+  creates a fixed monthly item anchored on the 31st through `create_item`
+  (replayed by its key), renames it with `update_item` and is refused a stale
+  version, completes it on 31 January (the clamped 28 February) with a replay
+  of the same key, then on 28 February (the restored 31 March), and undoes the
+  second completion. After every step the item, its `ETag` and its history are
+  read back through the browser API. The Compose app runs on the real clock,
+  so the completion dates are submitted past dates, never today.
+- The same grant then meets the administrator: the account switched off
+  refuses `/mcp` and refresh, the override cleared lets the same access token
+  work and the same refresh token rotate (the refusal did not consume it); a
+  read-only maximum turns `complete_item` into the scope tool error while a
+  read tool still works and the item keeps its version; the administrator's
+  revocation ends the grant, and its one `revoked` event has reason `admin`.
+  Each override is cleared in a `finally`, so a failure never leaves the
+  owner switched off for the later phases.
+- Journey n33f (TESTING primary journey 13) runs on the fixed journey clock:
+  an MCP client creates and completes the same kind of item today, and the
+  item detail draws that receipt exactly as it draws an app completion. Done in
+  the app continues the MCP cadence, `undo_completion` undoes the app's
+  completion, and an MCP Done again gives a fresh receipt with no drift. The
+  item is archived and the owner's apps are cleared afterwards, whatever
+  failed.
+
+### Tests (B5)
+
+- `scripts/mcp-smoke.sh` locally: passed. Changing the expected restored date
+  in grant R to 28 March fails the enabled phase on that check, with the
+  report redacted.
+- Journey n33f in `scripts/e2e-smoke.sh` as part of the full gate.
+
+### Deviations and follow-ups (B5)
+
+- The golden table is not repeated in the live smoke; it runs at the domain,
+  PostgreSQL, API, UI and MCP tool layers already (B3). The smoke and n33f pin
+  the fixed short-month clamp and anchor restoration end to end.

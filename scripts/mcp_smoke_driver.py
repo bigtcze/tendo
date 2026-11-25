@@ -18,6 +18,9 @@ and refresh replay revoke the whole grant (ADR 0023):
   D  disconnect through Connected apps
   E  stays live across the disable and re-enable phases
   W  tendo:write only: a write tool runs; a read tool is the step-up 403
+  R  the write tools and MCP Done/Undo on a golden fixed monthly cadence, read
+     back through the browser API; then the administrator's account switch,
+     read-only maximum and revocation reach the same token (#457 B5)
   M  a second account: cross-household isolation
 """
 import base64, hashlib, json, os, secrets as rnd, subprocess, sys, traceback
@@ -28,6 +31,11 @@ RESOURCE = ORIGIN + '/mcp'
 FOREIGN = 'http://foreign.invalid'
 REDIRECT = 'http://127.0.0.1:9/callback'
 PROTOCOL = '2025-11-25'
+ADM_POLICY = '/api/v1/admin/accounts/{userId}/mcp-policy'
+ADM_GRANT = '/api/v1/admin/accounts/{userId}/mcp-grants/{grantId}'
+ITEM = '/api/v1/households/{householdId}/items/{itemId}'
+COMPLETIONS = ITEM + '/completions'
+SCOPE_REFUSAL = 'the token does not grant the scope this tool requires'
 CONSENT = '/api/v1/mcp/authorization-requests/{requestHandle}'
 DECISION = CONSENT + '/decision'
 GRANT = '/api/v1/mcp/grants/{grantId}'
@@ -440,6 +448,125 @@ def grant_d(cid, owner):
     return grant_id
 
 
+def browser_item(owner, home, item_id):
+    """The item and its completions, newest first, as the browser API reads them."""
+    status, h, found = request('GET', f'/api/v1/households/{home}/items/{item_id}', ITEM, headers={'Cookie': owner})
+    check(status == 200, ('browser item', status, found))
+    status, _, history = request('GET', f'/api/v1/households/{home}/items/{item_id}/completions?order=newest',
+                                 COMPLETIONS, headers={'Cookie': owner})
+    check(status == 200, ('browser completions', status, history))
+    return found, h['ETag'], history['items']
+
+
+def mcp_done_undo(access, owner, owner_id, home):
+    """The write tools on the live app. A fixed monthly item anchored on the
+    31st is completed through complete_item: the clamped February date, then the
+    restored 31st (RECURRENCE "monthly fixed short month" and "fixed anchor
+    restoration", on past dates because the Compose app runs on the real
+    clock). Each step is read back through the browser API, so the MCP path and
+    the HTTP path are proved to be the same service. Returns the item."""
+    subjects, err = tool(access, 'list_subjects', {'householdId': home})
+    check(err is None, ('list_subjects', err))
+    subject = next(row['id'] for row in subjects['subjects'] if row['name'] == 'Smoke write')
+    arguments = {'householdId': home, 'subjectId': subject, 'title': 'Smoke pantry', 'attentionOn': '2026-01-31',
+                 'idempotencyKey': 'mcp-smoke-r-item', 'recurrence': {'intervalValue': 1, 'intervalUnit': 'month', 'mode': 'fixed'}}
+    created, err = tool(access, 'create_item', arguments)
+    check(err is None and created['attentionOn'] == '2026-01-31' and created['version'] == 1, ('create_item', created, err))
+    replayed, err = tool(access, 'create_item', arguments)
+    check(err is None and replayed['id'] == created['id'], ('create_item replay', replayed, err))
+    item_id = created['id']
+    found, etag, history = browser_item(owner, home, item_id)
+    check(found['recurrence'] == {'intervalValue': 1, 'intervalUnit': 'month', 'mode': 'fixed'} and etag == '"1"' and history == [],
+          ('created item in the browser API', found, etag, history))
+
+    updated, err = tool(access, 'update_item', {'householdId': home, 'itemId': item_id, 'version': 1, 'title': 'Smoke pantry stock'})
+    check(err is None and updated['title'] == 'Smoke pantry stock' and updated['version'] == 2, ('update_item', updated, err))
+    _, stale = tool(access, 'update_item', {'householdId': home, 'itemId': item_id, 'version': 1, 'title': 'Lost update'})
+    check(stale == 'the record has changed; read it again and use its current version', ('stale update_item', stale))
+
+    done = {'householdId': home, 'itemId': item_id, 'version': 2, 'idempotencyKey': 'mcp-smoke-r-done-1', 'completedOn': '2026-01-31'}
+    first, err = tool(access, 'complete_item', done)
+    check(err is None and first['replayed'] is False and first['itemVersion'] == 3, ('complete_item', first, err))
+    check(first['completion']['cycleAttentionOn'] == '2026-01-31' and first['completion']['nextAttentionOn'] == '2026-02-28'
+          and first['completion']['completedByUserId'] == owner_id, ('clamped February', first))
+    again, err = tool(access, 'complete_item', done)
+    check(err is None and again['replayed'] is True and again['completion']['id'] == first['completion']['id'],
+          ('complete_item replay', again, err))
+    found, etag, history = browser_item(owner, home, item_id)
+    check(found['attentionOn'] == '2026-02-28' and found['lastCompletedOn'] == '2026-01-31' and etag == '"3"'
+          and [row['id'] for row in history] == [first['completion']['id']], ('after the first Done', found, etag, history))
+
+    second, err = tool(access, 'complete_item', {**done, 'version': 3, 'idempotencyKey': 'mcp-smoke-r-done-2', 'completedOn': '2026-02-28'})
+    check(err is None and second['completion']['nextAttentionOn'] == '2026-03-31', ('anchor restored', second, err))
+    found, etag, history = browser_item(owner, home, item_id)
+    check(found['attentionOn'] == '2026-03-31' and etag == f'"{second["itemVersion"]}"' and len(history) == 2,
+          ('after the second Done', found, etag, history))
+
+    undone, err = tool(access, 'undo_completion', {'householdId': home, 'itemId': item_id,
+                                                   'completionId': second['completion']['id'], 'version': second['itemVersion']})
+    check(err is None and undone['completion']['undoneByUserId'] == owner_id and undone['item']['attentionOn'] == '2026-02-28',
+          ('undo_completion', undone, err))
+    found, etag, history = browser_item(owner, home, item_id)
+    check(found['attentionOn'] == '2026-02-28' and found['lastCompletedOn'] == '2026-01-31'
+          and etag == f'"{undone["item"]["version"]}"', ('after the Undo', found, etag))
+    check([(row['id'], row['undoneByUserId']) for row in history] == [(second['completion']['id'], owner_id), (first['completion']['id'], None)],
+          ('history after the Undo', history))
+    return found, undone['item']['version']
+
+
+def admin_account_policy(owner, owner_id, enabled, max_scopes):
+    """The administrator's override of the account, written with the version read."""
+    url = f'/api/v1/admin/accounts/{owner_id}/mcp-policy'
+    status, h, _ = request('GET', url, ADM_POLICY, headers={'Cookie': owner})
+    check(status == 200, ('admin policy read', status))
+    status, _, body = request('PUT', url, ADM_POLICY, json_body={'enabled': enabled, 'maxScopes': max_scopes},
+                              headers={'Origin': ORIGIN, 'Cookie': owner, 'If-Match': h['ETag']})
+    check(status == 200 and body['enabled'] == enabled and body['maxScopes'] == max_scopes, ('admin policy write', status, body))
+
+
+def grant_r(cid, owner, home):
+    """MCP Done/Undo on the live app, then the administrator's controls reach
+    the same grant on its next call: the account switched off refuses /mcp and
+    refresh without consuming the refresh token, and the grant works again once
+    the override is cleared; a read-only maximum turns a write call into the
+    scope tool error and writes nothing; an administrator revocation ends the
+    grant (#457 B5)."""
+    _, _, me = request('GET', '/api/v1/session', headers={'Cookie': owner})
+    owner_id = me['userId']
+    tokens = connect(cid, owner)
+    grant_id = grant_of(tokens['access_token'])
+    item, version = mcp_done_undo(tokens['access_token'], owner, owner_id, home)
+    expected = {(home, 'MCP Smoke', 'admin')}
+
+    admin_account_policy(owner, owner_id, False, None)
+    try:
+        mcp_refused(tokens['access_token'])
+        refresh(cid, tokens, 400, 'invalid_grant')
+    finally:
+        admin_account_policy(owner, owner_id, None, None)
+    check(households(tokens['access_token']) == expected, 'the same token after the account is allowed again')
+    tokens = refresh(cid, tokens)
+    check(tokens['scope'] == 'tendo:read tendo:write', ('the refused refresh was not consumed', tokens['scope']))
+
+    admin_account_policy(owner, owner_id, None, ['tendo:read'])
+    try:
+        _, refused = tool(tokens['access_token'], 'complete_item', {
+            'householdId': home, 'itemId': item['id'], 'version': version, 'idempotencyKey': 'mcp-smoke-r-refused'})
+        check(refused == SCOPE_REFUSAL, ('read-only maximum', refused))
+        check(households(tokens['access_token']) == expected, 'read still works under a read-only maximum')
+        found, etag, _ = browser_item(owner, home, item['id'])
+        check(etag == f'"{version}"' and found['attentionOn'] == '2026-02-28', ('the refused write changed the item', found, etag))
+    finally:
+        admin_account_policy(owner, owner_id, None, None)
+
+    status, _, body = request('DELETE', f'/api/v1/admin/accounts/{owner_id}/mcp-grants/{grant_id}', ADM_GRANT,
+                              headers={'Origin': ORIGIN, 'Cookie': owner})
+    check(status == 204, ('admin revoke', status, body))
+    mcp_refused(tokens['access_token'])
+    refresh(cid, tokens, 400, 'invalid_grant')
+    return grant_id
+
+
 def grant_m(cid, owner, home):
     """A second account in a household the owner does not belong to."""
     status, _, invite = request('POST', f'/api/v1/households/{home}/invitations', json_body={},
@@ -486,7 +613,7 @@ def foreign_records(access, member, home, other):
 
 def phase_enabled(state):
     # Fixed order: replays revoke a whole grant, so each grant has one role.
-    # /oauth/authorize allows 20 requests per minute per IP; this phase makes 11.
+    # /oauth/authorize allows 20 requests per minute per IP; this phase makes 12.
     owner, home = setup_owner()
     discover()
     cid = register()
@@ -496,6 +623,7 @@ def phase_enabled(state):
     revoked[grant_b(cid, owner, home)] = 'replay'
     revoked[grant_c(cid, owner, home)] = 'client'
     grant_w(cid, owner, home)
+    revoked[grant_r(cid, owner, home)] = 'admin'
     revoked[grant_d(cid, owner)] = 'user'
     grant_m(cid, owner, home)
     tokens = connect(cid, owner)  # grant E survives the switch-off
