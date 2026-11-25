@@ -1500,9 +1500,16 @@ Frontend only, on the B1b3 administrator grant routes as they are
 - Answers: 204 removes; a row 404 drops the row and re-reads quietly (the
   re-read's 404 means the account is gone); 429, 503, network failures and a
   foreign 403 (Origin) stay in the dialog with the row kept; 401 signs out.
-  The calm 403 `instance_admin_required` and an account 404, from the list or
-  either revocation, replace the whole page with the installation refusal or
-  "This account no longer exists", taking focus when the page was ready.
+  The calm 403 `instance_admin_required` from the list or either revocation,
+  and an account 404 from the list (including its re-read after a row 404) or
+  Disconnect all, replace the whole page with the installation refusal or
+  "This account no longer exists". Focus goes to that heading when the answer
+  followed an action (a disconnect, Disconnect all, a retry or a re-read),
+  even if the settings above failed to load; a refusal on arrival leaves
+  focus alone. The shell re-reads the session once per page.
+- Disconnect all's return focus (the section heading) is kept until the next
+  request, because the dialog's close event runs after the rows and the
+  button are gone (L020).
 - No new identifier or scope vocabulary appears; the copy says apps,
   connect and disconnect.
 
@@ -1513,18 +1520,25 @@ Frontend only, on the B1b3 administrator grant routes as they are
   section's list, paging, empty and load-error states, the administrator
   wording, one disconnect with the canonical Origin and focus on the next row,
   429/foreign 403/503 in the dialog, 404 re-reading, account gone and grant
-  lost during a disconnect, 401, Disconnect all with its 204, refusals,
-  Cancel focus and account gone, a list refused for the grant, and Czech.
-  Before the change, all 18 new cases failed.
+  lost during a disconnect (with focus, also when the settings failed to
+  load), 401, Disconnect all with its 204, focus on the heading while the
+  re-read is held, foreign 403 in the dialog, 429/503, lost grant with
+  focus, 401, Cancel focus and account gone, a list refused for the grant on
+  arrival without focus, and Czech. Before the change, the first 18 new
+  cases failed; the later focus cases fail without the action-focus effect.
 - Journey n33c (production binary, real PostgreSQL): the owner approves two
   consents for one registered client and exchanges both codes; the page lists
   both newest first, an axe scan passes, Disconnect on the newer row after
-  its dialog answers 204 and ends only that token, then Disconnect all after
-  its dialog answers 204, shows the empty sentence and ends the last token. A
-  `finally` revokes anything left through the API. The `admin` grant events
+  its dialog answers 204, moves focus to the next row and ends only that
+  token, then Disconnect all after its dialog answers 204, shows the empty
+  sentence, leaves focus on the section heading and ends the last token. A
+  clean-up revokes anything left through the API without hiding the step's
+  own failure. The `admin` grant events
   for both routes are asserted by setup-smoke (B1b3).
 - Visual: the account AI apps captures now include the section (the
-  reference member has no connected apps, so the empty sentence).
+  reference member has no connected apps, so the empty sentence). Rows and
+  the Disconnect all button are not captured; they reuse the Account rows,
+  which are, and n33c's axe scan covers them with real rows.
 
 ### Deviations and follow-ups (B4a2b)
 

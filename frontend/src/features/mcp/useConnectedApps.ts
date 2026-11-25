@@ -8,12 +8,13 @@ export type DisconnectOutcome = 'removed' | 'alreadyGone' | 'rateLimited' | 'una
 
 /**
  * What the list hands back to its screen. `onForbidden` and `onGone` are only reached by an administrator's list of
- * another account: the installation grant is gone, or the account itself is.
+ * another account: the installation grant is gone, or the account itself is. `duringAction` is false only for the
+ * first read on arrival; any later answer follows something the reader did, so the screen moves focus for it.
  */
 export type ConnectedAppsCallbacks = {
   onSignedOut: () => void;
-  onForbidden?: () => void;
-  onGone?: () => void;
+  onForbidden?: (duringAction: boolean) => void;
+  onGone?: (duringAction: boolean) => void;
 };
 
 /**
@@ -41,11 +42,11 @@ export function useConnectedApps(source: GrantSource, callbacks: ConnectedAppsCa
   });
 
   /** The answers every read shares that end the list's own work; true when the page was one of them. */
-  const handedBack = useCallback((page: McpGrantPage) => {
+  const handedBack = useCallback((page: McpGrantPage, duringAction: boolean) => {
     const { onSignedOut, onForbidden, onGone } = callbacksRef.current;
     if (page.kind === 'unauthenticated') { onSignedOut(); return true; }
-    if (page.kind === 'forbidden' && onForbidden) { onForbidden(); return true; }
-    if (page.kind === 'gone' && onGone) { onGone(); return true; }
+    if (page.kind === 'forbidden' && onForbidden) { onForbidden(duringAction); return true; }
+    if (page.kind === 'gone' && onGone) { onGone(duringAction); return true; }
     return false;
   }, []);
 
@@ -54,7 +55,8 @@ export function useConnectedApps(source: GrantSource, callbacks: ConnectedAppsCa
     const current = ++generation.current;
     (async () => {
       const page = await sourceRef.current.list();
-      if (current !== generation.current || handedBack(page)) return;
+      // Only the first read (attempt 0) is on arrival; a retry or a re-read after a disconnect follows an action.
+      if (current !== generation.current || handedBack(page, attempt > 0)) return;
       if (page.kind !== 'ok') {
         setState((previous) => (previous === 'loading' ? 'error' : previous));
         setRefreshFailed(true);
@@ -78,7 +80,7 @@ export function useConnectedApps(source: GrantSource, callbacks: ConnectedAppsCa
     const page = await sourceRef.current.list(nextCursor);
     // Cleared even when a newer read overtook this page, so Show more can never stay stuck while loading.
     setLoadingMore(false);
-    if (current !== generation.current || handedBack(page)) return;
+    if (current !== generation.current || handedBack(page, true)) return;
     if (page.kind !== 'ok') { setMoreFailed(true); return; }
     setGrants((existing) => [...existing, ...page.items]);
     setNextCursor(page.nextCursor);
@@ -88,7 +90,7 @@ export function useConnectedApps(source: GrantSource, callbacks: ConnectedAppsCa
   async function disconnect(grant: McpGrant): Promise<DisconnectOutcome> {
     const result = await sourceRef.current.revoke(grant.id);
     if (result.kind === 'unauthenticated') { callbacksRef.current.onSignedOut(); return 'signedOut'; }
-    if (result.kind === 'forbidden') { callbacksRef.current.onForbidden?.(); return 'forbidden'; }
+    if (result.kind === 'forbidden') { callbacksRef.current.onForbidden?.(true); return 'forbidden'; }
     if (result.kind === 'rateLimited' || result.kind === 'unavailable' || result.kind === 'rejected') return result.kind;
     setGrants((existing) => existing.filter((item) => item.id !== grant.id));
     if (result.kind === 'ok') return 'removed';

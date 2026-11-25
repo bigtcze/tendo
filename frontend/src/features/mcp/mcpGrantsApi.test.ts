@@ -97,10 +97,11 @@ describe('mcpGrantsApi for an administrator', () => {
     const fake = installFakeServer({ [one]: json(204) });
     await expect(revokeAccountMcpGrant(user, id)).resolves.toEqual({ kind: 'ok' });
     expect(fake.requests[0].headers.get('Origin')).toBe(window.location.origin);
-    const cases: [Response, string][] = [
+    const cases: [Response | (() => Promise<Response>), string][] = [
       [problem(404, 'not_found'), 'notFound'], [problem(403, 'instance_admin_required'), 'forbidden'],
       [problem(403, 'origin_mismatch'), 'rejected'], [problem(429, 'rate_limited'), 'rateLimited'],
       [problem(401, 'unauthenticated'), 'unauthenticated'], [problem(503, 'unavailable'), 'unavailable'],
+      [() => Promise.reject(new Error('offline')), 'unavailable'],
     ];
     for (const [response, kind] of cases) {
       installFakeServer({ [one]: response });

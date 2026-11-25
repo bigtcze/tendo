@@ -47,13 +47,14 @@ export function useDisconnectAll({ revokeAll, apps, disconnect, callbacks, clear
     }
     setOpen(false);
     if (result.kind === 'unauthenticated') callbacks.onSignedOut();
-    else if (result.kind === 'forbidden') callbacks.onForbidden();
-    else if (result.kind === 'gone') callbacks.onGone();
+    else if (result.kind === 'forbidden') callbacks.onForbidden(true);
+    else if (result.kind === 'gone') callbacks.onGone(true);
     else {
       // Set in the same render that closes the dialog, so its close hands focus here instead of to a removed trigger.
+      // It must outlive the dialog's close event: only `request` clears it, or focus would fall to the page body.
       returnFocusRef.current = clearedFocusRef.current;
       apps.cleared();
-      disconnect.announce({ key: 'accountApps.notice.allDisconnected', client: '' });
+      disconnect.announce({ key: 'accountApps.notice.allDisconnected' });
     }
   }
 

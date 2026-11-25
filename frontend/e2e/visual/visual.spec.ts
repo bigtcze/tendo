@@ -183,13 +183,13 @@ async function assertTitleTargetGeometry(page: Page, width: number) {
   expect(geometry.top, `row target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
 }
 
-// Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
 /** One account's AI apps with both reads settled: the facts, and the reference member's empty connected apps. */
 async function accountAiAppsSettled(page: Page, words: Record<keyof typeof en, string>) {
   await expect(page.locator('[data-account-ai-apps-now]')).toBeVisible();
   await expect(page.getByText(words['accountApps.empty'], { exact: true })).toBeVisible();
 }
 
+// Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
 async function darkScreen(browser: Browser, storageState: string | undefined, path: string, name: string) {
   const context = await browser.newContext({ ...CONTEXT, ...(storageState ? { storageState } : {}), viewport: { width: 390, height: 900 } });
   await pinInvitationDates(context);

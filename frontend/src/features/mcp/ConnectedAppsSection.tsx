@@ -57,7 +57,7 @@ export function ConnectedAppsSection({ onSignedOut, pageHeadingRef }: {
       <h2 id={HEADING_ID} ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">{t('connectedApps.title')}</h2>
       <p className="mt-1 max-w-prose text-small text-muted">{t('connectedApps.body')}</p>
     </> : null}
-    <NoticeRegion className="mt-4 empty:mt-0 [overflow-wrap:anywhere]" message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client }) : ''} />
+    <NoticeRegion className="mt-4 empty:mt-0 [overflow-wrap:anywhere]" message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client ?? '' }) : ''} />
     {visible ? <ConnectedAppsList apps={apps} listRef={listRef} disconnect={disconnect} voice={OWN_VOICE} /> : null}
     <DisconnectDialog disconnect={disconnect} voice={OWN_VOICE} />
   </section>;

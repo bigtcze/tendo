@@ -27,8 +27,8 @@ const ACCOUNT_VOICE: ConnectedAppsVoice = {
 export function AccountConnectedApps({ userId, onSignedOut, onForbidden, onGone }: {
   userId: string;
   onSignedOut: () => void;
-  onForbidden: () => void;
-  onGone: () => void;
+  onForbidden: (duringAction: boolean) => void;
+  onGone: (duringAction: boolean) => void;
 }) {
   const { t } = useI18n();
   const callbacks = { onSignedOut, onForbidden, onGone };
@@ -56,7 +56,7 @@ export function AccountConnectedApps({ userId, onSignedOut, onForbidden, onGone 
       </Button> : null}
     </div>
     <NoticeRegion className="mt-4 empty:mt-0 [overflow-wrap:anywhere]"
-      message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client }) : ''} />
+      message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client ?? '' }) : ''} />
     {apps.state === 'loading' ? <LoadingLine className="mt-4">{t('accountApps.loading')}</LoadingLine> : null}
     {empty ? <p className="mt-4 max-w-prose text-body text-ink">{t('accountApps.empty')}</p> : null}
     {apps.state === 'loading' || empty

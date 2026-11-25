@@ -170,8 +170,21 @@ describe('one account’s connected apps', () => {
     await screen.findByText('Claude Code');
     await userEvent.click(disconnectFor('Claude Code'));
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['connectedApps.dialog.confirm'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('puts focus on the refusal after a disconnect even when the settings above could not load', async () => {
+    renderAt({
+      [`GET /api/v1/admin/accounts/${ACCOUNT}/mcp-policy`]: problem(503, 'unavailable'),
+      [LIST]: page([A]),
+      [one(A.id)]: problem(403, 'instance_admin_required'),
+    });
+    await screen.findByText('Claude Code');
+    expect(await screen.findByText(en['accountAiApps.error.load'])).toBeVisible();
+    await userEvent.click(disconnectFor('Claude Code'));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['connectedApps.dialog.confirm'] }));
+    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
   });
 
   it('signs out when the session ended during a disconnect', async () => {
@@ -204,6 +217,52 @@ describe('one account’s connected apps', () => {
     expect(screen.getByRole('heading', { level: 2, name: en['connectedApps.title'] })).toHaveFocus();
   });
 
+  it('keeps focus on the section heading while the list is read again after Disconnect all', async () => {
+    let release: (response: Response) => void = () => undefined;
+    let reads = 0;
+    renderAt({
+      [LIST]: () => (++reads === 1 ? page([A, B]) : new Promise<Response>((resolve) => { release = resolve; })),
+      [ALL]: json(204),
+    });
+    await screen.findByText('Claude Code');
+    await userEvent.click(allButton());
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['accountApps.all.confirm'] }));
+    const heading = screen.getByRole('heading', { level: 2, name: en['connectedApps.title'] });
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(rows()).toHaveLength(0);
+    await act(async () => { release(page([])); });
+    expect(await screen.findByText(en['accountApps.empty'])).toBeVisible();
+    expect(heading).toHaveFocus();
+  });
+
+  it('keeps a foreign refusal of Disconnect all in the dialog', async () => {
+    renderAt({ [LIST]: page([A]), [ALL]: problem(403, 'origin_mismatch') });
+    await screen.findByText('Claude Code');
+    await userEvent.click(allButton());
+    const dialog = screen.getByRole('dialog', { name: en['accountApps.all.title'] });
+    await userEvent.click(within(dialog).getByRole('button', { name: en['accountApps.all.confirm'] }));
+    expect(await within(dialog).findByText(en['connectedApps.error.rejected'])).toBeVisible();
+    expect(rows()).toHaveLength(1);
+  });
+
+  it('gives the installation refusal with focus when the grant is gone during Disconnect all', async () => {
+    renderAt({ [LIST]: page([A]), [ALL]: problem(403, 'instance_admin_required') });
+    await screen.findByText('Claude Code');
+    await userEvent.click(allButton());
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['accountApps.all.confirm'] }));
+    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('signs out when the session ended during Disconnect all', async () => {
+    renderAt({ [LIST]: page([A]), [ALL]: problem(401, 'unauthenticated') });
+    await screen.findByText('Claude Code');
+    await userEvent.click(allButton());
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['accountApps.all.confirm'] }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+
   it('keeps every row when Disconnect all is refused, and returns focus to it on Cancel', async () => {
     let answer = problem(503, 'unavailable');
     renderAt({ [LIST]: page([A, B]), [ALL]: () => answer });
@@ -232,9 +291,12 @@ describe('one account’s connected apps', () => {
 
   it('gives the installation refusal when the list is refused for the grant', async () => {
     renderAt({ [LIST]: problem(403, 'instance_admin_required') });
-    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toBeVisible();
+    const heading = await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] });
+    expect(heading).toBeVisible();
     await act(async () => {});
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    // A refusal on arrival leaves focus where the page put it.
+    expect(heading).not.toHaveFocus();
   });
 
   it('reads in Czech', async () => {

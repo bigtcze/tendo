@@ -6,7 +6,8 @@ import type { ConnectedApps, DisconnectOutcome } from './useConnectedApps';
 /** A refusal that keeps the dialog open so the person can try again or cancel; `rejected` changed nothing. */
 export type DialogError = 'rateLimited' | 'unavailable' | 'rejected';
 
-export type AppNotice = { key: MessageKey; client: string };
+/** `client` names the app for a one-app outcome; an outcome about every app names none. */
+export type AppNotice = { key: MessageKey; client?: string };
 
 /**
  * How long the outcome sentence stays on screen. Long enough for a screen reader to finish announcing it and for a

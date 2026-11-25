@@ -7944,7 +7944,7 @@ test.describe('Tendo production journey', () => {
     // by Disconnect all, each after its dialog, each ending that app's token. That each revocation is audited once with
     // reason admin, and the refusals (foreign Origin, another account's grant, members, MCP bearer tokens), are
     // setup-smoke's and the backend tests'. Budgets: 1 registration, 2 authorizations, 2 decisions, 2 token calls and
-    // 2 revocations, far under their per-minute limits; n32 left no grant behind.
+    // 3 revocations (the clean-up included), far under their per-minute limits; n32 left no grant behind.
     test.setTimeout(90_000);
     const redirect = 'http://127.0.0.1:9/callback';
     const viewer = await (await page.request.get('/api/v1/session')).json() as { userId: string; login: string };
@@ -7956,6 +7956,10 @@ test.describe('Tendo production journey', () => {
     };
     expect(await serverGrants(), 'n32 left no connected app').toEqual([]);
     const client = await request.newContext({ baseURL });
+    // Whatever fails below, no live grant is left for later steps or projects. The step's own failure is reported
+    // first; a failed clean-up only when the step itself passed.
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
     try {
       const registered = await client.post('/oauth/register', { data: { redirect_uris: [redirect], client_name: 'Journey admin client' } });
       expect(registered.status()).toBe(201);
@@ -7969,7 +7973,9 @@ test.describe('Tendo production journey', () => {
         });
         const authorized = await page.request.get(`/oauth/authorize?${query}`, { maxRedirects: 0 });
         expect(authorized.status()).toBe(303);
-        const handle = (authorized.headers()['location'] ?? '').replace(/^\/connect#request=/, '');
+        const location = authorized.headers()['location'] ?? '';
+        expect(location).toMatch(/^\/connect#request=[A-Za-z0-9_-]{43}$/);
+        const handle = location.replace(/^\/connect#request=/, '');
         const decided = await page.request.post(`/api/v1/mcp/authorization-requests/${handle}/decision`, {
           headers: { Origin: baseURL }, data: { decision: 'approve' },
         });
@@ -8012,6 +8018,8 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByText(en['connectedApps.notice.disconnected'].replace('{client}', 'Journey admin client'), { exact: true })).toBeVisible();
       await expect(rows).toHaveCount(1);
       expect((await serverGrants()).map((grant) => grant.id)).toEqual([older!.id]);
+      // Focus moves to the row that took the removed row's place.
+      await expect(rows.first().getByRole('button', { name: label, exact: true })).toBeFocused();
       expect(await works(second), 'the disconnected app’s token no longer works').toBe(401);
       expect(await works(first), 'the other app keeps working').toBe(200);
 
@@ -8025,14 +8033,18 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByText(en['accountApps.notice.allDisconnected'], { exact: true })).toBeVisible();
       await expect(section.getByText(en['accountApps.empty'], { exact: true })).toBeVisible();
       await expect(rows).toHaveCount(0);
+      // The Disconnect all button left with the rows, so focus is on the section heading, not the page body.
+      await expect(section.getByRole('heading', { level: 2, name: en['connectedApps.title'], exact: true })).toBeFocused();
       expect(await serverGrants()).toEqual([]);
       expect(await works(first), 'Disconnect all ends the last token too').toBe(401);
-    } finally {
-      // A failure above must not leave a live grant for later steps or projects.
+    } catch (error) { primaryFailure = error; }
+    try {
       const left = await page.request.delete(grantsPath, { headers: { Origin: baseURL } });
-      await client.dispose();
-      expect(left.status(), 'the owner’s apps are cleared').toBe(204);
-    }
+      if (left.status() !== 204) cleanupFailure = new Error(`Could not clear the owner’s apps: ${left.status()}`);
+    } catch (error) { cleanupFailure = error; }
+    await client.dispose().catch((error: unknown) => { cleanupFailure ??= error; });
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {

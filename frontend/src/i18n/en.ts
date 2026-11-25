@@ -781,7 +781,7 @@ export const en = {
   'connectedApps.error.more': 'More apps couldn’t be loaded. Try again.',
   'connectedApps.error.rateLimited': 'Too many disconnects just now. Try again in a minute.',
   'connectedApps.error.action': 'That didn’t work. Check your connection and try again.',
-  'connectedApps.error.rejected': 'That couldn’t be done, and nothing was changed.',
+  'connectedApps.error.rejected': 'That couldn’t be done, and nothing was changed. Reload the page and try again.',
   'connectedApps.retry': 'Try again',
   'connectedApps.more': 'Show more',
   'aiApps.title': 'AI apps',
