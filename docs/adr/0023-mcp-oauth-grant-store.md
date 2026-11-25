@@ -1438,8 +1438,13 @@ and uses the B1b1 account policy routes as they are.
   or save says the account no longer exists, without a retry; on save it takes
   focus, like the calm `instance_admin_required` refusal.
 - B4a1's hook was split into a shared versioned-form hook used by both screens
-  (`useVersionedForm`) and its own field logic; its behaviour and tests are
-  unchanged.
+  (`useVersionedForm`) and its own field logic. Its tests are unchanged; one
+  behaviour differs: a server 422 on the access field is now cleared by any
+  edit that leaves the draft acceptable, a switch included, not only by an
+  access edit.
+- A radio row is one label, so the whole row is the target, as the checkbox
+  rows are; the option is named by its label alone and described by its hint.
+  A 422 on the maximum moves focus to its chosen option.
 - The visible copy says "AI apps", "Read" and "Change". No scope, policy,
   override, version or MCP vocabulary appears.
 

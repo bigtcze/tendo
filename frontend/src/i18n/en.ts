@@ -837,7 +837,7 @@ export const en = {
   'accountAiApps.use.defaultHint': 'Follows “Let accounts use AI apps” in AI apps.',
   'accountAiApps.use.on': 'Allowed',
   'accountAiApps.use.off': 'Not allowed',
-  'accountAiApps.use.offHint': 'This account’s apps are paused, not disconnected, and work again when you allow them.',
+  'accountAiApps.use.offHint': 'This account’s apps are paused, not disconnected, and can work again once allowed.',
   'accountAiApps.max.title': 'The most apps may do',
   'accountAiApps.max.hint': 'The person can allow less for their own account, never more.',
   'accountAiApps.max.default': 'Same as other accounts',

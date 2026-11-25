@@ -79,6 +79,8 @@ describe('one account’s AI apps', () => {
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     // Turning an account off pauses its apps, and the option says so before anyone chooses it.
     expect(radio(useGroup, 'Not allowed')).toHaveAccessibleDescription(/paused, not disconnected/);
+    // The whole row is the target: its hint is inside the label that checks the option.
+    expect(screen.getByText(/paused, not disconnected/).closest('label')?.querySelector('input')).toBe(radio(useGroup, 'Not allowed'));
     expect(within(screen.getByRole('navigation', { name: 'Admin center sections' })).getByRole('link', { name: 'Accounts' }))
       .toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('main')).not.toHaveTextContent(/tendo:|scope|polic|MCP|override/i);
@@ -225,6 +227,8 @@ describe('one account’s AI apps', () => {
     await userEvent.click(await screen.findByRole('radio', { name: 'Allowed' }));
     await userEvent.click(saveButton());
     expect(await screen.findByText('That choice couldn’t be saved. Choose another one.')).toBeVisible();
+    // The default was chosen, so the reader lands on it, where the message is said.
+    expect(radio(maxGroup, 'Same as other accounts')).toHaveFocus();
     expect(screen.getByRole('group', { name: maxGroup })).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('group', { name: maxGroup })).toHaveAccessibleDescription(
       'The person can allow less for their own account, never more. That choice couldn’t be saved. Choose another one.',

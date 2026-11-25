@@ -7896,6 +7896,16 @@ test.describe('Tendo production journey', () => {
     const maxGroup = page.getByRole('group', { name: en['accountAiApps.max.title'], exact: true });
     await expect(useGroup.getByRole('radio', { name: en['accountAiApps.use.default'], exact: true })).toBeChecked();
     await expectNoAxeViolations(page, 'admin-account-ai-apps');
+    // Every option's pressed area is its whole row, at least 44px tall, as the checkbox rows are.
+    const optionTargets = await page.getByRole('main').getByRole('radio').evaluateAll((nodes) => nodes.map((node) => {
+      const hit = (node.closest('label') ?? node).getBoundingClientRect();
+      return { name: node.getAttribute('aria-labelledby'), width: hit.width, height: hit.height };
+    }));
+    expect(optionTargets).toHaveLength(7);
+    for (const target of optionTargets) {
+      expect(target.height, `option ${target.name} height`).toBeGreaterThanOrEqual(44 - 1 / 64);
+      expect(target.width, `option ${target.name} width`).toBeGreaterThanOrEqual(44);
+    }
 
     // Not allowed, read at most: the server keeps exactly that, with a new version and one account audit row.
     await useGroup.getByRole('radio', { name: en['accountAiApps.use.off'], exact: true }).check();

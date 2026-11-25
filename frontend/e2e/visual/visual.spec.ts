@@ -60,6 +60,9 @@ async function captureScreen(page: Page, base: string, fullPage = false) {
   }
 }
 
+/** One account's AI apps; the screen is settled once what apps may do now is shown. */
+const ACCOUNT_AI_APPS = /^\/admin\/accounts\/[^/]+\/ai-apps$/;
+
 /** The Account groups must be settled and every choice must be either on one row or fully stacked, never partly wrapped. */
 async function assertSegmentedLayout(group: Locator, count: number) {
   const geometry = await group.evaluate((element) => {
@@ -181,9 +184,6 @@ async function assertTitleTargetGeometry(page: Page, width: number) {
 }
 
 // Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
-/** One account's AI apps; the screen is settled once what apps may do now is shown. */
-const ACCOUNT_AI_APPS = /^\/admin\/accounts\/[^/]+\/ai-apps$/;
-
 async function darkScreen(browser: Browser, storageState: string | undefined, path: string, name: string) {
   const context = await browser.newContext({ ...CONTEXT, ...(storageState ? { storageState } : {}), viewport: { width: 390, height: 900 } });
   await pinInvitationDates(context);

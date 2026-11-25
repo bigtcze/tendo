@@ -840,7 +840,7 @@ export const cs: Record<MessageKey, string> = {
   'accountAiApps.use.defaultHint': 'Řídí se volbou „Umožnit účtům používat AI aplikace“ v AI aplikacích.',
   'accountAiApps.use.on': 'Povoleno',
   'accountAiApps.use.off': 'Nepovoleno',
-  'accountAiApps.use.offHint': 'Aplikace tohoto účtu se pozastaví, neodpojí se, a po opětovném povolení znovu fungují.',
+  'accountAiApps.use.offHint': 'Aplikace tohoto účtu se pozastaví, neodpojí se, a po opětovném povolení mohou znovu fungovat.',
   'accountAiApps.max.title': 'Nejvíc, co aplikace smějí',
   'accountAiApps.max.hint': 'Člověk může pro svůj účet povolit méně, nikdy víc.',
   'accountAiApps.max.default': 'Stejně jako ostatní účty',

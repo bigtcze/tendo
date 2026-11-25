@@ -51,8 +51,8 @@ export function AccessChoice({ uid, legend, hint, chosen, missing, disabled, fir
 }
 
 /**
- * One radio option row in the same shape as a checkbox row. The label alone names the option; the line on what it
- * means describes it, so a screen reader says the name first and the explanation after.
+ * One radio option row in the same shape as a checkbox row: the whole row is the target. The label alone names the
+ * option and the line on what it means describes it, so a screen reader says the name first and the explanation after.
  */
 export function ChoiceOption({ name, checked, disabled, label, hint, onChoose }: {
   name: string;
@@ -64,14 +64,14 @@ export function ChoiceOption({ name, checked, disabled, label, hint, onChoose }:
 }) {
   const id = useId();
   return <li className="min-w-0">
-    <div className="flex min-h-11 min-w-0 items-start gap-3 py-2">
-      <input id={id} type="radio" name={name} checked={checked} disabled={disabled} onChange={onChoose}
-        aria-describedby={hint ? `${id}-hint` : undefined} className={`${CONTROL} cursor-pointer`} />
+    <label className="flex min-h-11 min-w-0 cursor-pointer items-start gap-3 py-2">
+      <input type="radio" name={name} checked={checked} disabled={disabled} onChange={onChoose}
+        aria-labelledby={`${id}-name`} aria-describedby={hint ? `${id}-hint` : undefined} className={CONTROL} />
       <span className="min-w-0 break-words">
-        <label htmlFor={id} className="block cursor-pointer text-body text-ink">{label}</label>
+        <span id={`${id}-name`} className="block text-body text-ink">{label}</span>
         {hint ? <span id={`${id}-hint`} className="block text-small text-muted">{hint}</span> : null}
       </span>
-    </div>
+    </label>
   </li>;
 }
 

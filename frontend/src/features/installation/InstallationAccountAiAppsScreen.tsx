@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type FormEvent, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
@@ -54,6 +54,8 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
 }) {
   const { t } = useI18n();
   const refusalHeadingRef = useRef<HTMLHeadingElement>(null);
+  // Focus after a refusal comes from useRefusalFocus, which also covers the account being gone, so the hook's
+  // during-save flag is not needed here.
   const account = useAccountAiApps({ userId, onSignedOut, onForbidden: () => onForbidden() });
   useRefusalFocus(account.state, refusalHeadingRef);
 
@@ -127,12 +129,18 @@ function AccountFacts({ policy, t }: { policy: AccountAiApps; t: Translate }) {
 
 function AccountForm({ account, t }: { account: AccountAiAppsState; t: Translate }) {
   const uid = useId();
+  const maximumRef = useRef<HTMLFieldSetElement>(null);
+  // A refused maximum puts the reader on its chosen option, where the message is, once the form is enabled again.
+  const [refusals, setRefusals] = useState(0);
+  useEffect(() => {
+    if (refusals > 0) maximumRef.current?.querySelector<HTMLInputElement>('input:checked')?.focus();
+  }, [refusals]);
   const { draft, saving, outcome } = account;
   if (!draft) return null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await account.save();
+    if (await account.save() === 'invalid') setRefusals((count) => count + 1);
   }
 
   return <form aria-labelledby="account-ai-apps-settings" noValidate onSubmit={(event) => void submit(event)}
@@ -144,7 +152,7 @@ function AccountForm({ account, t }: { account: AccountAiAppsState; t: Translate
     <RadioChoice name={`${uid}-use`} legend={t('accountAiApps.use.title')} options={SWITCHES} chosen={draft.enabled}
       disabled={saving} onChoose={account.setSwitch} t={t} />
     <RadioChoice name={`${uid}-max`} legend={t('accountAiApps.max.title')} hint={t('accountAiApps.max.hint')}
-      options={MAXIMUMS} chosen={draft.maximum} disabled={saving} onChoose={account.setMaximum}
+      options={MAXIMUMS} chosen={draft.maximum} disabled={saving} onChoose={account.setMaximum} fieldsetRef={maximumRef}
       error={account.maximumRefused ? t('accountAiApps.max.refused') : null} t={t} />
     <OutcomeHosts outcome={outcome} t={t} />
     <Button type="submit" disabled={saving} className="w-full sm:w-auto sm:justify-self-start">
@@ -154,7 +162,7 @@ function AccountForm({ account, t }: { account: AccountAiAppsState; t: Translate
 }
 
 /** One radio choice: a legend, an optional line on what it decides, the options and a refusal said under them. */
-function RadioChoice<V extends string>({ name, legend, hint, options, chosen, disabled, onChoose, error = null, t }: {
+function RadioChoice<V extends string>({ name, legend, hint, options, chosen, disabled, onChoose, error = null, fieldsetRef, t }: {
   name: string;
   legend: string;
   hint?: string;
@@ -163,12 +171,13 @@ function RadioChoice<V extends string>({ name, legend, hint, options, chosen, di
   disabled: boolean;
   onChoose: (value: V) => void;
   error?: string | null;
+  fieldsetRef?: RefObject<HTMLFieldSetElement | null>;
   t: Translate;
 }) {
   const hintId = `${name}-hint`;
   const errorId = `${name}-error`;
   const described = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined;
-  return <fieldset className="min-w-0" aria-describedby={described} aria-invalid={error ? true : undefined}>
+  return <fieldset ref={fieldsetRef} className="min-w-0" aria-describedby={described} aria-invalid={error ? true : undefined}>
     <legend className="float-left w-full text-body font-semibold text-ink">{legend}</legend>
     {hint ? <p id={hintId} className="clear-left max-w-prose pt-1 text-small text-muted">{hint}</p> : null}
     <ul className="clear-left mt-2 min-w-0">

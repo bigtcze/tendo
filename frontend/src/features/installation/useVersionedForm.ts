@@ -30,6 +30,7 @@ export function useVersionedForm<T, D>(options: VersionedFormOptions<T, D>) {
   const [state, setState] = useState<VersionedFormState>('loading');
   const [value, setValue] = useState<T | null>(null);
   const [draft, setDraft] = useState<D | null>(null);
+  const draftRef = useRef<D | null>(null);
   const [fieldInvalid, setFieldInvalid] = useState(false);
   const [saving, setSaving] = useState(false);
   const [outcome, setOutcome] = useState<VersionedOutcome>(null);
@@ -42,14 +43,12 @@ export function useVersionedForm<T, D>(options: VersionedFormOptions<T, D>) {
 
   const adopt = useCallback((next: T, version: string) => {
     versionRef.current = version;
-    setValue(next);
-    setDraft(optionsRef.current.draftOf(next));
-    setFieldInvalid(false);
-    setState('ready');
+    draftRef.current = optionsRef.current.draftOf(next);
+    setValue(next); setDraft(draftRef.current); setFieldInvalid(false); setState('ready');
   }, []);
 
   const drop = useCallback((next: VersionedFormState) => {
-    versionRef.current = null;
+    versionRef.current = null; draftRef.current = null;
     setValue(null); setDraft(null); setState(next);
   }, []);
 
@@ -81,12 +80,14 @@ export function useVersionedForm<T, D>(options: VersionedFormOptions<T, D>) {
   const retry = useCallback(() => { setOutcome(null); void load(false); }, [load]);
   /** Every edit drops what the last save said, which no longer describes the form. */
   const edit = useCallback((change: (current: D) => D) => {
-    if (draft === null) return;
-    const next = change(draft);
+    // The ref, not the rendered draft: two edits before the next render must both land.
+    if (draftRef.current === null) return;
+    const next = change(draftRef.current);
+    draftRef.current = next;
     setOutcome(null);
     if (!optionsRef.current.refusedLocally(next)) setFieldInvalid(false);
     setDraft(next);
-  }, [draft]);
+  }, []);
 
   /** Settles one save. A save someone else overtook keeps the form disabled until the settings are read again. */
   const settleSave = useCallback(async (result: VersionedSave<T>): Promise<SaveResult> => {
