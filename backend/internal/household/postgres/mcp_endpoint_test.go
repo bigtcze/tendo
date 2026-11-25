@@ -181,7 +181,8 @@ func mcpEndpointParseList(reply mcpEndpointReply) ([]map[string]any, error) {
 }
 
 // TestMCPEndpointListsExactlyTheCallersHouseholdsAgainstPostgres runs the happy
-// path end to end: initialize, tools/list (exactly list_households) and a
+// path end to end: initialize, tools/list (exactly list_households, the one
+// tool this fixture serves; the production set is in mcp_tools_test.go) and a
 // tools/call that returns exactly the caller's households.
 func TestMCPEndpointListsExactlyTheCallersHouseholdsAgainstPostgres(t *testing.T) {
 	f := newMCPEndpointFixture(t)
@@ -200,7 +201,7 @@ func TestMCPEndpointListsExactlyTheCallersHouseholdsAgainstPostgres(t *testing.T
 	result, _ := list.body["result"].(map[string]any)
 	tools, _ := result["tools"].([]any)
 	if list.code != http.StatusOK || len(tools) != 1 || tools[0].(map[string]any)["name"] != "list_households" {
-		t.Fatalf("tools/list: status=%d body=%s; want exactly list_households", list.code, list.raw)
+		t.Fatalf("tools/list: status=%d body=%s; want exactly list_households, the tool this fixture serves", list.code, list.raw)
 	}
 
 	rows, err := mcpEndpointParseList(f.post(tokens.AccessToken, mcpEndpointListCall(3)))

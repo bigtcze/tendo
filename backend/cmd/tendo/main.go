@@ -20,6 +20,7 @@ import (
 	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
 	itemapp "github.com/bigtcze/tendo/backend/internal/item"
 	itemhttp "github.com/bigtcze/tendo/backend/internal/item/httpapi"
+	itemmcp "github.com/bigtcze/tendo/backend/internal/item/mcptool"
 	itempostgres "github.com/bigtcze/tendo/backend/internal/item/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
@@ -28,6 +29,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	subjectapp "github.com/bigtcze/tendo/backend/internal/subject"
 	subjecthttp "github.com/bigtcze/tendo/backend/internal/subject/httpapi"
+	subjectmcp "github.com/bigtcze/tendo/backend/internal/subject/mcptool"
 	subjectpostgres "github.com/bigtcze/tendo/backend/internal/subject/postgres"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -174,7 +176,7 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, overr
 	}
 	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemMembers(membershipService.GetMembership), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
-	return registerMCP(routes, cfg, pool, sessionHandler, householdService, overrides)
+	return registerMCP(routes, cfg, pool, sessionHandler, mcpTools(householdService, itemService, subjectService), overrides)
 }
 
 // compositionOverrides carries test-only seams into the production composition.
@@ -190,7 +192,7 @@ type compositionOverrides struct {
 // registerMCP mounts the MCP OAuth endpoints and the Streamable HTTP endpoint.
 // While TENDO_MCP_ENABLED is false, or the installation switch is off, every
 // gated MCP route answers the unknown-path 404 (ADR 0023, slice B1b2).
-func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler, households householdmcp.Lister, overrides compositionOverrides) error {
+func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessions *identityhttp.SessionHandler, tools []identityhttp.MCPTool, overrides compositionOverrides) error {
 	mcpService, err := newMCPService(cfg, pool, overrides)
 	if err != nil {
 		return err
@@ -206,14 +208,22 @@ func registerMCP(routes chi.Router, cfg config.Config, pool *pgxpool.Pool, sessi
 		return err
 	}
 	identityhttp.NewMCPPolicy(policyService, sessions).Register(routes)
-	endpoint, err := identityhttp.NewMCPEndpoint(mcpService, cfg.PublicURL, cfg.DBTimeout, []identityhttp.MCPTool{
-		householdmcp.ListHouseholds(households),
-	})
+	endpoint, err := identityhttp.NewMCPEndpoint(mcpService, cfg.PublicURL, cfg.DBTimeout, tools)
 	if err != nil {
 		return err
 	}
 	endpoint.Register(routes)
 	return nil
+}
+
+// mcpTools is the complete MCP tool set. Every tool is an adapter over the
+// same application service the HTTP API uses. No instance-admin, member,
+// invitation, role, account or policy tool exists (#457); the composition test
+// pins this list and each tool's scope.
+func mcpTools(households householdmcp.Lister, items itemmcp.Reader, subjects subjectmcp.Reader) []identityhttp.MCPTool {
+	tools := []identityhttp.MCPTool{householdmcp.ListHouseholds(households)}
+	tools = append(tools, itemmcp.ReadTools(items)...)
+	return append(tools, subjectmcp.ReadTools(subjects)...)
 }
 
 // newMCPService builds the installation's MCP service. The TENDO_MCP_ENABLED

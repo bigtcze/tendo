@@ -1165,3 +1165,63 @@ read, without locks.
   the list, checks the 401, 403, 404, foreign-Origin and malformed-cursor
   refusals, revokes one grant and then the rest, and checks one `admin` event
   per grant with the owner as actor.
+
+## Slice B2: read tools
+
+Five read tools join `list_households`. Each is a thin adapter in the owning
+module (`internal/item/mcptool`, `internal/subject/mcptool`) over the same
+application service the HTTP API uses, called with the verified user ID and the
+household argument, so membership, visibility and not-found rules are the
+service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
+
+| Tool | Input | Output |
+| --- | --- | --- |
+| `list_items` | `householdId`, optional `q`, `subjectId`, `responsibleUserId` (UUID or `unassigned`), `workflowState`, `attention`, `recurring`, `archived`, `done`, `sort` (`created`, `attention_on`), `limit` 1–100, `cursor` | `{items, nextCursor}` |
+| `get_item` | `householdId`, `itemId` | one item |
+| `list_completions` | `householdId`, `itemId`, optional `order` (`oldest`, `newest`), `limit`, `cursor` | `{completions, nextCursor}`, undone entries included |
+| `list_subjects` | `householdId`, optional `archived`, `limit`, `cursor` | `{subjects, nextCursor}` |
+| `get_subject` | `householdId`, `subjectId` | one subject |
+
+### Decisions
+
+- Input schemas are inferred from the typed input and tightened (UUID pattern,
+  enums, `limit` range, `q` at most 200 characters, cursor at most 512), and
+  refuse unknown properties, so malformed input never reaches a service.
+- Every tool cursor is bound. `BindMCPCursor` wraps the service cursor with a
+  SHA-256 fingerprint of the tool, the verified user and every argument that
+  selects the collection (household, item, search, filters, sort, order,
+  archived, done); the page size may change. A cursor replayed under another
+  tool, user, household, item or filter is refused with one fixed text before
+  any service call. A service cursor alone is not always bound to its household
+  (the plain item `i1` cursor is not), so the binding is what stops a replay.
+- Errors are fixed texts (`identityhttp` `ErrMCPTool*`): one not-found text for
+  an unknown, foreign or no-longer-visible household, item, completion or
+  subject and for a caller who is not a member; invalid arguments name only the
+  schema argument; anything else is "temporarily unavailable" with no driver
+  text.
+- Outputs omit `householdId` (the caller supplied it). Dates are `YYYY-MM-DD` in
+  the household's time zone and timestamps RFC 3339 UTC.
+- `cmd/tendo` builds the tool set in `mcpTools`; a composition test pins every
+  tool name and scope, requires `readOnlyHint` exactly for read tools and
+  refuses names that reach an excluded area (instance administration, members,
+  invitations, roles, accounts, policy, grants).
+
+### Tests (B2)
+
+- Unit tests run each tool over an in-memory SDK session: missing principal and
+  a write-only token never reach the service, schema refusals, error mapping
+  with no driver text, and cursor binding per context. Removing the household
+  from the binding, or the not-found mapping, fails them.
+- Real PostgreSQL (`household/postgres/mcp_tools_test.go`) serves the
+  production tools over the production services with tokens from the real
+  flow: own records; a foreign household, a foreign item, subject or item
+  history under the caller's own household id, a completion or item id in the
+  wrong role, and unknown ids all give a byte-identical refusal; foreign
+  subject, member and title filters match nothing; cursors replayed by a member
+  of both households in another household, search, partition, order or item, or
+  by another user, are refused; membership removed between two calls with the
+  real removal service refuses the next call and its continuation cursor; and
+  two users calling concurrently see only their own records.
+- Smoke: `scripts/mcp_smoke_driver.py` checks the full tool list, calls every
+  read tool against records created through the browser API, and checks that
+  an unknown household and an unknown item give the same refusal.
