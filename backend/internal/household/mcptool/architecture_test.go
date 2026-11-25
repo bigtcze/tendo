@@ -90,6 +90,10 @@ func checkToolImports(t *testing.T, path string, body []byte) {
 		if strings.HasPrefix(imported, "github.com/bigtcze/") && imported != own && !sharedToolImports[imported] {
 			t.Errorf("%s imports %s; a tool package may import only %s and the shared MCP packages", path, imported, own)
 		}
+		// The identity check below reads the default name, so it must not be aliased.
+		if imported == modulePath+"identity" && spec.Name != nil && spec.Name.Name != "identity" {
+			t.Errorf("%s imports identity as %s; import it unaliased", path, spec.Name.Name)
+		}
 	}
 	for _, m := range identityUse.FindAllSubmatch(body, -1) {
 		if name := string(m[1]); name != "MCPScopeRead" && name != "MCPScopeWrite" {
