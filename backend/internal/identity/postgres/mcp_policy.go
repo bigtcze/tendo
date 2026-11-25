@@ -238,6 +238,12 @@ func listPolicyEvents(ctx context.Context, q *identitydb.Queries, afterID string
 			ID: row.ID.String(), Kind: identity.MCPPolicyEventKind(row.Policy),
 			ActorUserID: row.ActorUserID.String(), Scopes: row.Scopes, OccurredAt: row.OccurredAt.Time,
 		}
+		if row.ActorLogin.Valid {
+			event.ActorLogin = row.ActorLogin.String
+		}
+		if row.TargetLogin.Valid {
+			event.TargetLogin = row.TargetLogin.String
+		}
 		if row.TargetUserID.Valid {
 			event.TargetUserID = row.TargetUserID.String()
 		}

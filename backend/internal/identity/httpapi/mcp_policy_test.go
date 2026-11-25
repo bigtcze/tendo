@@ -56,6 +56,8 @@ type fakeMCPPolicyService struct {
 	grantCursor string
 	grantPage   identity.MCPGrantPage
 	grantErr    error
+	// The audit list (B1b2) answers eventsOut once the caller is admitted.
+	eventsOut identity.MCPPolicyEventList
 }
 
 // total counts every service call, admin pre-check included.
@@ -105,7 +107,7 @@ func (f *fakeMCPPolicyService) UpdateInstallationPolicy(context.Context, string,
 
 func (f *fakeMCPPolicyService) PolicyEvents(context.Context, string, int, string) (identity.MCPPolicyEventList, error) {
 	f.readCalls++
-	return identity.MCPPolicyEventList{}, nil
+	return f.eventsOut, nil
 }
 
 // policySessions authenticates each token to its own principal, so one test can

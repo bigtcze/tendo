@@ -105,6 +105,14 @@ func mcpPolicyEventJSON(event identity.MCPPolicyEvent) apimodel.McpPolicyEvent {
 		target := event.TargetUserID
 		out.TargetUserId = &target
 	}
+	if event.ActorLogin != "" {
+		login := event.ActorLogin
+		out.ActorLogin = &login
+	}
+	if event.TargetLogin != "" {
+		login := event.TargetLogin
+		out.TargetLogin = &login
+	}
 	if event.Scopes != nil {
 		scopes := apimodel.McpScopeList(event.Scopes)
 		out.Scopes = &scopes

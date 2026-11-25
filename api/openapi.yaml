@@ -2062,7 +2062,7 @@ paths:
       operationId: listMcpPolicyEvents
       summary: List the MCP policy audit
       description: >-
-        Instance administrator only (ADR 0023, slice B1b2). One newest-first page of the policy audit across the installation, account and user levels, ordered by the uuidv7 id. limit defaults to 50 and is capped at 100. cursor is opaque and versioned; a malformed cursor is a 400 invalid_query on cursor and reads nothing. Session cookie only. Reads need no Origin header.
+        Instance administrator only (ADR 0023, slice B1b2). One newest-first page of the policy audit across the installation, account and user levels, ordered by the uuidv7 id. limit defaults to 50 and is capped at 100. cursor is opaque and versioned; a malformed cursor is a 400 invalid_query on cursor and reads nothing. Each row names its actor and target by their current login, read in the same statement (slice B4a3a); a deleted account reads as null and its former login is never returned. Session cookie only. Reads need no Origin header.
       tags: [Mcp]
       security: [{ SessionCookie: [] }]
       parameters:
@@ -2086,7 +2086,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/McpPolicyEventList' }
-              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, policy: installation, actorUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, targetUserId: null, enabled: true, defaultAccountEnabled: true, scopes: [tendo:read], occurredAt: '2026-11-24T10:00:00Z' }] }
+              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, policy: installation, actorUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, actorLogin: owner, targetUserId: null, targetLogin: null, enabled: true, defaultAccountEnabled: true, scopes: [tendo:read], occurredAt: '2026-11-24T10:00:00Z' }] }
         '400': { description: 'Malformed limit or cursor (invalid_query on the parameter), or malformed trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'The signed-in account is not an instance administrator.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } } } }
@@ -4073,18 +4073,20 @@ components:
         defaultMaxScopes: { $ref: '#/components/schemas/McpScopeList' }
     McpPolicyEvent:
       type: object
-      description: One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse.
+      description: One append-only MCP policy audit row. Installation events have a null targetUserId and a defaultAccountEnabled value; account and user events have the reverse. targetLogin is null whenever targetUserId is, and either login is null for a deleted account.
       additionalProperties: false
-      required: [id, policy, actorUserId, targetUserId, enabled, defaultAccountEnabled, scopes, occurredAt]
+      required: [id, policy, actorUserId, actorLogin, targetUserId, targetLogin, enabled, defaultAccountEnabled, scopes, occurredAt]
       properties:
         id: { type: string, format: uuid, x-go-type: string }
         policy: { type: string, enum: [installation, account, user] }
         actorUserId: { type: string, format: uuid, x-go-type: string }
+        actorLogin: { type: [string, 'null'], description: 'The actor''s current login, read with the list. null when the account has been deleted; a deleted account''s former login is never returned.' }
         targetUserId:
           type: [string, 'null']
           format: uuid
           x-go-type: string
           description: The account the change applies to. null for the installation level.
+        targetLogin: { type: [string, 'null'], description: 'The target account''s current login, read with the list. null for the installation level and when the account has been deleted.' }
         enabled: { type: [boolean, 'null'] }
         defaultAccountEnabled: { type: [boolean, 'null'], description: Set only for the installation level. }
         scopes:

@@ -158,7 +158,9 @@ type Querier interface {
 	// null after_id is the first page.
 	ListLiveMCPGrants(ctx context.Context, arg ListLiveMCPGrantsParams) ([]ListLiveMCPGrantsRow, error)
 	// The audit list across all levels, newest first by uuidv7 id. A null after_id
-	// is the first page.
+	// is the first page. Each row names its actor and target by their login in the
+	// same statement (slice B4a3a). A deleted account reads as NULL, so neither its
+	// old login nor its tombstone is shown; the installation level has no target.
 	ListMCPPolicyEvents(ctx context.Context, arg ListMCPPolicyEventsParams) ([]ListMCPPolicyEventsRow, error)
 	// Same lock as invitation acceptance (LockUserForInvitation): an instance-admin
 	// assignment and an acceptance or removal of the same account serialize on the

@@ -1550,3 +1550,49 @@ Frontend only, on the B1b3 administrator grant routes as they are
   move focus on a first page load, which the arrival rule forbids; this rare
   timing case is accepted.
 
+## Slice B4a3a: logins on the policy audit list
+
+B4a3 was planned as a frontend-only audit list "readable without raw ids". The
+list cannot be readable from the frontend alone: `McpPolicyEvent` carries only
+`actorUserId` and `targetUserId`, and no administrator route resolves an
+account id to its login. Paging the whole account directory to build a lookup
+would not scale and would still miss deleted accounts. B4a3 is therefore split
+into B4a3a (this backend slice) and B4a3b (the list on **AI apps**, frontend
+only).
+
+### Decisions (B4a3a)
+
+- Each `McpPolicyEvent` gains `actorLogin` and `targetLogin`, both required and
+  `string | null`. The change is additive to the response; the route, its
+  parameters, ordering, cursor and refusals are unchanged. No migration.
+- The logins are read in the same statement as the page:
+  `ListMCPPolicyEvents` left-joins `user_accounts` twice, once for the actor
+  and once for the target, each restricted to `deleted_at IS NULL`. The audit
+  row itself still stores only ids. No live login changes today; if one ever
+  does, the list shows the current login, the name an administrator can act
+  on.
+- A deleted account reads as `null`. Its former login is cleared by the
+  anonymization and its tombstone (`~deleted-…`) is never returned, so the
+  list cannot reveal a deleted login. `targetLogin` is also `null` at the
+  installation level, which has no target.
+- The audit rows stay minimal (SECURITY "Logging, audit and secrets"): only
+  the login, which an instance administrator already sees in the account
+  directory, is added, and only on this instance-administrator read.
+
+### Verification (B4a3a)
+
+- PostgreSQL `TestMCPPolicyEventsNameLiveAccounts`: installation, account and
+  user events name their actor and target; after the owner account is deleted,
+  the account event keeps its target id with a `null` login, and the user
+  event's actor and target both read as `null`. A second administrator's
+  account event, read after that administrator is deleted, has a `null`
+  actor login and still names its live target, so each join's deletion filter
+  is proven on its own. It failed to compile before the change.
+- Handler `TestPolicyEventsNameAccountsByLogin`: both keys are always present,
+  as a string or `null`, never omitted.
+- setup-smoke: the live installation event names its actor `owner_smoke` with
+  a `null` target login.
+
+### Deviations and follow-ups (B4a3a)
+
+- The audit list screen is B4a3b.
