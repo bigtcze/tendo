@@ -1342,3 +1342,62 @@ No write tool carries `readOnlyHint` or `idempotentHint`.
 - `create_item` does not report a replay: the item service does not expose it.
 - `create_subject` does not accept `linkedUserId`; linking a member stays in the
   browser.
+
+## Slice B4a1: Admin center "AI apps" (installation settings)
+
+B4a is split into three pull requests: B4a1 the installation settings, B4a2
+one account's access and its connected apps, B4a3 the policy audit list. The
+adopted design and acceptance are unchanged. B4a1 is frontend only and uses the
+B1b2 routes as they are.
+
+### Decisions (B4a1)
+
+- The screen is `/admin/ai-apps`, a third installation section of the Admin
+  center next to **Households** and **Accounts**, offered only with the
+  session's `instanceAdmin` hint. The hint is never authority: the server's
+  403 `instance_admin_required` is the calm refusal and re-reads the session;
+  any other 403 is a refused save that changed nothing.
+- One form holds the installation switch, the account default and the default
+  maximum (read and change as two checkboxes, since `tendo:write` does not
+  imply `tendo:read`). Save sends the full replacement with the version from
+  the read's `ETag` as `If-Match`; a read without `ETag` is treated as a failed
+  read, never as something to save blind. Nothing changes on screen before the
+  200, whose body and `ETag` replace the form and the version.
+- An empty maximum is answered on the field before any request; a 422 from the
+  server gets the same field message. A 412 reads the settings again, with the
+  form still disabled, and says someone else changed them; the losing edit is
+  not kept. A 200 without `ETag` also reads again before another save. A read
+  refused with any other 4xx says so without a retry; 503 and network failures
+  offer one. A second submit while a save is in flight sends nothing.
+- Only a grant refusal that took the form (a save, or its re-read) moves focus
+  to the refusal's heading; a refusal on arrival leaves focus where the page
+  put it.
+- `operatorEnabled` false shows one neutral sentence that the server
+  configuration keeps apps off. The form stays editable, because the routes
+  work regardless and an administrator may prepare the settings first.
+- The visible copy says "AI apps", "Read" and "Change". No scope, policy,
+  version or MCP vocabulary appears.
+
+### Tests (B4a1)
+
+- Vitest with the network boundary replaced: the read and its states (loading,
+  503 with retry, a 200 without `ETag`, 401, the calm 403 without moving focus
+  and a foreign 403 without retry), the save's body, order and `If-Match`, the
+  next save naming the new version, a double submit sending one save, the
+  empty maximum refused locally and by a 422 with focus and description on the
+  field, the 412 re-read (disabled while pending, failing, and ending in the
+  calm 403 with focus), a 200 without `ETag`, 401 and 428 on save, a failed
+  save keeping the edit, outcomes cleared by the next edit, the operator
+  notice, the section switcher, Back, the route parser and Czech.
+- Journey n33 (production binary, real PostgreSQL): the owner reaches the
+  section from the switcher, an axe scan passes, a real save stores read only
+  with a new `ETag` and one installation audit row naming the owner, a reload
+  shows the stored value, and a second save restores the starting settings; a
+  `finally` restores them through the API if anything failed in between.
+- Visual: light and dark at 390/1440, 320, Czech at 390, and the empty
+  maximum's field message at 390.
+
+### Deviations and follow-ups (B4a1)
+
+- The audit list and per-account access are B4a2 and B4a3; the account
+  settings and consent states are B4b.

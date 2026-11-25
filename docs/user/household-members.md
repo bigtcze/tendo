@@ -77,7 +77,7 @@ The part of the link after `#` never reaches the server, a proxy, or another sit
 
 ## Households (installation administrators)
 
-Whoever runs first-time setup also administers the whole installation. That account, and one granted the capability from the host, sees **Households** and **Accounts** in the Admin center. Without that capability, an administrator's Admin center shows only their own household: no **Households** and no **Accounts**. The capability covers accounts and roles, not what a household contains; see [No instance administrator](../admin/troubleshooting.md#no-instance-administrator).
+Whoever runs first-time setup also administers the whole installation. That account, and one granted the capability from the host, sees **Households**, **Accounts** and **AI apps** in the Admin center. Without that capability, an administrator's Admin center shows only their own household: no **Households**, no **Accounts** and no **AI apps**. The capability covers accounts and roles, not what a household contains; see [No instance administrator](../admin/troubleshooting.md#no-instance-administrator).
 
 **Households** lists every household in the installation with its time zone and the date it was created, and never what it contains. Select a household's name to open its accounts; opening it does not make you a member. There you see everyone who belongs, their role and how they sign in, and you can use **Make administrator**, **Make member**, **Remove from household** and **Add an account** on that household without belonging to it.
 
@@ -86,6 +86,16 @@ Whoever runs first-time setup also administers the whole installation. That acco
 **Create household** starts a new household. Give it a name of 1 to 100 characters, choose the **Time zone** its dates follow, and choose the **First administrator** — an account that already exists. **Create household** waits for a name and an account, and Tendo never creates a household without an administrator. After it is created, Tendo opens the new household's accounts.
 
 Removing someone from a single household stays in **Households**; **Accounts** is where an account is deleted for good.
+
+## AI apps (installation administrators)
+
+**AI apps** decides whether people can connect AI apps to their Tendo account (see [Connect an AI app](account.md#connect-an-ai-app)) and what those apps may do. Nothing changes until you select **Save**.
+
+- **Allow AI apps in Tendo** is the switch for the whole installation. Turning it off pauses every connected app: no app can connect or work with Tendo, but nothing is disconnected, and the apps work again when you turn it back on. A long pause can still outlast an app's sign-in; that app then asks its person to connect it again.
+- **Let accounts use AI apps** applies to every account unless it is set differently for that account.
+- **What apps may do** is, by default, the most an app may do for an account, unless it is set differently for that account: **Read** (see households, items, and people and things) and **Change** (add and change items, add people and things, complete items and undo a completion; this does not include reading). Choose at least one. People can allow less for their own account, never more.
+
+If someone else saved these settings while you were editing, Tendo shows their settings and keeps nothing of yours; make your change again. When whoever runs Tendo has switched AI apps off on the server, the screen says so: no app can connect until it is switched on there, but you can still change these settings.
 
 ## Delete an account (installation administrators)
 
