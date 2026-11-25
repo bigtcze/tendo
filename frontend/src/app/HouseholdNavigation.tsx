@@ -20,6 +20,8 @@ export type NavigationActions = {
   adminHouseholds: () => void;
   /** Every account of the installation, the other installation-wide section of the Admin center. */
   adminAccounts: () => void;
+  /** The installation's AI app settings, the third installation-wide section. */
+  adminAiApps: () => void;
 };
 /**
  * `archivedView` and `itemOrigin` are what the active highlight needs beyond the route itself: the archived

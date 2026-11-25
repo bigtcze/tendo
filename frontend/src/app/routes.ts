@@ -9,10 +9,11 @@ export const ACCOUNT_PATH = '/account';
 export const ADMIN_PATH = '/admin';
 export const ADMIN_HOUSEHOLDS_PATH = '/admin/households';
 export const ADMIN_ACCOUNTS_PATH = '/admin/accounts';
+export const ADMIN_AI_APPS_PATH = '/admin/ai-apps';
 export const CONNECT_PATH = '/connect';
 
 export type Route =
-  | { kind: 'home' | 'people' | 'members' | 'invite' | 'resetPassword' | 'login' | 'connect' | 'account' | 'admin' | 'adminHouseholds' | 'adminAccounts' | 'allItems' | 'notFound' }
+  | { kind: 'home' | 'people' | 'members' | 'invite' | 'resetPassword' | 'login' | 'connect' | 'account' | 'admin' | 'adminHouseholds' | 'adminAccounts' | 'adminAiApps' | 'allItems' | 'notFound' }
   | { kind: 'item'; itemId: string }
   | { kind: 'invalidItem' }
   /** The installation-wide administration screens; they belong to the account, not to a household. */
@@ -29,6 +30,7 @@ const SIMPLE_ROUTES = new Map<string, Route>([
   [ADMIN_PATH, { kind: 'admin' }],
   [ADMIN_HOUSEHOLDS_PATH, { kind: 'adminHouseholds' }],
   [ADMIN_ACCOUNTS_PATH, { kind: 'adminAccounts' }],
+  [ADMIN_AI_APPS_PATH, { kind: 'adminAiApps' }],
   ['/', { kind: 'home' }],
   ['/items', { kind: 'allItems' }],
 ]);
@@ -58,12 +60,15 @@ export function readRoute(path = window.location.pathname): Route {
   return { kind: 'notFound' };
 }
 
+/** The installation-wide Admin center screens, which an account without any household still reaches. */
+const INSTALLATION_KINDS: ReadonlySet<Route['kind']> = new Set(['adminHouseholds', 'adminAccounts', 'adminAiApps', 'adminHousehold']);
+
 export function householdNavRoute(route: Route, hasHousehold: boolean): HouseholdRoute {
   if (route.kind === 'notFound') return 'home';
   if (route.kind === 'account') return 'account';
   if (route.kind === 'resetPassword' || route.kind === 'connect') return 'home';
   // The installation screens are the Admin center for an account that may hold no household at all.
-  if (route.kind === 'adminHouseholds' || route.kind === 'adminAccounts' || route.kind === 'adminHousehold') return 'admin';
+  if (INSTALLATION_KINDS.has(route.kind)) return 'admin';
   if (!hasHousehold) return 'home';
   if (route.kind === 'allItems') return 'allItems';
   if (route.kind === 'people') return 'people';

@@ -52,6 +52,17 @@ describe('readRoute for the installation account list', () => {
   });
 });
 
+describe('readRoute for the installation AI apps', () => {
+  it.each([
+    ['/admin/ai-apps', { kind: 'adminAiApps' }],
+    ['/admin/ai-apps/', { kind: 'notFound' }],
+    ['/admin/ai-apps/x', { kind: 'notFound' }],
+    ['/admin/ai', { kind: 'notFound' }],
+  ] as const)('parses %s', (path, route) => {
+    expect(readRoute(path)).toEqual(route);
+  });
+});
+
 describe('householdNavRoute', () => {
   it.each([
     [{ kind: 'home' }, true, 'home'],
@@ -79,6 +90,8 @@ describe('householdNavRoute', () => {
     [{ kind: 'adminHouseholds' }, false, 'admin'],
     [{ kind: 'adminAccounts' }, true, 'admin'],
     [{ kind: 'adminAccounts' }, false, 'admin'],
+    [{ kind: 'adminAiApps' }, true, 'admin'],
+    [{ kind: 'adminAiApps' }, false, 'admin'],
     [{ kind: 'adminHousehold', householdId }, true, 'admin'],
     [{ kind: 'adminHousehold', householdId }, false, 'admin'],
   ] as const)('marks the single Admin center entry current for %o', (route, hasHousehold, expected) => {

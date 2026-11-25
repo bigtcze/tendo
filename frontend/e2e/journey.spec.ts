@@ -7758,6 +7758,90 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n33. the installation administrator changes the AI apps settings in the Admin center, and the change is stored and audited', async () => {
+    // V5-13 B4a1. Only the browser's part is checked here: the section, the screen, a real save with its version and
+    // a second save that puts the starting settings back. The refusals (stale version, missing version, foreign
+    // Origin, MCP bearer tokens) are the backend tests'. The owner set up the installation, so it holds the grant.
+    test.setTimeout(60_000);
+    const policyPath = '/api/v1/admin/mcp-policy';
+    const stored = async () => {
+      const response = await page.request.get(policyPath);
+      expect(response.status()).toBe(200);
+      return { body: await response.json() as { enabled: boolean; operatorEnabled: boolean; defaultAccountEnabled: boolean; defaultMaxScopes: string[] }, etag: response.headers().etag };
+    };
+    const viewer = await (await page.request.get('/api/v1/session')).json() as { userId: string; instanceAdmin: boolean };
+    expect(viewer.instanceAdmin, 'the owner holds the installation grant').toBe(true);
+    const before = await stored();
+    // The journey runs with apps allowed by the server and the shipped defaults; n32 has just used them.
+    expect(before.body).toEqual({ enabled: true, operatorEnabled: true, defaultAccountEnabled: true, defaultMaxScopes: ['tendo:read', 'tendo:write'] });
+
+    // Whatever fails below, the starting settings are put back, so later steps and projects find apps as they were.
+    // The step's own failure is reported first; a failed clean-up only when the step itself passed.
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      await saveAndRestoreAiApps(before, viewer.userId);
+    } catch (error) { primaryFailure = error; }
+    try {
+      const now = await stored();
+      if (JSON.stringify(now.body) !== JSON.stringify(before.body)) {
+        const { enabled, defaultAccountEnabled, defaultMaxScopes } = before.body;
+        const restored = await page.request.put(policyPath, {
+          headers: { Origin: baseURL, 'If-Match': now.etag }, data: { enabled, defaultAccountEnabled, defaultMaxScopes },
+        });
+        if (restored.status() !== 200) cleanupFailure = new Error(`Could not restore the AI app settings: ${restored.status()}`);
+      }
+    } catch (error) { cleanupFailure = error; }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
+  /** n33's browser part: the section, a real save checked against the store and its audit, and the save back. */
+  async function saveAndRestoreAiApps(before: { body: Record<string, unknown>; etag: string }, viewerId: string) {
+    const policyPath = '/api/v1/admin/mcp-policy';
+    const eventsPath = '/api/v1/admin/mcp-policy-events?limit=5';
+    const stored = async () => {
+      const response = await page.request.get(policyPath);
+      expect(response.status()).toBe(200);
+      return { body: await response.json() as Record<string, unknown>, etag: response.headers().etag };
+    };
+    await page.goto('/admin/households');
+    const switcher = page.getByRole('navigation', { name: en['admin.sections.label'] });
+    await switcher.getByRole('link', { name: en['admin.sections.aiApps'], exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/ai-apps$/);
+    await expect(switcher.getByRole('link', { name: en['admin.sections.aiApps'], exact: true })).toHaveAttribute('aria-current', 'page');
+    const change = page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.write']}`) });
+    await expect(change).toBeChecked();
+    await expectNoAxeViolations(page, 'admin-ai-apps');
+
+    // Read only, saved: the server keeps exactly that, with a new version and one audit row naming the owner.
+    await change.uncheck();
+    const saved = page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === policyPath);
+    await page.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+    const savedResponse = await saved;
+    expect(savedResponse.status()).toBe(200);
+    expect(savedResponse.request().headers()['if-match'], 'the save names the version it was read at').toBe(before.etag);
+    await expect(page.getByText(en['aiApps.notice.saved'], { exact: true })).toBeVisible();
+    const after = await stored();
+    expect(after.body).toEqual({ ...before.body, defaultMaxScopes: ['tendo:read'] });
+    expect(after.etag).not.toBe(before.etag);
+    const eventsResponse = await page.request.get(eventsPath);
+    expect(eventsResponse.status()).toBe(200);
+    const events = await eventsResponse.json() as { items: Array<Record<string, unknown>> };
+    expect(events.items[0]).toMatchObject({
+      policy: 'installation', actorUserId: viewerId, targetUserId: null,
+      enabled: true, defaultAccountEnabled: true, scopes: ['tendo:read'],
+    });
+
+    // A reload shows what is stored, and putting change back restores the starting settings for every later step.
+    await page.reload();
+    await expect(change).not.toBeChecked();
+    await change.check();
+    await page.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+    await expect(page.getByText(en['aiApps.notice.saved'], { exact: true })).toBeVisible();
+    expect((await stored()).body).toEqual(before.body);
+  }
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");

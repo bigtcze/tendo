@@ -14,6 +14,7 @@ import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { InstallationHouseholdsScreen } from '../features/installation/InstallationHouseholdsScreen';
 import { InstallationAccountsScreen } from '../features/installation/InstallationAccountsScreen';
+import { InstallationAiAppsScreen } from '../features/installation/InstallationAiAppsScreen';
 import { InstallationHouseholdScreen, type SelfChangeKind } from '../features/installation/InstallationHouseholdScreen';
 import type { AdminHousehold } from '../features/installation/instanceAdminApi';
 import { rereadInstanceAdminSession } from '../features/installation/installationSession';
@@ -68,6 +69,7 @@ export function SignedInApp(props: Props) {
     admin: navigation.openAdmin,
     adminHouseholds: navigation.openAdminHouseholds,
     adminAccounts: navigation.openAdminAccounts,
+    adminAiApps: navigation.openAdminAiApps,
   };
   // Adopting a household chosen in the top bar is the same transition as signing in: Home at '/', a new session
   // generation so callbacks from the previous household are ignored, and the returned session as the live one.
@@ -277,10 +279,10 @@ function renderInstallation(props: Props, install: InstallHandoffState) {
     onOpenHousehold={navigation.openAdminHousehold}
     onCreated={onCreated}
   />;
-  /** The account directory: every account of the installation, and the only place one is deleted for good. */
-  const accountList = () => <InstallationAccountsScreen {...shared} viewerId={session.userId} />;
   if (route.kind === 'adminHouseholds') return householdList();
-  if (route.kind === 'adminAccounts') return accountList();
+  // The account directory: every account of the installation, and the only place one is deleted for good.
+  if (route.kind === 'adminAccounts') return <InstallationAccountsScreen {...shared} viewerId={session.userId} />;
+  if (route.kind === 'adminAiApps') return <InstallationAiAppsScreen {...shared} />;
   if (route.kind === 'admin') {
     return session.instanceAdmin && !session.defaultHouseholdId ? householdList() : null;
   }

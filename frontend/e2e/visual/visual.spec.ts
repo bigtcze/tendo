@@ -205,6 +205,8 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
       await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
     } else if (path === '/admin/accounts') {
       await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
+    } else if (path === '/admin/ai-apps') {
+      await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
     } else {
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     }
@@ -218,6 +220,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     else if (path === '/admin') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
     else if (path === '/admin/households') await expect(page.getByRole('main').getByRole('list', { name: en['install.title'] }).getByRole('listitem').filter({ hasText: HOUSEHOLD })).toBeVisible();
     else if (path === '/admin/accounts') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
+    else if (path === '/admin/ai-apps') await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
     if (path === '/items') await waitForAllItemsSummary(page);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -863,6 +866,46 @@ test('Installation accounts and the delete dialog', async ({ browser }) => {
   await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
   await expect(page.getByRole('main').getByRole('list', { name: cs['admin.list.title'] }).getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toBeVisible();
   await capture(page, 'admin-accounts-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await context.close();
+});
+
+test('Installation AI apps', async ({ browser }) => {
+  test.setTimeout(60_000);
+  const { context, page } = await authenticated(browser);
+  // The visual run starts with apps allowed by the server configuration and the shipped installation defaults: on,
+  // accounts on, read and change. The capture only reads them; nothing is saved, so the consent captures that follow
+  // still find apps allowed.
+  await page.goto('/admin/ai-apps');
+  await expect(page.getByRole('heading', { level: 1, name: en['install.page.title'] })).toBeVisible();
+  const switcher = page.getByRole('navigation', { name: en['admin.sections.label'] });
+  await expect(switcher.getByRole('link', { name: en['admin.sections.aiApps'], exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('switch', { name: en['aiApps.enabled'], exact: true })).toBeChecked();
+  await expect(page.getByRole('switch', { name: en['aiApps.accounts'], exact: true })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.read']}`) })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.write']}`) })).toBeChecked();
+  await expect(page.getByText(en['aiApps.serverOff'])).toHaveCount(0);
+  await captureScreen(page, 'admin-ai-apps', true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await capture(page, 'admin-ai-apps-320', 320, 640, true);
+
+  // Nothing chosen: the field asks for one before anything is sent. Reloading drops the unsaved edit.
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.read']}`) }).uncheck();
+  await page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.write']}`) }).uncheck();
+  await page.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+  await expect(page.getByText(en['aiApps.access.missing'], { exact: true })).toBeVisible();
+  await capture(page, 'admin-ai-apps-missing-390', 390, 900, true);
+  await page.reload();
+  await expect(page.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.read']}`) })).toBeChecked();
+
+  await darkScreen(browser, statePath, '/admin/ai-apps', 'admin-ai-apps');
+
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
+  await expect(page.getByRole('switch', { name: cs['aiApps.enabled'], exact: true })).toBeChecked();
+  await capture(page, 'admin-ai-apps-cs-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await context.close();
 });
