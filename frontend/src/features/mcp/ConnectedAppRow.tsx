@@ -39,9 +39,12 @@ export function ConnectedAppRow({ grant, busy, voice, onDisconnect }: {
     <div className="min-w-0 flex-1 basis-56 space-y-1">
       <p dir="auto" className="text-row-title font-semibold text-ink [overflow-wrap:anywhere]">{grant.clientName}</p>
       <p className="text-small text-muted">{t('connectedApps.unverified')}</p>
-      <p className="text-meta text-muted">{t('connectedApps.connected', { date: day.format(new Date(grant.createdAt)) })}</p>
-      <p className="text-meta text-ink">{t(accessKey(grant.scopes, voice))}</p>
-      <p className="text-meta text-muted">{t('connectedApps.expires', { date: day.format(new Date(grant.expiresAt)) })}</p>
+      <p className="text-small text-ink">{t(accessKey(grant.scopes, voice))}</p>
+      <p data-grant-meta className="text-meta leading-snug text-muted">
+        <span>{t('connectedApps.connected', { date: day.format(new Date(grant.createdAt)) })}</span>
+        {' '}<span aria-hidden="true" className="select-none">·</span>{' '}
+        <span>{t('connectedApps.expires', { date: day.format(new Date(grant.expiresAt)) })}</span>
+      </p>
     </div>
     <Button
       variant="secondary"
