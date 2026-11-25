@@ -58,7 +58,7 @@ export function AccountConnectedApps({ userId, onSignedOut, onForbidden, onGone 
     <NoticeRegion className="mt-4 empty:mt-0 [overflow-wrap:anywhere]"
       message={disconnect.notice ? t(disconnect.notice.key, { client: disconnect.notice.client ?? '' }) : ''} />
     {apps.state === 'loading' ? <LoadingLine className="mt-4">{t('accountApps.loading')}</LoadingLine> : null}
-    {empty ? <p className="mt-4 max-w-prose text-body text-ink">{t('accountApps.empty')}</p> : null}
+    {empty ? <p className="mt-4 max-w-prose text-body text-muted">{t('accountApps.empty')}</p> : null}
     {apps.state === 'loading' || empty
       ? null
       : <ConnectedAppsList apps={apps} listRef={listRef} disconnect={disconnect} voice={ACCOUNT_VOICE} />}

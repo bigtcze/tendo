@@ -102,7 +102,7 @@ export function ConnectedAppsList({ apps, listRef, disconnect, voice }: {
       />)}
     </ul>
     {apps.moreFailed ? <LoadError message={t('connectedApps.error.more')} retryLabel={t('connectedApps.retry')} onRetry={more} /> : null}
-    {apps.nextCursor ? <Button variant="secondary" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60" aria-disabled={apps.loadingMore} onClick={more}>
+    {apps.nextCursor ? <Button variant="secondary" className="w-full sm:w-auto aria-disabled:cursor-not-allowed aria-disabled:opacity-60" aria-disabled={apps.loadingMore} onClick={more}>
       {t('connectedApps.more')}
     </Button> : null}
   </div>;

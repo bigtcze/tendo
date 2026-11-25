@@ -78,7 +78,7 @@ function OwnForm({ own, maximum, t }: { own: OwnAiAppsState; maximum: readonly A
     if (await own.save() === 'invalid') setRefusals((count) => count + 1);
   }
 
-  return <form aria-labelledby={HEADING_ID} noValidate onSubmit={(event) => void submit(event)} className="mt-6 grid max-w-2xl gap-6">
+  return <form aria-labelledby={HEADING_ID} noValidate onSubmit={(event) => void submit(event)} className="mt-6 grid gap-6">
     <SettingSwitch id={`${uid}-own`} label={t('ownAiApps.enabled')} hint={t('ownAiApps.enabledHint')}
       checked={draft.enabled} disabled={saving} onChange={own.setEnabled} />
     <AccessChoice uid={uid} legend={t('ownAiApps.access.title')} hint={t('ownAiApps.access.hint')}

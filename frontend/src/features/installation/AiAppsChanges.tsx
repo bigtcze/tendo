@@ -109,7 +109,7 @@ export function AiAppsChanges({ changes }: { changes: ShowMoreList<AiAppsChange>
     {changes.state === 'error' || changes.refreshFailed
       ? <LoadError className="mt-4" message={t('aiApps.changes.error.load')} retryLabel={t('app.error.retry')} onRetry={changes.reload} />
       : null}
-    {empty ? <p className="mt-4 max-w-prose text-body text-ink">{t('aiApps.changes.empty')}</p> : null}
+    {empty ? <p className="mt-4 max-w-prose text-body text-muted">{t('aiApps.changes.empty')}</p> : null}
     {changes.items.length > 0
       ? <ul ref={listRef} aria-labelledby={HEADING_ID} className="mt-2 divide-y divide-line">
         {changes.items.map((change) => <ChangeRow key={change.id} change={change} format={format} t={t} />)}

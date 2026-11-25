@@ -140,7 +140,7 @@ function AccountFacts({ policy, t }: { policy: AccountAiApps; t: Translate }) {
       <p className="mt-1 max-w-prose text-small text-muted">{t('accountAiApps.now.hint')}</p>
     </section>
     <section aria-labelledby="account-ai-apps-own" className="border-t border-line pt-6">
-      <h2 id="account-ai-apps-own" className="text-body font-semibold text-ink">{t('accountAiApps.own.title')}</h2>
+      <h2 id="account-ai-apps-own" className="text-h2 text-ink">{t('accountAiApps.own.title')}</h2>
       <p data-account-ai-apps-own className="mt-1 max-w-prose text-body text-ink">{t(OWN[own])}</p>
       <p className="mt-1 max-w-prose text-small text-muted">{t('accountAiApps.own.hint')}</p>
     </section>
@@ -205,6 +205,6 @@ function RadioChoice<V extends string>({ name, legend, hint, options, chosen, di
         disabled={disabled} label={t(option.label)} hint={option.hint ? t(option.hint) : undefined}
         onChoose={() => onChoose(option.value)} />)}
     </ul>
-    {error ? <p id={errorId} role="alert" className="mt-1 text-meta text-danger">{error}</p> : null}
+    {error ? <p id={errorId} role="alert" className="mt-1 text-small text-danger">{error}</p> : null}
   </fieldset>;
 }

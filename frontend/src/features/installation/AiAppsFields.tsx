@@ -50,7 +50,7 @@ export function AccessChoice({ uid, legend, hint, chosen, missing, disabled, fir
         </label>
       </li>)}
     </ul>
-    {missing ? <p id={errorId} role="alert" className="mt-1 text-meta text-danger">{t('aiApps.access.missing')}</p> : null}
+    {missing ? <p id={errorId} role="alert" className="mt-1 text-small text-danger">{t('aiApps.access.missing')}</p> : null}
   </fieldset>;
 }
 
