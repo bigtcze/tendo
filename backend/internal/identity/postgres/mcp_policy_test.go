@@ -197,6 +197,67 @@ func TestMCPConsentDeniedWhenNothingAllowedAgainstPostgres(t *testing.T) {
 	}
 }
 
+// TestMCPConsentViewShowsAllowedScopesAgainstPostgres: the consent view names
+// the requested scopes the signed-in account's stored policy allows, read
+// fresh on every view: the administrator's maximum and the owner's own
+// settings narrow it, switching off empties it, and another account reading
+// the same request sees its own policy. The approval never grants more than
+// the view showed, even after the policy widened.
+func TestMCPConsentViewShowsAllowedScopesAgainstPostgres(t *testing.T) {
+	env := newMCPEnv(t)
+	user, session := env.newAccount(t, "mcp_policy_view")
+	other, _ := env.newAccount(t, "mcp_policy_view_other")
+	pending := env.begin(t, mcpTestRedirectURI, "s1")
+	view := func(account string) []string {
+		t.Helper()
+		v, err := env.svc.GetAuthorizationRequest(env.ctx, account, pending.Handle, pending.BrowserBinding)
+		if err != nil {
+			t.Fatalf("GetAuthorizationRequest: %v", err)
+		}
+		if !slices.Equal(v.Scopes, []string{identity.MCPScopeRead, identity.MCPScopeWrite}) {
+			t.Fatalf("requested scopes=%v", v.Scopes)
+		}
+		return v.AllowedScopes
+	}
+	if got := view(user); !slices.Equal(got, []string{identity.MCPScopeRead, identity.MCPScopeWrite}) {
+		t.Fatalf("default allowed=%v", got)
+	}
+	env.setPolicy(t, `UPDATE mcp_account_policies SET admin_max_scopes=ARRAY['tendo:read'] WHERE user_id=$1::uuid`, user)
+	if got := view(user); !slices.Equal(got, []string{identity.MCPScopeRead}) {
+		t.Fatalf("admin maximum read: allowed=%v", got)
+	}
+	if got := view(other); !slices.Equal(got, []string{identity.MCPScopeRead, identity.MCPScopeWrite}) {
+		t.Fatalf("another account read the first account's policy: allowed=%v", got)
+	}
+	env.setPolicy(t, `UPDATE mcp_account_policies SET admin_max_scopes=NULL, user_scopes=ARRAY['tendo:write'] WHERE user_id=$1::uuid`, user)
+	if got := view(user); !slices.Equal(got, []string{identity.MCPScopeWrite}) {
+		t.Fatalf("own settings write: allowed=%v", got)
+	}
+	env.setPolicy(t, `UPDATE mcp_account_policies SET user_enabled=false WHERE user_id=$1::uuid`, user)
+	if got := view(user); len(got) != 0 {
+		t.Fatalf("own switch off: allowed=%v want none", got)
+	}
+	env.setPolicy(t, `UPDATE mcp_account_policies SET user_enabled=true WHERE user_id=$1::uuid`, user)
+	shown := view(user)
+	// The owner widens their settings in another tab before answering: Allow
+	// still grants only what the screen showed.
+	env.setPolicy(t, `UPDATE mcp_account_policies SET user_scopes=ARRAY['tendo:read','tendo:write'] WHERE user_id=$1::uuid`, user)
+	result, err := env.svc.DecideAuthorization(env.ctx, identity.MCPDecision{
+		Principal: identity.Principal{UserID: user}, SessionToken: session,
+		Handle: pending.Handle, BrowserBinding: pending.BrowserBinding, Approve: true, ShownScopes: shown,
+	})
+	if err != nil || result.Code == "" {
+		t.Fatalf("approve: %+v %v", result, err)
+	}
+	var scopes []string
+	if err := env.admin.QueryRow(env.ctx, `SELECT scopes FROM mcp_authorization_codes WHERE user_id=$1::uuid`, user).Scan(&scopes); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(scopes, []string{identity.MCPScopeWrite}) {
+		t.Fatalf("code scopes=%v want what the view showed, not the widened policy", scopes)
+	}
+}
+
 // TestMCPRefreshAcceptsTheAnsweredScopeAgainstPostgres: after the policy
 // narrows a grant, a refresh naming the scope the last response returned
 // succeeds; another subset is refused without consuming the token.

@@ -51,7 +51,7 @@ func (f *fakeMCPService) BeginAuthorization(context.Context, identity.MCPAuthori
 	return identity.MCPPendingAuthorization{}, errors.New("not used by registration tests")
 }
 
-func (f *fakeMCPService) GetAuthorizationRequest(context.Context, string, string) (identity.MCPAuthorizationRequestView, error) {
+func (f *fakeMCPService) GetAuthorizationRequest(context.Context, string, string, string) (identity.MCPAuthorizationRequestView, error) {
 	return identity.MCPAuthorizationRequestView{}, errors.New("not used by registration tests")
 }
 

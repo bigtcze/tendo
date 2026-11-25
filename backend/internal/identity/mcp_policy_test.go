@@ -339,6 +339,51 @@ func TestMCPConsentIssuesRequestedIntersectAllowed(t *testing.T) {
 	}
 }
 
+// TestMCPConsentDecisionNeverExceedsWhatWasShown (B4b1): the approval carries
+// the scopes the consent screen showed, and the code never holds more, even
+// when the policy widened between the view and the decision. Without them the
+// decision issues requested ∩ allowed, as before.
+func TestMCPConsentDecisionNeverExceedsWhatWasShown(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy func(*MCPPolicyRecord)
+		shown  []string
+		want   []string
+	}{
+		{"policy widened after the view", nil, mcpReadOnly, mcpReadOnly},
+		{"policy narrowed after the view", func(p *MCPPolicyRecord) { p.AdminMaxScopes = mcpReadOnly }, mcpBoth, mcpReadOnly},
+		{"nothing shown is still allowed", func(p *MCPPolicyRecord) { p.AdminMaxScopes = mcpReadOnly }, mcpWriteOne, nil},
+		{"not sent", nil, nil, mcpBoth},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newMCPFixture(t)
+			params := mcpValidParams()
+			params.Scopes = mcpBoth
+			pending, err := fx.svc.BeginAuthorization(context.Background(), params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fx.setPolicy(tc.policy)
+			in := mcpDecisionOf(pending, true)
+			in.ShownScopes = tc.shown
+			result, err := fx.svc.DecideAuthorization(context.Background(), in)
+			if err != nil || result.RedirectURI != mcpTestRedirect || result.State != "state-1" {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if tc.want == nil {
+				if result.Code != "" || len(fx.f.state.codes) != 0 {
+					t.Fatalf("issued a code for nothing shown and allowed: %+v", result)
+				}
+				return
+			}
+			if got := fx.f.state.codes[string(mcpDigest(result.Code))].Scopes; !slices.Equal(got, tc.want) {
+				t.Fatalf("code scopes=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestMCPDirectIssuanceAppliesPolicy covers IssueAuthorizationCode, the
 // issuance path without a pending consent.
 func TestMCPDirectIssuanceAppliesPolicy(t *testing.T) {
@@ -404,4 +449,78 @@ func TestMCPRefreshInstallationOffBeforeScope(t *testing.T) {
 	if _, err := fx.svc.Refresh(context.Background(), req); !errors.Is(err, ErrMCPDisabled) {
 		t.Fatalf("err=%v want ErrMCPDisabled", err)
 	}
+}
+
+// TestMCPConsentViewNamesAllowedScopes: the consent screen view carries the
+// requested scopes the signed-in account's policy allows now, never wider than
+// the request; a paused account or user allows none; an installation that is
+// switched off answers as MCP disabled. Reading never consumes the consent.
+func TestMCPConsentViewNamesAllowedScopes(t *testing.T) {
+	cases := []struct {
+		name      string
+		requested []string
+		policy    func(*MCPPolicyRecord)
+		want      []string
+	}{
+		{"default allows the request", mcpBoth, nil, mcpBoth},
+		{"never wider than the request", mcpReadOnly, nil, mcpReadOnly},
+		{"admin maximum narrows", mcpBoth, func(p *MCPPolicyRecord) { p.AdminMaxScopes = mcpReadOnly }, mcpReadOnly},
+		{"installation default narrows", mcpBoth, func(p *MCPPolicyRecord) { p.DefaultMaxScopes = mcpWriteOne }, mcpWriteOne},
+		{"own settings narrow", mcpBoth, func(p *MCPPolicyRecord) { p.UserScopes = mcpReadOnly }, mcpReadOnly},
+		{"admin override elevates nothing", mcpBoth, func(p *MCPPolicyRecord) {
+			p.DefaultMaxScopes, p.AdminMaxScopes, p.UserScopes = mcpBoth, mcpBoth, mcpWriteOne
+		}, mcpWriteOne},
+		{"disjoint", mcpReadOnly, func(p *MCPPolicyRecord) { p.AdminMaxScopes = mcpWriteOne }, nil},
+	}
+	for _, tc := range mcpPausingPolicies {
+		cases = append(cases, struct {
+			name      string
+			requested []string
+			policy    func(*MCPPolicyRecord)
+			want      []string
+		}{"blocked " + tc.name, mcpReadOnly, tc.policy, nil})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newMCPFixture(t)
+			params := mcpValidParams()
+			params.Scopes = tc.requested
+			pending, err := fx.svc.BeginAuthorization(context.Background(), params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fx.setPolicy(tc.policy)
+			view, err := fx.svc.GetAuthorizationRequest(context.Background(), mcpTestUser, pending.Handle, pending.BrowserBinding)
+			if err != nil {
+				t.Fatalf("GetAuthorizationRequest: %v", err)
+			}
+			if !slices.Equal(view.Scopes, tc.requested) || !slices.Equal(view.AllowedScopes, tc.want) {
+				t.Fatalf("scopes=%v allowed=%v want %v and %v", view.Scopes, view.AllowedScopes, tc.requested, tc.want)
+			}
+			if fx.f.requestCount() != 1 {
+				t.Fatal("reading the consent consumed it")
+			}
+		})
+	}
+	for _, tc := range mcpInstallationOff {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newMCPFixture(t)
+			pending := mcpBeginOK(t, fx)
+			fx.setPolicy(tc.policy)
+			if _, err := fx.svc.GetAuthorizationRequest(context.Background(), mcpTestUser, pending.Handle, pending.BrowserBinding); !errors.Is(err, ErrMCPDisabled) {
+				t.Fatalf("err=%v want ErrMCPDisabled", err)
+			}
+		})
+	}
+	t.Run("no signed-in account", func(t *testing.T) {
+		fx := newMCPFixture(t)
+		pending := mcpBeginOK(t, fx)
+		fx.f.calls = nil
+		if _, err := fx.svc.GetAuthorizationRequest(context.Background(), "", pending.Handle, pending.BrowserBinding); !errors.Is(err, ErrUnauthenticated) {
+			t.Fatalf("err=%v want ErrUnauthenticated", err)
+		}
+		if len(fx.f.calls) != 0 {
+			t.Fatalf("anonymous read touched the repository: %v", fx.f.calls)
+		}
+	})
 }

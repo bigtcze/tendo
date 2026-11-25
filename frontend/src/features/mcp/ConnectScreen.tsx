@@ -6,7 +6,9 @@ import type { Session } from '../auth/sessionApi';
 import type { ConnectOutcome } from '../../app/useConnectVisit';
 import { ConnectFrame, Fill, HEADING_CLASS } from './ConnectFrame';
 import { ConnectProblem, connectProblemKey } from './ConnectProblem';
+import { ConsentBlocked } from './ConsentBlocked';
 import { ConsentPanel } from './ConsentPanel';
+import { isBlocked } from './connectApi';
 import { useConnectConsent, type ConsentState } from './useConnectConsent';
 
 export type ConnectScreenProps = {
@@ -27,7 +29,10 @@ function Returning() {
   </ConnectFrame>;
 }
 
-/** The request as a card: a heading that names the app, the app's unverified name marker, then the decision panel. */
+/**
+ * The request as a card: a heading that names the app, the app's unverified name marker, then the decision panel, or,
+ * when the account allows nothing the app asked for, the blocked card with only a way back to the app.
+ */
 function Decision({ state, session, onSignOut, decide }: {
   state: Extract<ConsentState, { kind: 'ready' | 'deciding' }>;
   session: Session;
@@ -36,11 +41,21 @@ function Decision({ state, session, onSignOut, decide }: {
 }) {
   const { t } = useI18n();
   const { request } = state;
+  const blocked = isBlocked(request);
   return <ConnectFrame
-    heading={<Heading className={HEADING_CLASS}><Fill id="connect.heading" values={{ client: request.clientName }} /></Heading>}
+    heading={<Heading className={HEADING_CLASS}>
+      <Fill id={blocked ? 'connect.blocked.heading' : 'connect.heading'} values={{ client: request.clientName }} />
+    </Heading>}
   >
     <p className="mt-3 text-center text-small text-muted">{t('connect.unverified')}</p>
-    <ConsentPanel
+    {blocked ? <ConsentBlocked
+      request={request}
+      session={session}
+      busy={state.kind === 'deciding'}
+      decisionError={state.kind === 'ready' ? state.decisionError : null}
+      onBack={() => decide('deny')}
+      onSignOut={onSignOut}
+    /> : <ConsentPanel
       request={request}
       session={session}
       busy={state.kind === 'deciding'}
@@ -48,7 +63,7 @@ function Decision({ state, session, onSignOut, decide }: {
       decisionError={state.kind === 'ready' ? state.decisionError : null}
       onDecide={decide}
       onSignOut={onSignOut}
-    />
+    />}
   </ConnectFrame>;
 }
 

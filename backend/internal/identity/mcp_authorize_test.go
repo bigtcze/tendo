@@ -40,7 +40,7 @@ func TestMCPDisabledAuthorizeRefusesWithoutTouchingRepository(t *testing.T) {
 			return e
 		}},
 		{"GetAuthorizationRequest", func() error {
-			_, e := svc.GetAuthorizationRequest(ctx, handle, handle)
+			_, e := svc.GetAuthorizationRequest(ctx, mcpTestUser, handle, handle)
 			return e
 		}},
 		{"DecideAuthorization", func() error {

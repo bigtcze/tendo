@@ -32,7 +32,7 @@ type mcpRegistrar interface {
 	Available(ctx context.Context) (bool, error)
 	RegisterClient(ctx context.Context, reg identity.MCPClientRegistration) (identity.MCPRegisteredClient, error)
 	BeginAuthorization(ctx context.Context, in identity.MCPAuthorizationParams) (identity.MCPPendingAuthorization, error)
-	GetAuthorizationRequest(ctx context.Context, handle, browserBinding string) (identity.MCPAuthorizationRequestView, error)
+	GetAuthorizationRequest(ctx context.Context, userID, handle, browserBinding string) (identity.MCPAuthorizationRequestView, error)
 	DecideAuthorization(ctx context.Context, in identity.MCPDecision) (identity.MCPDecisionResult, error)
 	ExchangeCode(ctx context.Context, in identity.MCPCodeExchange) (identity.MCPTokens, error)
 	Refresh(ctx context.Context, in identity.MCPRefresh) (identity.MCPTokens, error)

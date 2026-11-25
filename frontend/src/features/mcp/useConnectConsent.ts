@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { browserNavigation } from '../auth/oidcApi';
 import { clearConnectEntry, readConnectEntry } from './connectEntry';
 import {
-  decideConnectRequest, fetchConnectRequest, isSafeRedirect,
+  decideConnectRequest, fetchConnectRequest, grantedScopes, isBlocked, isSafeRedirect,
   type ConnectDecision, type McpAuthorizationRequest,
 } from './connectApi';
 
@@ -97,7 +97,8 @@ export function useConnectConsent(handle: string, { onSessionEnded }: { onSessio
     return () => { cancelled = true; };
   }, [handle, attempt]);
 
-  const isReady = state.kind === 'ready';
+  // A blocked request never arms Allow: there is nothing it could grant.
+  const isReady = state.kind === 'ready' && !isBlocked(state.request);
   useAllowDelay(isReady, (enabled) => setState((current) => (current.kind === 'ready' ? { ...current, allowEnabled: enabled } : current)));
 
   // A page restored from the back-forward cache must keep the finished state and its disabled buttons.
@@ -111,12 +112,14 @@ export function useConnectConsent(handle: string, { onSessionEnded }: { onSessio
 
   const decide = useCallback((decision: ConnectDecision) => {
     if (state.kind !== 'ready' || finished.current || inFlight.current) return;
-    if (decision === 'approve' && !state.allowEnabled) return;
+    if (decision === 'approve' && (!state.allowEnabled || isBlocked(state.request))) return;
     const { request, allowEnabled } = state;
     // The ref blocks a second POST from a double click before React re-renders the disabled buttons.
     inFlight.current = true;
     setState({ kind: 'deciding', request, allowEnabled });
-    decideConnectRequest(handle, decision).then((result) => {
+    // An approval names what the screen showed, so the server never grants more even if the policy widened since.
+    const shown = decision === 'approve' ? grantedScopes(request).allowedScopes : undefined;
+    decideConnectRequest(handle, decision, shown).then((result) => {
       if (result.kind === 'redirect') {
         // The server consumed the request, so a safe redirect is followed even after unmount.
         clearIfCurrent(handle);

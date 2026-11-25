@@ -182,7 +182,7 @@ func refreshScopeSet(requested []string) ([]string, error) {
 // account or user is off or no consented scope is allowed. Neither outcome
 // writes anything.
 func effectiveScopesLocked(ctx context.Context, tx MCPTransaction, userID string, consented []string) ([]string, error, error) {
-	allowed, err := allowedScopesLocked(ctx, tx, userID)
+	allowed, err := readAllowedScopes(ctx, tx, userID)
 	if errors.Is(err, ErrMCPDisabled) {
 		return nil, ErrMCPDisabled, nil
 	}

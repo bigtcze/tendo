@@ -474,6 +474,42 @@ func (e McpAuthorizationDecisionRequestDecision) Valid() bool {
 	}
 }
 
+// Defines values for McpAuthorizationDecisionRequestScopes.
+const (
+	McpAuthorizationDecisionRequestScopesTendoRead  McpAuthorizationDecisionRequestScopes = "tendo:read"
+	McpAuthorizationDecisionRequestScopesTendoWrite McpAuthorizationDecisionRequestScopes = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationDecisionRequestScopes enum.
+func (e McpAuthorizationDecisionRequestScopes) Valid() bool {
+	switch e {
+	case McpAuthorizationDecisionRequestScopesTendoRead:
+		return true
+	case McpAuthorizationDecisionRequestScopesTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpAuthorizationRequestAllowedScopes.
+const (
+	McpAuthorizationRequestAllowedScopesTendoRead  McpAuthorizationRequestAllowedScopes = "tendo:read"
+	McpAuthorizationRequestAllowedScopesTendoWrite McpAuthorizationRequestAllowedScopes = "tendo:write"
+)
+
+// Valid indicates whether the value is a known member of the McpAuthorizationRequestAllowedScopes enum.
+func (e McpAuthorizationRequestAllowedScopes) Valid() bool {
+	switch e {
+	case McpAuthorizationRequestAllowedScopesTendoRead:
+		return true
+	case McpAuthorizationRequestAllowedScopesTendoWrite:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for McpAuthorizationRequestClientNameVerified.
 const (
 	McpAuthorizationRequestClientNameVerifiedFalse McpAuthorizationRequestClientNameVerified = false
@@ -2090,10 +2126,16 @@ type McpAccountPolicyUpdate struct {
 // McpAuthorizationDecisionRequest The person's decision. Strict JSON; unknown fields are refused.
 type McpAuthorizationDecisionRequest struct {
 	Decision McpAuthorizationDecisionRequestDecision `json:"decision"`
+
+	// Scopes The scopes the consent screen showed as granted. An approval never issues one outside them. Optional; one or two distinct known scopes. Accepted and ignored with deny.
+	Scopes *[]McpAuthorizationDecisionRequestScopes `json:"scopes,omitempty"`
 }
 
 // McpAuthorizationDecisionRequestDecision defines model for McpAuthorizationDecisionRequest.Decision.
 type McpAuthorizationDecisionRequestDecision string
+
+// McpAuthorizationDecisionRequestScopes defines model for McpAuthorizationDecisionRequest.Scopes.
+type McpAuthorizationDecisionRequestScopes string
 
 // McpAuthorizationDecisionResponse The client redirect URI with the authorization response appended. The existing query of the registered URI is kept.
 type McpAuthorizationDecisionResponse struct {
@@ -2102,13 +2144,21 @@ type McpAuthorizationDecisionResponse struct {
 
 // McpAuthorizationRequest The consent screen view of a pending MCP authorization request. Field names are camelCase, not the RFC wire names of /oauth/*.
 type McpAuthorizationRequest struct {
+	// AllowedScopes The requested scopes the signed-in account may grant now, a subset of scopes; empty when nothing is allowed. Shown to the person; the screen sends it back with Allow as the most the decision may issue.
+	AllowedScopes []McpAuthorizationRequestAllowedScopes `json:"allowedScopes"`
+
 	// ClientName The client's own registration name. Not verified.
 	ClientName         string                                    `json:"clientName"`
 	ClientNameVerified McpAuthorizationRequestClientNameVerified `json:"clientNameVerified"`
 	ExpiresAt          time.Time                                 `json:"expiresAt"`
 	RedirectUri        string                                    `json:"redirectUri"`
-	Scopes             []McpAuthorizationRequestScopes           `json:"scopes"`
+
+	// Scopes What the client asked for.
+	Scopes []McpAuthorizationRequestScopes `json:"scopes"`
 }
+
+// McpAuthorizationRequestAllowedScopes defines model for McpAuthorizationRequest.AllowedScopes.
+type McpAuthorizationRequestAllowedScopes string
 
 // McpAuthorizationRequestClientNameVerified defines model for McpAuthorizationRequest.ClientNameVerified.
 type McpAuthorizationRequestClientNameVerified bool

@@ -66,10 +66,13 @@ type MCPAuthorizationRequestRecord struct {
 	CreatedAt, ExpiresAt                                              time.Time
 }
 
-// MCPAuthorizationRequestView is what the consent screen shows.
+// MCPAuthorizationRequestView is what the consent screen shows. Scopes are
+// what the client asked for; AllowedScopes are those of them the signed-in
+// account's policy allows at the time of the read (slice B4b1). The decision
+// reads the policy again under the account lock and stays authoritative.
 type MCPAuthorizationRequestView struct {
 	ClientName, RedirectURI string
-	Scopes                  []string
+	Scopes, AllowedScopes   []string
 	ExpiresAt               time.Time
 }
 
@@ -79,6 +82,11 @@ type MCPDecision struct {
 	SessionToken           string
 	Handle, BrowserBinding string
 	Approve                bool
+	// ShownScopes are the scopes the consent screen showed as granted (B4b1).
+	// When set, an approval never issues a scope outside them, so a policy
+	// widened between the view and the decision cannot grant more than the
+	// person saw. Nil keeps the requested ∩ allowed answer.
+	ShownScopes []string
 }
 
 // MCPDecisionResult is what the adapter turns into the redirect back to the
@@ -226,10 +234,15 @@ func requestedAuthorizationScopes(requested []string) ([]string, error) {
 }
 
 // GetAuthorizationRequest returns the consent screen view of a pending consent
-// bound to this browser. Refusal: ErrMCPAuthorizationRequestNotFound.
-func (s *MCPService) GetAuthorizationRequest(ctx context.Context, handle, browserBinding string) (MCPAuthorizationRequestView, error) {
+// bound to this browser, with the requested scopes the signed-in account may
+// grant now. Refusals: ErrMCPAuthorizationRequestNotFound, ErrUnauthenticated
+// without an account, ErrMCPDisabled while the installation is switched off.
+func (s *MCPService) GetAuthorizationRequest(ctx context.Context, userID, handle, browserBinding string) (MCPAuthorizationRequestView, error) {
 	if !s.enabled {
 		return MCPAuthorizationRequestView{}, ErrMCPDisabled
+	}
+	if userID == "" {
+		return MCPAuthorizationRequestView{}, ErrUnauthenticated
 	}
 	if !mcpSecretPattern.MatchString(handle) || !mcpSecretPattern.MatchString(browserBinding) {
 		return MCPAuthorizationRequestView{}, ErrMCPAuthorizationRequestNotFound
@@ -242,9 +255,16 @@ func (s *MCPService) GetAuthorizationRequest(ctx context.Context, handle, browse
 		} else if e != nil {
 			return e
 		}
+		// The same evaluation the approval runs, without its lock: a display
+		// of what Allow would grant, never an authorization input.
+		allowed, e := readAllowedScopes(ctx, tx, userID)
+		if e != nil {
+			return e
+		}
 		view = MCPAuthorizationRequestView{
 			ClientName: rec.ClientName, RedirectURI: rec.RedirectURI,
-			Scopes: slices.Clone(rec.Scopes), ExpiresAt: rec.ExpiresAt,
+			Scopes: slices.Clone(rec.Scopes), AllowedScopes: intersectMCPScopes(rec.Scopes, allowed),
+			ExpiresAt: rec.ExpiresAt,
 		}
 		return nil
 	})
@@ -315,6 +335,9 @@ func decideLocked(ctx context.Context, tx MCPTransaction, in MCPDecision, now ti
 		// Denial commits the consumption and issues no code.
 		return MCPDecisionResult{RedirectURI: rec.RedirectURI, State: rec.State}, nil
 	}
+	if in.ShownScopes != nil {
+		rec.Scopes = intersectMCPScopes(rec.Scopes, in.ShownScopes)
+	}
 	return approveLocked(ctx, tx, in.Principal.UserID, client, rec, now)
 }
 
@@ -343,12 +366,13 @@ func approveLocked(ctx context.Context, tx MCPTransaction, userID string, client
 	if !MCPRedirectURIMatches(client.RedirectURIs, rec.RedirectURI) {
 		return MCPDecisionResult{}, ErrMCPAuthorizationRequestNotFound
 	}
-	allowed, err := allowedScopesLocked(ctx, tx, userID)
+	allowed, err := readAllowedScopes(ctx, tx, userID)
 	if err != nil {
 		return MCPDecisionResult{}, err
 	}
-	// The code carries only the requested scopes the policy allows. When none
-	// is allowed the approval is answered like a denial: access_denied.
+	// The code carries only the requested scopes (narrowed to what the screen
+	// showed, when it said) the policy allows. When none is allowed the
+	// approval is answered like a denial: access_denied.
 	scopes := intersectMCPScopes(rec.Scopes, allowed)
 	if len(scopes) == 0 {
 		return MCPDecisionResult{RedirectURI: rec.RedirectURI, State: rec.State}, nil

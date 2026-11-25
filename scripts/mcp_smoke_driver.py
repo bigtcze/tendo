@@ -337,6 +337,7 @@ def grant_a(cid, owner):
     status, _, view = request('GET', consent_url, CONSENT, headers={'Cookie': owner + '; ' + flow['binding']})
     check(status == 200 and view['clientName'] == 'MCP Smoke Client' and view['clientNameVerified'] is False, view)
     check(view['redirectUri'] == REDIRECT and sorted(view['scopes']) == ['tendo:read', 'tendo:write'], view)
+    check(sorted(view['allowedScopes']) == ['tendo:read', 'tendo:write'], ('default policy allows the whole request', view))
     status, _, body = request('POST', consent_url + '/decision', DECISION, json_body={'decision': 'approve'},
                               headers={'Origin': FOREIGN, 'Cookie': owner + '; ' + flow['binding']})
     check(status == 403, ('decision foreign Origin', status, body))

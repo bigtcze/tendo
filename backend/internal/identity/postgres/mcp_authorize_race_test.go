@@ -89,7 +89,7 @@ func TestMCPAuthorizeLoopbackPortHappyPath(t *testing.T) {
 	user, session := env.newAccount(t, "mcp_auth_happy")
 	pending := env.begin(t, mcpLoopbackRequested, "state-happy")
 
-	view, err := env.svc.GetAuthorizationRequest(env.ctx, pending.Handle, pending.BrowserBinding)
+	view, err := env.svc.GetAuthorizationRequest(env.ctx, user, pending.Handle, pending.BrowserBinding)
 	if err != nil {
 		t.Fatalf("GetAuthorizationRequest: %v", err)
 	}

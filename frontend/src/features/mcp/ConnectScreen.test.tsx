@@ -15,7 +15,8 @@ const path = `/api/v1/mcp/authorization-requests/${handle}`;
 const redirectTo = 'https://xn--pklad-zsa.example/cb?code=c&state=s';
 const request = {
   clientName: 'Claude Code', clientNameVerified: false as const, redirectUri: 'https://xn--pklad-zsa.example/cb',
-  scopes: ['tendo:read', 'tendo:write'] as ('tendo:read' | 'tendo:write')[], expiresAt: '2026-11-20T10:05:00Z',
+  scopes: ['tendo:read', 'tendo:write'] as ('tendo:read' | 'tendo:write')[],
+  allowedScopes: ['tendo:read', 'tendo:write'] as ('tendo:read' | 'tendo:write')[], expiresAt: '2026-11-20T10:05:00Z',
 };
 
 let focused = true;
@@ -100,6 +101,94 @@ describe('ready state', () => {
     const expires = new Intl.DateTimeFormat('cs', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(request.expiresAt));
     expect(screen.getByText(/Tato žádost vyprší/)).toHaveTextContent(`Tato žádost vyprší ${expires}.`);
     expect(screen.getByRole('button', { name: cs['connect.allow'] })).toBeDisabled();
+  });
+});
+
+describe('allowed scopes', () => {
+  it('lists only what the account allows and names what the app will not get', async () => {
+    installFakeServer({ [`GET ${path}`]: json(200, { ...request, allowedScopes: ['tendo:read'] }) });
+    renderConnect();
+    await screen.findByRole('heading', { level: 1, name: 'Connect Claude Code?' });
+    const granted = screen.getByRole('list', { name: en['connect.scopes.intro'] });
+    expect(within(granted).getAllByRole('listitem').map((item) => item.textContent)).toEqual([en['connect.scope.read']]);
+    const withheld = screen.getByRole('list', { name: en['connect.scopes.withheld'] });
+    expect(within(withheld).getAllByRole('listitem').map((item) => item.textContent)).toEqual([en['connect.scope.write']]);
+    expect(screen.getByText(en['connect.scopes.coverage'])).toBeVisible();
+    await waitForAllow();
+    expect(allowButton()).toBeEnabled();
+  });
+
+  it('Allow names exactly the scopes it showed, so a wider policy at the decision grants nothing more', async () => {
+    const fake = installFakeServer({
+      [`GET ${path}`]: json(200, { ...request, allowedScopes: ['tendo:read'] }),
+      [`POST ${path}/decision`]: json(200, { redirectTo }),
+    });
+    renderConnect();
+    await screen.findByRole('heading', { level: 1, name: 'Connect Claude Code?' });
+    await waitForAllow();
+    click(allowButton());
+    await waitFor(() => expect(browserNavigation.assign).toHaveBeenCalledWith(redirectTo));
+    const post = fake.requests.find((r) => r.method === 'POST');
+    expect(JSON.parse(post?.body ?? '{}')).toEqual({ decision: 'approve', scopes: ['tendo:read'] });
+  });
+
+  it('shows no withheld list when everything asked for is allowed', async () => {
+    installFakeServer(consentRoutes());
+    renderConnect();
+    await screen.findByRole('heading', { level: 1, name: 'Connect Claude Code?' });
+    expect(screen.queryByText(en['connect.scopes.withheld'])).toBeNull();
+    expect(within(screen.getByRole('list', { name: en['connect.scopes.intro'] })).getAllByRole('listitem')).toHaveLength(2);
+  });
+});
+
+describe('blocked', () => {
+  const blocked = { ...request, scopes: ['tendo:write'], allowedScopes: [] };
+
+  it('says the app cannot be connected, offers no Allow and only a way back to the app', async () => {
+    const fake = installFakeServer({
+      [`GET ${path}`]: json(200, blocked),
+      [`POST ${path}/decision`]: json(200, { redirectTo }),
+    });
+    renderConnect();
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Claude Code can’t be connected' });
+    expect(heading).toHaveFocus();
+    expect(screen.getByText(en['connect.blocked.body'])).toBeVisible();
+    expect(screen.getByText(en['connect.blocked.hint'])).toBeVisible();
+    const asked = screen.getByRole('list', { name: en['connect.blocked.asked'] });
+    expect(within(asked).getAllByRole('listitem').map((item) => item.textContent)).toEqual([en['connect.scope.write']]);
+    expect(screen.queryByText(en['connect.scopes.coverage'])).toBeNull();
+    expect(screen.queryByText(en['connect.allowHint'])).toBeNull();
+    await act(() => vi.advanceTimersByTime(3000));
+    expect(screen.queryByRole('button', { name: en['connect.allow'] })).toBeNull();
+    expect(screen.queryByRole('button', { name: en['connect.deny'] })).toBeNull();
+    expect(screen.getByText(/Signed in as/)).toHaveTextContent('Signed in as anna.');
+    click(screen.getByRole('button', { name: en['connect.back'] }));
+    await waitFor(() => expect(browserNavigation.assign).toHaveBeenCalledWith(redirectTo));
+    const posts = fake.requests.filter((r) => r.method === 'POST');
+    expect(posts.map((r) => JSON.parse(r.body))).toEqual([{ decision: 'deny' }]);
+  });
+
+  it('keeps the way back after a failed answer and says why', async () => {
+    installFakeServer({
+      [`GET ${path}`]: json(200, blocked),
+      [`POST ${path}/decision`]: json(503, { title: 'x', status: 503 }),
+    });
+    renderConnect();
+    await screen.findByRole('heading', { level: 1, name: 'Claude Code can’t be connected' });
+    click(screen.getByRole('button', { name: en['connect.back'] }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(en['connect.unavailable']);
+    expect(alert).toHaveFocus();
+    expect(screen.getByRole('button', { name: en['connect.back'] })).toBeEnabled();
+  });
+
+  it('is localized in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ [`GET ${path}`]: json(200, blocked) });
+    renderConnect();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Claude Code nelze připojit' })).toBeVisible();
+    expect(screen.getByText(cs['connect.blocked.body'])).toBeVisible();
+    expect(screen.getByRole('button', { name: cs['connect.back'] })).toBeEnabled();
   });
 });
 

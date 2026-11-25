@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browserNavigation } from '../auth/oidcApi';
 import { clearConnectEntry, readConnectEntry, saveConnectHandle } from './connectEntry';
+import { grantedScopes } from './connectApi';
 import { useConnectConsent, type ConsentState } from './useConnectConsent';
 import { installFakeServer, json } from '../../test/fakeServer';
 
@@ -9,7 +10,8 @@ const handle = 'A'.repeat(43);
 const path = `/api/v1/mcp/authorization-requests/${handle}`;
 const request = {
   clientName: 'Claude Code', clientNameVerified: false as const, redirectUri: 'https://client.example/cb?tenant=a',
-  scopes: ['tendo:read'] as ('tendo:read' | 'tendo:write')[], expiresAt: '2026-11-20T10:05:00Z',
+  scopes: ['tendo:read'] as ('tendo:read' | 'tendo:write')[],
+  allowedScopes: ['tendo:read'] as ('tendo:read' | 'tendo:write')[], expiresAt: '2026-11-20T10:05:00Z',
 };
 const redirectTo = 'https://client.example/cb?tenant=a&code=c&state=s';
 
@@ -80,6 +82,31 @@ describe('allow delay', () => {
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
     await act(() => vi.advanceTimersByTime(2000));
     expect(allowEnabled(hook.result.current.state)).toBe(false);
+  });
+});
+
+describe('blocked request', () => {
+  it('never arms Allow and never sends approve when nothing asked for is allowed', async () => {
+    const fake = installFakeServer({
+      [`GET ${path}`]: json(200, { ...request, allowedScopes: [] }),
+      [`POST ${path}/decision`]: json(200, { redirectTo }),
+    });
+    const hook = renderConsent();
+    await waitFor(() => expect(hook.result.current.state.kind).toBe('ready'));
+    await act(() => vi.advanceTimersByTime(3000));
+    expect(allowEnabled(hook.result.current.state)).toBe(false);
+    act(() => hook.result.current.decide('approve'));
+    expect(fake.requests.some((r) => r.method === 'POST')).toBe(false);
+    act(() => hook.result.current.decide('deny'));
+    await waitFor(() => expect(browserNavigation.assign).toHaveBeenCalledWith(redirectTo));
+    expect(fake.requests.filter((r) => r.method === 'POST').map((r) => JSON.parse(r.body))).toEqual([{ decision: 'deny' }]);
+  });
+
+  it('ignores an allowed scope the app did not ask for', async () => {
+    const { allowedScopes } = grantedScopes({ ...request, scopes: ['tendo:read'], allowedScopes: ['tendo:write'] });
+    expect(allowedScopes).toEqual([]);
+    expect(grantedScopes({ ...request, scopes: ['tendo:write', 'tendo:read'], allowedScopes: ['tendo:read'] }))
+      .toEqual({ allowedScopes: ['tendo:read'], withheldScopes: ['tendo:write'] });
   });
 });
 

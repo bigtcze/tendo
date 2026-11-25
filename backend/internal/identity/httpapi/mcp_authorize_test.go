@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ type fakeMCPFlow struct {
 	begin         identity.MCPPendingAuthorization
 	beginErr      error
 	viewCalls     int
+	viewUser      string
 	viewHandle    string
 	viewBinding   string
 	view          identity.MCPAuthorizationRequestView
@@ -50,9 +52,9 @@ func (f *fakeMCPFlow) BeginAuthorization(_ context.Context, in identity.MCPAutho
 	return f.begin, f.beginErr
 }
 
-func (f *fakeMCPFlow) GetAuthorizationRequest(_ context.Context, handle, binding string) (identity.MCPAuthorizationRequestView, error) {
+func (f *fakeMCPFlow) GetAuthorizationRequest(_ context.Context, userID, handle, binding string) (identity.MCPAuthorizationRequestView, error) {
 	f.viewCalls++
-	f.viewHandle, f.viewBinding = handle, binding
+	f.viewUser, f.viewHandle, f.viewBinding = userID, handle, binding
 	return f.view, f.viewErr
 }
 
@@ -240,7 +242,7 @@ func TestDisabledAnswersNotFoundOnEveryConsentAndTokenRoute(t *testing.T) {
 }
 
 func TestGetAuthorizationRequestRequiresSessionAndBinding(t *testing.T) {
-	view := identity.MCPAuthorizationRequestView{ClientName: "Claude", RedirectURI: registeredRedirect, Scopes: []string{"tendo:read"}, ExpiresAt: time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)}
+	view := identity.MCPAuthorizationRequestView{ClientName: "Claude", RedirectURI: registeredRedirect, Scopes: []string{"tendo:read", "tendo:write"}, AllowedScopes: []string{"tendo:read"}, ExpiresAt: time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)}
 	path := "/api/v1/mcp/authorization-requests/" + testHandle
 	bindingHeader := http.Header{"Cookie": {sessionCookieHeader + "; " + bindingCookieName + "=" + testBinding}}
 
@@ -260,9 +262,34 @@ func TestGetAuthorizationRequestRequiresSessionAndBinding(t *testing.T) {
 	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
-	assertJSONBody(t, w, http.StatusOK, `{"clientName":"Claude","clientNameVerified":false,"redirectUri":"http://127.0.0.1:5555/cb?x=1","scopes":["tendo:read"],"expiresAt":"2026-11-20T12:00:00Z"}`)
-	if flow.viewHandle != testHandle || flow.viewBinding != testBinding {
-		t.Fatalf("service got handle/binding mismatch")
+	assertJSONBody(t, w, http.StatusOK, `{"clientName":"Claude","clientNameVerified":false,"redirectUri":"http://127.0.0.1:5555/cb?x=1","scopes":["tendo:read","tendo:write"],"allowedScopes":["tendo:read"],"expiresAt":"2026-11-20T12:00:00Z"}`)
+	if flow.viewUser != "user-1" || flow.viewHandle != testHandle || flow.viewBinding != testBinding {
+		t.Fatalf("service got user/handle/binding mismatch")
+	}
+}
+
+// TestGetAuthorizationRequestBlockedAndRefusals: nothing allowed is still a 200
+// with an empty allowedScopes array (the blocked consent), an installation
+// switched off after the gate answers the unknown-path 404, and a service
+// refusal for a missing user is 401.
+func TestGetAuthorizationRequestBlockedAndRefusals(t *testing.T) {
+	path := "/api/v1/mcp/authorization-requests/" + testHandle
+	header := http.Header{"Cookie": {sessionCookieHeader + "; " + bindingCookieName + "=" + testBinding}}
+	blocked := identity.MCPAuthorizationRequestView{ClientName: "Claude", RedirectURI: registeredRedirect, Scopes: []string{"tendo:write"}, ExpiresAt: time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)}
+	flow := &fakeMCPFlow{fakeMCPService: fakeMCPService{enabled: true}, view: blocked}
+	w := mcpServe(flowRouter(t, flow, signedIn(), mcpPublicURL), http.MethodGet, path, "", header, "192.0.2.32:1")
+	assertJSONBody(t, w, http.StatusOK, `{"clientName":"Claude","clientNameVerified":false,"redirectUri":"http://127.0.0.1:5555/cb?x=1","scopes":["tendo:write"],"allowedScopes":[],"expiresAt":"2026-11-20T12:00:00Z"}`)
+
+	unknown := mcpServe(flowRouter(t, flow, signedIn(), mcpPublicURL), http.MethodGet, "/no-such-route", "", header, "192.0.2.32:1")
+	flow.viewErr = identity.ErrMCPDisabled
+	w = mcpServe(flowRouter(t, flow, signedIn(), mcpPublicURL), http.MethodGet, path, "", header, "192.0.2.32:1")
+	if w.Code != unknown.Code || w.Body.String() != unknown.Body.String() {
+		t.Fatalf("disabled: status=%d body=%s, want %d %s", w.Code, w.Body, unknown.Code, unknown.Body)
+	}
+	flow.viewErr = identity.ErrUnauthenticated
+	w = mcpServe(flowRouter(t, flow, signedIn(), mcpPublicURL), http.MethodGet, path, "", header, "192.0.2.32:1")
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), `"unauthenticated"`) {
+		t.Fatalf("unauthenticated: status=%d body=%s", w.Code, w.Body)
 	}
 }
 
@@ -323,6 +350,26 @@ func TestDecisionRedirectPreservesQueryAndCarriesIssuer(t *testing.T) {
 	}
 }
 
+// TestDecisionPassesTheScopesShown: the scopes the consent screen showed reach
+// the service as sent; a body without them passes none, so the service keeps
+// its requested ∩ allowed answer.
+func TestDecisionPassesTheScopesShown(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want []string
+	}{
+		{`{"decision":"approve","scopes":["tendo:write","tendo:read"]}`, []string{"tendo:read", "tendo:write"}},
+		{`{"decision":"approve","scopes":["tendo:read"]}`, []string{"tendo:read"}},
+		{`{"decision":"approve"}`, nil},
+	} {
+		flow := &fakeMCPFlow{fakeMCPService: fakeMCPService{enabled: true}, decision: identity.MCPDecisionResult{RedirectURI: registeredRedirect, Code: "CODE-1"}}
+		w := mcpServe(flowRouter(t, flow, signedIn(), mcpPublicURL), http.MethodPost, decisionPath(), tc.body, decisionHeader(), "192.0.2.43:1")
+		if w.Code != http.StatusOK || !slices.Equal(flow.decideIn.ShownScopes, tc.want) {
+			t.Fatalf("%s: status=%d shown=%v want %v", tc.body, w.Code, flow.decideIn.ShownScopes, tc.want)
+		}
+	}
+}
+
 func TestDecisionDenyCarriesAccessDeniedWithoutState(t *testing.T) {
 	flow := &fakeMCPFlow{fakeMCPService: fakeMCPService{enabled: true}, decision: identity.MCPDecisionResult{RedirectURI: registeredRedirect}}
 	w := mcpServe(flowRouter(t, flow, signedIn(), mcpPublicURL), http.MethodPost, decisionPath(), `{"decision":"deny"}`, decisionHeader(), "192.0.2.41:1")
@@ -353,6 +400,11 @@ func TestDecisionRefusesCrossOriginAndBadBodies(t *testing.T) {
 		"bad value":     `{"decision":"maybe"}`,
 		"not an object": `["approve"]`,
 		"wrong type":    `{"decision":true}`,
+		"scopes null":   `{"decision":"approve","scopes":null}`,
+		"scopes empty":  `{"decision":"approve","scopes":[]}`,
+		"scope unknown": `{"decision":"approve","scopes":["tendo:admin"]}`,
+		"scope twice":   `{"decision":"approve","scopes":["tendo:read","tendo:read"]}`,
+		"scopes string": `{"decision":"approve","scopes":"tendo:read"}`,
 	}
 	for name, body := range bodies {
 		w := mcpServe(h, http.MethodPost, decisionPath(), body, decisionHeader(), "192.0.2.42:1")

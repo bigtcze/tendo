@@ -26,8 +26,10 @@ The app then opens a Tendo page in your browser. If you are not signed in, sign 
 
 - **Connect …?** with the name the app gave itself. Tendo has not checked that name, so connect only an app you started connecting yourself.
 - Where Tendo sends you back afterwards: a website address, an app on this computer, or an app on this device.
-- What the app will be able to do, and that this covers all your current and future households until you disconnect it.
+- What the app will be able to do, and that this covers all your current and future households until you disconnect it. This is only what your account allows AI apps to do: if the app asked for more, the page lists that part separately under **It asked for more, but your account doesn’t allow it to:**, and **Allow** does not give it.
 - Which account you are signed in as, with **Not you? Sign out**.
+
+If your account allows AI apps nothing the app asked for, for example because AI apps are not allowed for your account, the page says **… can’t be connected** instead and lists what the app asked for. There is no **Allow**; **Back to the app** tells the app the connection was refused. Your administrator decides what AI apps may do for your account; once that changes, start connecting again in the app.
 
 Select **Allow** to connect the app or **Deny** to refuse. **Allow** becomes available a moment after the page appears, and again a moment after you come back to the tab, so a click meant for something else cannot approve it. Tendo then shows **Returning to the app…** and hands you back to the app; you can close the tab if nothing happens. A request lasts 5 minutes and can be answered once; to try again, start connecting again in the app.
 
