@@ -36,6 +36,10 @@ type mcpPolicyService interface {
 	InstallationPolicy(ctx context.Context, actorID string) (identity.MCPInstallationView, error)
 	UpdateInstallationPolicy(ctx context.Context, actorID string, change identity.MCPInstallationChange, expected int64) (identity.MCPInstallationView, error)
 	PolicyEvents(ctx context.Context, actorID string, limit int, cursor string) (identity.MCPPolicyEventList, error)
+	// Slice B1b3: the administrator grant list and revocations.
+	AccountGrants(ctx context.Context, actorID, userID string, limit int, cursor string) (identity.MCPGrantPage, error)
+	RevokeAccountGrant(ctx context.Context, actorID, userID, grantID string) error
+	RevokeAccountGrants(ctx context.Context, actorID, userID string) error
 }
 
 // MCPPolicyHandler serves the administrator's account policy and the account
@@ -45,15 +49,21 @@ type MCPPolicyHandler struct {
 	sessions *SessionHandler
 	// settingsPerUser is its own bucket, never shared with other routes.
 	settingsPerUser *limiter
+	// adminRevokePerActor is the administrator revoke bucket (B1b3).
+	adminRevokePerActor *limiter
 }
 
 // NewMCPPolicy builds the account policy adapter.
 func NewMCPPolicy(service mcpPolicyService, sessions *SessionHandler) *MCPPolicyHandler {
-	return &MCPPolicyHandler{service: service, sessions: sessions, settingsPerUser: newLimiter(mcpSettingsWritePerUser)}
+	return &MCPPolicyHandler{
+		service: service, sessions: sessions,
+		settingsPerUser:     newLimiter(mcpSettingsWritePerUser),
+		adminRevokePerActor: newLimiter(mcpAdminRevokePerActor),
+	}
 }
 
-// Register mounts the four routes behind RequireSession. None is in
-// MCPCrossOriginRoutes: a PUT needs the canonical Origin.
+// Register mounts the routes behind RequireSession. None is in
+// MCPCrossOriginRoutes: a PUT or DELETE needs the canonical Origin.
 func (h *MCPPolicyHandler) Register(r chi.Router) {
 	admin := func(next http.HandlerFunc) http.HandlerFunc {
 		return h.sessions.RequireSession(h.requireInstanceAdmin(next)).ServeHTTP
@@ -63,6 +73,7 @@ func (h *MCPPolicyHandler) Register(r chi.Router) {
 	r.Get(mcpInstallationPolicyPath, admin(h.getInstallationPolicy))
 	r.Put(mcpInstallationPolicyPath, admin(h.updateInstallationPolicy))
 	r.Get(mcpPolicyEventsPath, admin(h.listPolicyEvents))
+	h.registerAdminGrants(r, admin)
 	r.Get(mcpSettingsPath, h.sessions.RequireSession(http.HandlerFunc(h.getSettings)).ServeHTTP)
 	r.Put(mcpSettingsPath, h.sessions.RequireSession(http.HandlerFunc(h.updateSettings)).ServeHTTP)
 }

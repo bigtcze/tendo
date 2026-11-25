@@ -89,6 +89,29 @@ type MCPPolicyTransaction interface {
 	// live account without a lock. A deleted, unknown or malformed account is
 	// ErrNotFound. A missing account row is AccountFound false with version 0.
 	ReadLiveAccountPolicy(ctx context.Context, userID string) (MCPPolicyRecord, int64, error)
+
+	// Slice B1b3: the administrator grant list and revocations.
+
+	// ListLiveGrants is the connected-apps read of one account inside the
+	// transaction: live grants with an id below afterID (when set), newest first.
+	ListLiveGrants(ctx context.Context, userID string, now time.Time, afterID string, limit int) ([]MCPGrantItem, error)
+	// FindGrantOwner is the unlocked owner pre-read. An unknown grant is
+	// ErrNotFound.
+	FindGrantOwner(ctx context.Context, grantID string) (string, error)
+	// LockAccountForGrants takes the live account FOR SHARE and its local
+	// credential FOR SHARE, as an MCP issuance does, so a revocation serializes
+	// with deletion and password replacement. A deleted, unknown or malformed
+	// account is ErrNotFound.
+	LockAccountForGrants(ctx context.Context, userID string) error
+	// LockGrant locks the grant's codes, then the grant, FOR UPDATE.
+	LockGrant(ctx context.Context, grantID string) (MCPGrantRecord, error)
+	// RevokeGrant revokes one locked grant with its audited cause and deletes
+	// its codes and token rows.
+	RevokeGrant(ctx context.Context, grantID string, now time.Time, revocation MCPRevocation) error
+	// RevokeAccountGrants revokes every unrevoked grant of the locked account,
+	// one audited event each, and deletes every code and token row of the
+	// account.
+	RevokeAccountGrants(ctx context.Context, userID string, now time.Time, revocation MCPRevocation) error
 }
 
 // MCPPolicyRepository opens policy transactions at READ COMMITTED.

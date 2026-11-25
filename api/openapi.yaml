@@ -2114,7 +2114,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/McpAccountPolicy' }
               example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, enabled: null, maxScopes: null, userEnabled: true, userScopes: [tendo:read, tendo:write], effectiveScopes: [] }
-        '400': { description: 'Malformed trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '400': { description: 'Malformed trusted forwarded request metadata. The problem carries no code.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400 } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403':
           description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter or account lookup), code instance_admin_required; or a supplied Origin is foreign, malformed, or duplicated.'
@@ -2184,6 +2184,171 @@ paths:
         '422': { description: 'maxScopes is empty, duplicated, or names an unknown scope.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/McpPolicyValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_value, field: maxScopes } } } }
         '428': { description: 'If-Match is required.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
         '503': { description: 'Persistence is unavailable; the policy may not have changed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/accounts/{userId}/mcp-grants:
+    get:
+      operationId: listAdminAccountMcpGrants
+      summary: List one account's live MCP grants
+      description: >-
+        Instance administrator only (ADR 0023, slice B1b3). Returns the live MCP grants (not revoked, not expired) of one
+        live account, in the McpGrantList shape and with the cursor of listMcpGrants (newest first by id, keyset
+        cursor pagination). No token or secret is returned. The route works whether or not TENDO_MCP_ENABLED or the
+        installation switch is on, so paused grants can still be reviewed. Requires the session cookie; an MCP bearer
+        token is never accepted.
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: One page of the account's live grants.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpGrantList' }
+              example:
+                items:
+                  - id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90
+                    clientName: Claude Code
+                    clientNameVerified: false
+                    scopes: [tendo:read, tendo:write]
+                    createdAt: '2026-11-20T10:00:00Z'
+                    expiresAt: '2027-02-18T10:00:00Z'
+                nextCursor: null
+        '400': { description: 'Invalid query (invalid_query naming limit or cursor), or malformed trusted forwarded request metadata, which carries no code.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter or account lookup), code instance_admin_required; or a supplied Origin is foreign, malformed, or duplicated.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '404': { description: 'The account is malformed, unknown, or deleted. The same not_found answers all three.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence is unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    delete:
+      operationId: revokeAdminAccountMcpGrants
+      summary: Revoke every MCP grant of one account
+      description: >-
+        Instance administrator only (ADR 0023, slice B1b3). Revokes every unrevoked MCP grant of one live account, each
+        with the audited reason admin and the administrator as actor (one grant event per revoked grant), and deletes every
+        authorization code and every access and refresh token the account holds when it runs, in one transaction. An
+        authorization that completes concurrently may survive; to stop new connections, change the account policy. The next /mcp request
+        and the next refresh with them fail; a request already past token verification finishes. An account with no grant
+        is still 204 and writes no event. The account's policy is not changed, so its owner can connect an app again
+        unless the policy forbids it. Works whether or not TENDO_MCP_ENABLED or the installation switch is on. Requires the
+        session cookie and the canonical Origin header. Rate limited per administrator (30 per minute, shared with
+        revokeAdminAccountMcpGrant).
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+        - name: Origin
+          in: header
+          required: true
+          description: Must match the configured canonical public origin.
+          schema: { type: string, format: uri }
+          example: https://tendo.example
+      responses:
+        '204':
+          description: Every grant of the account is revoked.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+        '400': { description: 'Malformed trusted forwarded request metadata. The problem carries no code.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400 } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter or account lookup), code instance_admin_required; or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '404': { description: 'The account is malformed, unknown, or deleted. The same not_found answers all three.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '429':
+          description: The administrator's revocation limit (30 per minute, shared by both revocation routes) is reached.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema: { type: string, const: '60' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited }
+        '503': { description: 'Persistence is unavailable; the grants may not have been revoked.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/admin/accounts/{userId}/mcp-grants/{grantId}:
+    delete:
+      operationId: revokeAdminAccountMcpGrant
+      summary: Revoke one MCP grant of one account
+      description: >-
+        Instance administrator only (ADR 0023, slice B1b3). Revokes one live MCP grant of the account with the audited
+        reason admin and the administrator as actor, and deletes its codes and its access and refresh tokens. The next
+        /mcp request and the next refresh with them fail; a request already past token verification finishes. The same
+        404 not_found answers an account or grant id that is not canonical lowercase, an unknown or deleted account, and
+        a grant that is unknown, owned by another account, already revoked or expired. Works whether or not
+        TENDO_MCP_ENABLED or the installation switch is on. Requires the session cookie and the canonical Origin header.
+        Rate limited per administrator (30 per minute, shared with revokeAdminAccountMcpGrants).
+      tags: [Mcp]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/AdminAccountUserId' }
+        - name: Origin
+          in: header
+          required: true
+          description: Must match the configured canonical public origin.
+          schema: { type: string, format: uri }
+          example: https://tendo.example
+        - name: grantId
+          in: path
+          required: true
+          description: The id of a grant from listAdminAccountMcpGrants.
+          schema: { type: string, format: uuid, x-go-type: string }
+      responses:
+        '204':
+          description: The grant is revoked.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+        '400': { description: 'Malformed trusted forwarded request metadata. The problem carries no code.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400 } } } }
+        '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on administrative resources.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403':
+          description: 'The caller does not currently hold the instance-administrator grant (checked before any parameter or account lookup), code instance_admin_required; or Origin is missing, malformed, duplicated, or foreign.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                instanceAdminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: instance_admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '404': { description: 'Not a live grant of a live account; see the description.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '429':
+          description: The administrator's revocation limit (30 per minute, shared by both revocation routes) is reached.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema: { type: string, const: '60' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited }
+        '503': { description: 'Persistence is unavailable; the grant may not have been revoked.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/households:
     get:
       operationId: listHouseholds
@@ -3380,7 +3545,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/McpSettings' }
               example: { enabled: true, scopes: [tendo:read, tendo:write], maximumScopes: [tendo:read, tendo:write], effectiveScopes: [tendo:read, tendo:write] }
-        '400': { description: 'Malformed trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '400': { description: 'Malformed trusted forwarded request metadata. The problem carries no code.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400 } } } }
         '401': { description: 'No valid session cookie; a stale single cookie is cleared. An MCP token is never accepted on this resource.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'A supplied Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }

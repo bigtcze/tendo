@@ -2927,6 +2927,36 @@ type ListAdminAccountsParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// RevokeAdminAccountMcpGrantsParams defines parameters for RevokeAdminAccountMcpGrants.
+type RevokeAdminAccountMcpGrantsParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
+// ListAdminAccountMcpGrantsParams defines parameters for ListAdminAccountMcpGrants.
+type ListAdminAccountMcpGrantsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// RevokeAdminAccountMcpGrantParams defines parameters for RevokeAdminAccountMcpGrant.
+type RevokeAdminAccountMcpGrantParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
 // GetAdminAccountMcpPolicyParams defines parameters for GetAdminAccountMcpPolicy.
 type GetAdminAccountMcpPolicyParams struct {
 	// XRequestID Optional caller-supplied correlation ID.

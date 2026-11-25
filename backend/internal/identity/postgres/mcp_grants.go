@@ -270,6 +270,12 @@ func mcpPolicyRecord(row identitydb.ReadMCPPolicyRow) identity.MCPPolicyRecord {
 // a plain pool read, outside any transaction. afterID is empty for the first
 // page.
 func (r *MCPRepository) ListLiveGrants(ctx context.Context, userID string, now time.Time, afterID string, limit int) ([]identity.MCPGrantItem, error) {
+	return listLiveGrants(ctx, identitydb.New(r.pool), userID, now, afterID, limit)
+}
+
+// listLiveGrants is the keyset read of the connected-apps list on q, the pool
+// or an administrator's policy transaction (ADR 0023, slice B1b3).
+func listLiveGrants(ctx context.Context, q *identitydb.Queries, userID string, now time.Time, afterID string, limit int) ([]identity.MCPGrantItem, error) {
 	user, err := scanUUID(userID)
 	if err != nil {
 		return nil, err
@@ -280,7 +286,7 @@ func (r *MCPRepository) ListLiveGrants(ctx context.Context, userID string, now t
 			return nil, err
 		}
 	}
-	rows, err := identitydb.New(r.pool).ListLiveMCPGrants(ctx, identitydb.ListLiveMCPGrantsParams{
+	rows, err := q.ListLiveMCPGrants(ctx, identitydb.ListLiveMCPGrantsParams{
 		UserID: user, Now: ts(now.UTC()), AfterID: after, PageLimit: int32(limit),
 	})
 	if err != nil {

@@ -70,6 +70,31 @@ func (t *mcpPolicyTx) LockLiveAccount(ctx context.Context, userID string) error 
 	return notFound(err)
 }
 
+// Slice B1b3: the administrator grant list and revocations. FindGrantOwner,
+// LockGrant and RevokeGrant are the connected-apps methods of the embedded
+// mcpTx.
+
+func (t *mcpPolicyTx) ListLiveGrants(ctx context.Context, userID string, now time.Time, afterID string, limit int) ([]identity.MCPGrantItem, error) {
+	return listLiveGrants(ctx, t.q, userID, now, afterID, limit)
+}
+
+// LockAccountForGrants is the issuance account lock: the live user_accounts row
+// FOR SHARE, then its local credential FOR SHARE, so an administrator's
+// revocation serializes with deletion and password replacement.
+func (t *mcpPolicyTx) LockAccountForGrants(ctx context.Context, userID string) error {
+	return t.mcpTx.LockLiveAccount(ctx, userID)
+}
+
+// RevokeAccountGrants is the account-wide revocation a password replacement
+// runs: codes, then grants (one audited event each), then token rows.
+func (t *mcpPolicyTx) RevokeAccountGrants(ctx context.Context, userID string, now time.Time, revocation identity.MCPRevocation) error {
+	user, err := scanUUID(userID)
+	if err != nil {
+		return err
+	}
+	return revokeAccountMCPAccess(ctx, t.q, user, now, revocation)
+}
+
 func (t *mcpPolicyTx) ReadLiveAccountPolicy(ctx context.Context, userID string) (identity.MCPPolicyRecord, int64, error) {
 	user, err := scanUUID(userID)
 	if err != nil {

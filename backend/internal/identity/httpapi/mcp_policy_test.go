@@ -47,11 +47,20 @@ type fakeMCPPolicyService struct {
 	setUpdExpect  int64
 	setUpdOut     identity.MCPSettings
 	setUpdErr     error
+	// The administrator grant routes (B1b3).
+	grantCalls  int
+	grantActor  string
+	grantUser   string
+	grantID     string
+	grantLimit  int
+	grantCursor string
+	grantPage   identity.MCPGrantPage
+	grantErr    error
 }
 
 // total counts every service call, admin pre-check included.
 func (f *fakeMCPPolicyService) total() int {
-	return f.adminCalls + f.readCalls + f.updCalls + f.settingsCalls + f.setUpdCalls
+	return f.adminCalls + f.readCalls + f.updCalls + f.settingsCalls + f.setUpdCalls + f.grantCalls
 }
 
 func (f *fakeMCPPolicyService) RequireInstanceAdmin(_ context.Context, _ string) error {
