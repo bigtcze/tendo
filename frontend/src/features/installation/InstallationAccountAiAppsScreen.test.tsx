@@ -358,6 +358,7 @@ describe('one account’s AI apps', () => {
         enabled: true, operatorEnabled: true, defaultAccountEnabled: true, defaultMaxScopes: ['tendo:read', 'tendo:write'],
       }, { ETag: '"1"' }),
       'GET /api/v1/admin/accounts': json(200, { items: [], nextCursor: null }),
+      'GET /api/v1/admin/mcp-policy-events': json(200, { items: [], nextCursor: null }),
     }, '/admin/ai-apps');
     const pointer = await screen.findByText(/To set one account differently/);
     expect(pointer).toBeVisible();
