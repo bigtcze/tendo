@@ -1,5 +1,6 @@
 import { useId, type RefObject } from 'react';
 import { Notice } from '../../components/ui/notice';
+import { Switch } from '../../components/ui/switch';
 import type { MessageKey, Translate } from '../../i18n';
 import type { AiAppsAccess } from './aiAppsApi';
 import type { VersionedOutcome } from './useVersionedForm';
@@ -13,9 +14,10 @@ const CONTROL = 'mt-0.5 size-5 shrink-0 accent-accent focus-visible:outline-2 fo
 
 /**
  * Read and change as two checkboxes: change does not include reading, so neither implies the other. The legend and
- * the hint say whose maximum this is.
+ * the hint say whose maximum this is. `notes` adds one line under an option, for example that someone else does not
+ * allow it; the option stays a choice.
  */
-export function AccessChoice({ uid, legend, hint, chosen, missing, disabled, firstRef, onToggle, t }: {
+export function AccessChoice({ uid, legend, hint, chosen, missing, disabled, firstRef, onToggle, notes = {}, t }: {
   uid: string;
   legend: string;
   hint: string;
@@ -24,6 +26,7 @@ export function AccessChoice({ uid, legend, hint, chosen, missing, disabled, fir
   disabled: boolean;
   firstRef: RefObject<HTMLInputElement | null>;
   onToggle: (scope: AiAppsAccess, on: boolean) => void;
+  notes?: Partial<Record<AiAppsAccess, string>>;
   t: Translate;
 }) {
   const hintId = `${uid}-access-hint`;
@@ -42,6 +45,7 @@ export function AccessChoice({ uid, legend, hint, chosen, missing, disabled, fir
           <span className="min-w-0 break-words">
             <span className="block text-body text-ink">{t(option.label)}</span>
             <span className="block text-small text-muted">{t(option.hint)}</span>
+            {notes[option.scope] ? <span className="block text-small text-ink">{notes[option.scope]}</span> : null}
           </span>
         </label>
       </li>)}
@@ -87,4 +91,22 @@ export function OutcomeHosts({ outcome, t }: { outcome: VersionedOutcome; t: Tra
         : null}
     </div>
   </>;
+}
+
+/** A setting row: the switch, its name and one sentence on what it does; the switch and its name are both targets. */
+export function SettingSwitch({ id, label, hint, checked, disabled, onChange }: {
+  id: string;
+  label: string;
+  hint: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 border-t border-line pt-6">
+    <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} aria-describedby={`${id}-hint`} />
+    <div className="min-w-0 pt-2.5">
+      <label htmlFor={id} className="cursor-pointer break-words text-body font-semibold text-ink">{label}</label>
+      <p id={`${id}-hint`} className="mt-1 max-w-prose text-small text-muted">{hint}</p>
+    </div>
+  </div>;
 }

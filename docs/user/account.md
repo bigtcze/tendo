@@ -29,11 +29,23 @@ The app then opens a Tendo page in your browser. If you are not signed in, sign 
 - What the app will be able to do, and that this covers all your current and future households until you disconnect it. This is only what your account allows AI apps to do: if the app asked for more, the page lists that part separately under **It asked for more, but your account doesn’t allow it to:**, and **Allow** does not give it.
 - Which account you are signed in as, with **Not you? Sign out**.
 
-If your account allows AI apps nothing the app asked for, for example because AI apps are not allowed for your account, the page says **… can’t be connected** instead and lists what the app asked for. There is no **Allow**; **Back to the app** tells the app the connection was refused. Your administrator decides what AI apps may do for your account; once that changes, start connecting again in the app.
+If your account allows AI apps nothing the app asked for, for example because AI apps are not allowed for your account, the page says **… can’t be connected** instead and lists what the app asked for. There is no **Allow**; **Back to the app** tells the app the connection was refused. Your administrator decides what AI apps may do for your account; if you limited your own AI apps, change that in [AI apps](#ai-apps) on **Your account**. Then start connecting again in the app.
 
 Select **Allow** to connect the app or **Deny** to refuse. **Allow** becomes available a moment after the page appears, and again a moment after you come back to the tab, so a click meant for something else cannot approve it. Tendo then shows **Returning to the app…** and hands you back to the app; you can close the tab if nothing happens. A request lasts 5 minutes and can be answered once; to try again, start connecting again in the app.
 
 The app acts as you: it sees and changes only what you could in Tendo yourself, and what it changes is recorded as done by you. With read access it can list your households and your role in each, list and search a household's items, read an item and its history of completions, and list the people and things items are about. With change access it can also create items, change an item (including its date and how it repeats), mark an item done, undo a completion, and add a person or thing. It cannot invite or remove people, change roles, or change your account. If you connected an app to only read and it tries to change something, Tendo tells the app which access it needs, so it can ask you to connect it again with change access.
+
+## AI apps
+
+When AI apps are allowed for your account, **Your account** has an **AI apps** section where you decide what the AI apps you connect may do for you. You can allow less than your administrator allows, never more.
+
+- **What your apps can do now** says, in one line, what your apps may do at this moment: read and change, read only, change only, or nothing. It already takes into account the server, the installation, your administrator and your own choice below.
+- **Let my AI apps work with Tendo** pauses all your apps when you turn it off: no app can be connected and connected apps stop working, but they are not disconnected. They work again when you turn it back on.
+- **What my apps may do** has **Read** and **Change**; choose at least one. If your administrator does not allow one of them for your account, it says so under it; you can still choose it, but it changes nothing until your administrator allows it.
+
+Select **Save** to keep your choice; nothing changes before that. Each app is still limited to what you approved when you connected it, so a wider choice here does not give an app more than it already has. If these settings changed in the meantime, in another tab or by your administrator, Tendo shows them as they are now and asks you to make your change again.
+
+The section is not shown when AI apps are not allowed for your account, unless you have already narrowed your own choice; then it shows your choice and says it applies once your administrator allows AI apps.
 
 ## Connected apps
 

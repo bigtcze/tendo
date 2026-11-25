@@ -154,6 +154,8 @@ describe('blocked', () => {
     expect(heading).toHaveFocus();
     expect(screen.getByText(en['connect.blocked.body'])).toBeVisible();
     expect(screen.getByText(en['connect.blocked.hint'])).toBeVisible();
+    // The person's own settings can be the block, so the hint names where they are.
+    expect(en['connect.blocked.hint']).toMatch(/AI apps in Your account/);
     const asked = screen.getByRole('list', { name: en['connect.blocked.asked'] });
     expect(within(asked).getAllByRole('listitem').map((item) => item.textContent)).toEqual([en['connect.scope.write']]);
     expect(screen.queryByText(en['connect.scopes.coverage'])).toBeNull();

@@ -6,9 +6,12 @@ export type AiAppsAccess = components['schemas']['McpScopeList'][number];
 export type AccountAiApps = components['schemas']['McpAccountPolicy'];
 export type AccountAiAppsUpdate = components['schemas']['McpAccountPolicyUpdate'];
 export type AiAppsDraft = { enabled: boolean; defaultAccountEnabled: boolean; defaultMaxScopes: AiAppsAccess[] };
+export type OwnAiApps = components['schemas']['McpSettings'];
+export type OwnAiAppsUpdate = components['schemas']['McpSettingsUpdate'];
 
 const installationPath = '/api/v1/admin/mcp-policy';
 const accountPath = '/api/v1/admin/accounts/{userId}/mcp-policy';
+const ownPath = '/api/v1/mcp/settings';
 
 /**
  * Refusals every AI apps read and write can answer; only the grant code makes a 403 the calm refusal. `notFound` is
@@ -29,6 +32,8 @@ export type VersionedSave<T> =
   | { kind: 'savedUnversioned' }
   /** The server refused the access value itself; the field says what to fix. */
   | { kind: 'invalidAccess' }
+  /** Too many saves in a minute; nothing was changed. */
+  | { kind: 'rateLimited' }
   | Refusal
   | { kind: 'error' };
 
@@ -63,6 +68,7 @@ function saveAnswer<T>({ data, error, response }: Answer<T>, account: boolean): 
   if (refused) return refused;
   if (response.status === 412) return { kind: 'stale' };
   if (response.status === 422) return { kind: 'invalidAccess' };
+  if (response.status === 429) return { kind: 'rateLimited' };
   if (response.status >= 400 && response.status < 500) return { kind: 'rejected' };
   return { kind: 'error' };
 }
@@ -102,6 +108,19 @@ export function saveAccountAiApps(userId: string, update: AccountAiAppsUpdate, v
   return answered(async () => saveAnswer(
     await api.PUT(accountPath, { params: { path: { userId }, header: writeHeaders(version) }, body: update }),
     true,
+  ));
+}
+
+/** The signed-in person's own AI apps: their switch and choice, what they are allowed and what apps may do now. */
+export function readOwnAiApps(): Promise<VersionedRead<OwnAiApps>> {
+  return answered(async () => readAnswer(await api.GET(ownPath), false));
+}
+
+/** Replaces the person's own switch and choice, naming the version they were read at. */
+export function saveOwnAiApps(update: OwnAiAppsUpdate, version: string): Promise<VersionedSave<OwnAiApps>> {
+  return answered(async () => saveAnswer(
+    await api.PUT(ownPath, { params: { header: writeHeaders(version) }, body: update }),
+    false,
   ));
 }
 

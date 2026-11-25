@@ -15,11 +15,18 @@ export type VersionedFormOptions<T, D> = {
   draftOf: (value: T) => D;
   /** A draft the server must refuse: it is answered on the field instead of by a request that must fail. */
   refusedLocally: (draft: D) => boolean;
-  messages: { saved: MessageKey; stale: MessageKey; rejected: MessageKey; failed: MessageKey };
+  /** `rateLimited` is said when a save was refused for coming too often; without it, the refusal says `rejected`. */
+  messages: { saved: MessageKey; stale: MessageKey; rejected: MessageKey; failed: MessageKey; rateLimited?: MessageKey };
   onSignedOut: () => void;
   /** `duringSave` says the refusal took a form the reader was using, so focus has somewhere to go. */
   onForbidden: (duringSave: boolean) => void;
 };
+
+/** What a save refused outright says: too often, refused as such, or not answered. */
+function refusalKey(kind: 'rejected' | 'rateLimited' | 'error', messages: VersionedFormOptions<unknown, unknown>['messages']): MessageKey {
+  if (kind === 'rateLimited') return messages.rateLimited ?? messages.rejected;
+  return kind === 'rejected' ? messages.rejected : messages.failed;
+}
 
 /**
  * One server-held settings form: one read, an editable copy, and a save that names the version it was read at.
@@ -103,7 +110,7 @@ export function useVersionedForm<T, D>(options: VersionedFormOptions<T, D>) {
       const stale = result.kind === 'stale';
       if (await load(true)) setOutcome(stale ? { key: messages.stale, tone: 'neutral' } : { key: messages.saved, tone: 'success' });
       return stale ? 'stale' : 'saved';
-    } else setOutcome({ key: result.kind === 'rejected' ? messages.rejected : messages.failed, tone: 'error' });
+    } else setOutcome({ key: refusalKey(result.kind, messages), tone: 'error' });
     return 'other';
   }, [adopt, drop, load]);
 

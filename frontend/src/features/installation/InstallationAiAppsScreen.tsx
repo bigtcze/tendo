@@ -8,11 +8,10 @@ import { Button } from '../../components/ui/button';
 import { LoadError } from '../../components/ui/load-error';
 import { LoadingLine } from '../../components/ui/loading-line';
 import { Notice } from '../../components/ui/notice';
-import { Switch } from '../../components/ui/switch';
 import { useI18n, type Translate } from '../../i18n';
 import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
 import { AiAppsChanges, useAiAppsChanges } from './AiAppsChanges';
-import { AccessChoice, OutcomeHosts } from './AiAppsFields';
+import { AccessChoice, OutcomeHosts, SettingSwitch } from './AiAppsFields';
 import { InstallationOnlyAdmins } from './InstallationStates';
 import { useAiAppsSettings, type AiAppsSettingsState } from './useAiAppsSettings';
 
@@ -128,22 +127,4 @@ function AiAppsForm({ settings, onSaved, t }: { settings: AiAppsSettingsState; o
       {saving ? t('aiApps.saving') : t('aiApps.save')}
     </Button>
   </form>;
-}
-
-/** A setting row: the switch, its name and one sentence on what it does; the switch and its name are both targets. */
-function SettingSwitch({ id, label, hint, checked, disabled, onChange }: {
-  id: string;
-  label: string;
-  hint: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 border-t border-line pt-6">
-    <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} aria-describedby={`${id}-hint`} />
-    <div className="min-w-0 pt-2.5">
-      <label htmlFor={id} className="cursor-pointer break-words text-body font-semibold text-ink">{label}</label>
-      <p id={`${id}-hint`} className="mt-1 max-w-prose text-small text-muted">{hint}</p>
-    </div>
-  </div>;
 }

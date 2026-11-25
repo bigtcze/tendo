@@ -2764,10 +2764,13 @@ test.describe('Tendo production journey', () => {
       const passwordSection = main.locator('section[aria-labelledby="account-password-heading"]');
       await expect(passwordSection.getByRole('heading', { level: 2, name: en['account.password.title'] })).toBeVisible();
       await expect(passwordSection.getByRole('form', { name: en['account.password.form.label'] })).toBeVisible();
-      // The whole input set of Account is exactly the three password fields of that section, so no provider
-      // pairing form is mounted anywhere on the page.
-      await expect(main.locator('input')).toHaveCount(3);
-      await expect(main.locator('input:not([type="password"])')).toHaveCount(0);
+      // The whole input set of Account is the three password fields of that section plus, with MCP on, the own AI
+      // apps switch and its two access checkboxes, so no provider pairing form is mounted anywhere on the page.
+      const ownAiApps = main.locator('section[aria-labelledby="account-ai-apps-heading"]');
+      await expect(ownAiApps.locator('input[type="checkbox"]')).toHaveCount(3);
+      await expect(main.locator('input')).toHaveCount(6);
+      await expect(main.locator('input[type="password"]')).toHaveCount(3);
+      await expect(ownAiApps.locator('input:not([type="checkbox"])')).toHaveCount(0);
       for (const [id, label, name] of [
         ['account-password-current', en['account.password.current'], 'current-password'],
         ['account-password-new', en['account.password.new'], 'new-password'],
@@ -8155,6 +8158,48 @@ test.describe('Tendo production journey', () => {
     await client.dispose().catch((error: unknown) => { cleanupFailure ??= error; });
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
+  });
+
+  test('n33e. the owner narrows their own AI apps on Account and puts them back', async () => {
+    // V5-13 B4b2. The browser's part only: the owner's own settings are a form on Account that saves with the version
+    // it read and shows what apps may do afterwards. That the choice narrows every grant is the PostgreSQL tests' and
+    // n33d's. Budget: 2 settings saves, far under the 30 per minute.
+    const settingsPath = '/api/v1/mcp/settings';
+    const start = await page.request.get(settingsPath);
+    expect(start.status()).toBe(200);
+    const before = await start.json() as { enabled: boolean; scopes: string[] };
+    expect(before, 'nothing has narrowed the owner’s own settings yet').toMatchObject({ enabled: true, scopes: ['tendo:read', 'tendo:write'] });
+    const startVersion = Number((start.headers().etag ?? '').replaceAll('"', ''));
+    let primaryFailure: unknown;
+    try {
+      await page.goto('/account');
+      const section = page.getByRole('region', { name: en['ownAiApps.title'], exact: true });
+      await expect(section.locator('[data-own-ai-apps-now]')).toHaveText(en['accountAiApps.now.both']);
+      const changeBox = section.getByRole('checkbox', { name: new RegExp(`^${en['aiApps.access.write']}`) });
+      await expect(section.getByRole('switch', { name: en['ownAiApps.enabled'], exact: true })).toBeChecked();
+      await changeBox.uncheck();
+      await section.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+      await expect(section.getByText(en['ownAiApps.notice.saved'], { exact: true })).toBeVisible();
+      await expect(section.locator('[data-own-ai-apps-now]')).toHaveText(en['accountAiApps.now.read']);
+      await expectNoAxeViolations(page, 'account-own-ai-apps');
+      const saved = await page.request.get(settingsPath);
+      expect(await saved.json()).toMatchObject({ enabled: true, scopes: ['tendo:read'], effectiveScopes: ['tendo:read'] });
+      expect(Number((saved.headers().etag ?? '').replaceAll('"', '')), 'the save bumped the version').toBe(startVersion + 1);
+
+      // Put back from the same form, which now names the version its save answered with.
+      await changeBox.check();
+      await section.getByRole('button', { name: en['aiApps.save'], exact: true }).click();
+      await expect(section.locator('[data-own-ai-apps-now]')).toHaveText(en['accountAiApps.now.both']);
+      expect(await (await page.request.get(settingsPath)).json()).toMatchObject({ enabled: true, scopes: ['tendo:read', 'tendo:write'] });
+    } catch (error) { primaryFailure = error; }
+    if (primaryFailure) {
+      // Restore through the API whatever the form left, so later steps start from the default.
+      const current = await page.request.get(settingsPath);
+      await page.request.put(settingsPath, {
+        headers: { Origin: baseURL, 'If-Match': current.headers().etag ?? '' }, data: { enabled: before.enabled, scopes: before.scopes },
+      }).catch(() => undefined);
+      throw primaryFailure;
+    }
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {
