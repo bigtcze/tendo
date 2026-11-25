@@ -35,6 +35,7 @@ const mcpToolsMissingID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4bff"
 func newMCPToolsFixture(t *testing.T) *mcpEndpointFixture {
 	t.Helper()
 	f := newMCPEndpointFixture(t)
+	f.today = &mcpEndpointClock{at: f.clock.at}
 	households := household.NewService(NewRepository(f.app))
 	membership := func(ctx context.Context, userID, householdID string) error {
 		_, err := f.memberships.GetMembership(ctx, userID, householdID)
@@ -67,10 +68,12 @@ func newMCPToolsFixture(t *testing.T) *mcpEndpointFixture {
 			}
 		},
 		mapNotFound(membership, itemapp.ErrNotFound, itemapp.ErrUnavailable),
-		f.clock.now)
+		f.today.now)
 	tools := []identityhttp.MCPTool{householdmcp.ListHouseholds(households)}
 	tools = append(tools, itemmcp.ReadTools(items)...)
 	tools = append(tools, subjectmcp.ReadTools(subjects)...)
+	tools = append(tools, itemmcp.WriteTools(items)...)
+	tools = append(tools, subjectmcp.WriteTools(subjects)...)
 	endpoint, err := identityhttp.NewMCPEndpoint(f.mcp, mcpEndpointIssuer, 5*time.Second, tools)
 	if err != nil {
 		t.Fatal(err)
@@ -287,24 +290,47 @@ func TestMCPListItemsForeignFiltersMatchNothingAgainstPostgres(t *testing.T) {
 
 // TestMCPReadToolsRefuseAWriteOnlyGrantAgainstPostgres calls every read tool
 // with a real grant holding only tendo:write: tendo:write does not imply
-// tendo:read, so the endpoint's front check answers each call with 403
-// insufficient_scope before any tool runs.
+// tendo:read. While the policy allows tendo:read the endpoint answers the
+// step-up 403 naming both scopes (#457 B3); once the user's own settings allow
+// only tendo:write there is nothing to step up to, so the scope middleware
+// answers the fixed tool error result. No read tool runs in either case.
 func TestMCPReadToolsRefuseAWriteOnlyGrantAgainstPostgres(t *testing.T) {
 	f := newMCPToolsFixture(t)
 	w := newMCPToolsWorld(t, f)
 	token := f.mint(t, w.userA, identityapp.MCPScopeWrite).AccessToken
-	for tool, args := range map[string]map[string]any{
+	calls := map[string]map[string]any{
 		"list_items":       {"householdId": w.houseA},
 		"get_item":         {"householdId": w.houseA, "itemId": w.itemA},
 		"list_completions": {"householdId": w.houseA, "itemId": w.itemA},
 		"list_subjects":    {"householdId": w.houseA},
 		"get_subject":      {"householdId": w.houseA, "subjectId": w.subjectA},
-	} {
+	}
+	want := `Bearer error="insufficient_scope", scope="tendo:read tendo:write", resource_metadata="` + mcpEndpointIssuer + `/.well-known/oauth-protected-resource/mcp"`
+	for tool, args := range calls {
 		params, _ := json.Marshal(map[string]any{"name": tool, "arguments": args})
 		reply := f.post(token, fmt.Sprintf(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":%s}`, params))
-		if reply.code != http.StatusForbidden || reply.body["error"] != "insufficient_scope" {
-			t.Fatalf("%s with tendo:write only: status=%d body=%s; want 403 insufficient_scope", tool, reply.code, reply.raw)
+		if reply.code != http.StatusForbidden || reply.body["error"] != "insufficient_scope" || reply.header.Get("WWW-Authenticate") != want {
+			t.Fatalf("%s with tendo:write only: status=%d challenge=%q body=%s; want the step-up 403", tool, reply.code, reply.header.Get("WWW-Authenticate"), reply.raw)
 		}
+	}
+	f.setUserScopes(t, w.userA, identityapp.MCPScopeWrite)
+	for tool, args := range calls {
+		if got := f.callTool(token, tool, args); got.error != mcpScopeRefusal {
+			t.Fatalf("%s under a write-only policy: %+v; want the scope tool error", tool, got)
+		}
+	}
+}
+
+// mcpScopeRefusal is the exact tool error result of the scope middleware, as
+// callTool marshals it.
+const mcpScopeRefusal = `{"content":[{"text":"the token does not grant the scope this tool requires","type":"text"}],"isError":true}`
+
+// setUserScopes narrows the user's own MCP settings, as /api/v1/mcp/settings
+// would; the policy is re-read on the next request.
+func (f *mcpEndpointFixture) setUserScopes(t *testing.T, user string, scopes ...string) {
+	t.Helper()
+	if _, err := f.admin.Exec(f.ctx, `UPDATE mcp_account_policies SET user_scopes=$2 WHERE user_id=$1::uuid`, user, scopes); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -84,7 +84,8 @@ func TestMCPEndpointRejectsNonAccessTokensAsBearer(t *testing.T) {
 }
 
 // TestMCPEndpointRefusesReadToolWithWriteOnlyGrant holds a real grant with only
-// tendo:write. The front check must answer 403 insufficient_scope.
+// tendo:write under the default policy (read and write allowed). Calling a read
+// tool is the step-up 403 naming the held and the missing scope (#457 B3).
 func TestMCPEndpointRefusesReadToolWithWriteOnlyGrant(t *testing.T) {
 	f := newMCPEndpointFixture(t)
 	user := f.newUser()
@@ -92,7 +93,8 @@ func TestMCPEndpointRefusesReadToolWithWriteOnlyGrant(t *testing.T) {
 	f.join(user, f.newHousehold("write home"), household.RoleAdmin)
 	tokens := f.mint(t, user, identityapp.MCPScopeWrite)
 	reply := f.post(tokens.AccessToken, mcpEndpointListCall(5))
-	if reply.code != http.StatusForbidden || reply.body["error"] != "insufficient_scope" {
-		t.Fatalf("write-only grant: status=%d body=%s; want 403 insufficient_scope", reply.code, reply.raw)
+	want := `Bearer error="insufficient_scope", scope="tendo:read tendo:write", resource_metadata="` + mcpEndpointIssuer + `/.well-known/oauth-protected-resource/mcp"`
+	if reply.code != http.StatusForbidden || reply.body["error"] != "insufficient_scope" || reply.header.Get("WWW-Authenticate") != want {
+		t.Fatalf("write-only grant: status=%d challenge=%q body=%s; want the step-up 403", reply.code, reply.header.Get("WWW-Authenticate"), reply.raw)
 	}
 }

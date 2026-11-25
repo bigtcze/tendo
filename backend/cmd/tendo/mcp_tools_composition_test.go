@@ -9,6 +9,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/household"
 	householdmcp "github.com/bigtcze/tendo/backend/internal/household/mcptool"
 	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
+	identityhttp "github.com/bigtcze/tendo/backend/internal/identity/httpapi"
 	itemapp "github.com/bigtcze/tendo/backend/internal/item"
 	itemmcp "github.com/bigtcze/tendo/backend/internal/item/mcptool"
 	subjectapp "github.com/bigtcze/tendo/backend/internal/subject"
@@ -16,7 +17,8 @@ import (
 )
 
 // productionMCPTools is the complete served tool set and each tool's scope
-// (#457 slice B2). Adding, removing or rescoping a tool must change this map.
+// (#457 slices B2 and B3). Adding, removing or rescoping a tool must change
+// this map.
 var productionMCPTools = map[string]string{
 	"list_households":  identityapp.MCPScopeRead,
 	"list_items":       identityapp.MCPScopeRead,
@@ -24,7 +26,22 @@ var productionMCPTools = map[string]string{
 	"list_completions": identityapp.MCPScopeRead,
 	"list_subjects":    identityapp.MCPScopeRead,
 	"get_subject":      identityapp.MCPScopeRead,
+	"create_item":      identityapp.MCPScopeWrite,
+	"update_item":      identityapp.MCPScopeWrite,
+	"complete_item":    identityapp.MCPScopeWrite,
+	"undo_completion":  identityapp.MCPScopeWrite,
+	"create_subject":   identityapp.MCPScopeWrite,
 }
+
+// destructiveMCPTools is every tool that may overwrite or revert stored data.
+// Creates and Done only add (a receipt and a new schedule state undo can
+// restore), so they are not destructive.
+var destructiveMCPTools = []string{"update_item", "undo_completion"}
+
+// knownMCPScopes is every scope a grant can hold. Each must be required by at
+// least one production tool, so no scope can be consented that nothing uses and
+// the step-up challenge has a tool for each.
+var knownMCPScopes = []string{identityapp.MCPScopeRead, identityapp.MCPScopeWrite}
 
 // excludedMCPToolName matches any tool name that would reach an area #457 keeps
 // out of MCP: instance administration and settings, members and people,
@@ -40,6 +57,8 @@ var pinnedMCPPorts = map[reflect.Type][]string{
 	reflect.TypeFor[householdmcp.Lister](): {"ListForMember"},
 	reflect.TypeFor[itemmcp.Reader]():      {"Get", "List", "ListCompletions"},
 	reflect.TypeFor[subjectmcp.Reader]():   {"Get", "List"},
+	reflect.TypeFor[itemmcp.Writer]():      {"Complete", "Create", "Get", "UndoCompletion", "Update"},
+	reflect.TypeFor[subjectmcp.Writer]():   {"Create"},
 }
 
 func TestMCPToolPortsArePinned(t *testing.T) {
@@ -71,9 +90,34 @@ func TestProductionMCPToolSetIsPinned(t *testing.T) {
 		if excludedMCPToolName.MatchString(name) {
 			t.Fatalf("tool %q reaches an area excluded from MCP", name)
 		}
-		readOnly := tool.Tool.Annotations != nil && tool.Tool.Annotations.ReadOnlyHint
-		if readOnly != (tool.Scope == identityapp.MCPScopeRead) {
-			t.Fatalf("tool %q: readOnlyHint=%v does not match scope %q", name, readOnly, tool.Scope)
+		pinToolHints(t, tool)
+	}
+	for _, scope := range knownMCPScopes {
+		if !slices.ContainsFunc(tools, func(tool identityhttp.MCPTool) bool { return tool.Scope == scope }) {
+			t.Fatalf("no production tool requires %q", scope)
 		}
+	}
+}
+
+// pinToolHints requires readOnlyHint exactly for read tools and, for write
+// tools, an explicit destructiveHint that is true exactly for the pinned
+// destructive tools.
+func pinToolHints(t *testing.T, tool identityhttp.MCPTool) {
+	t.Helper()
+	name, hints := tool.Tool.Name, tool.Tool.Annotations
+	if hints == nil {
+		t.Fatalf("tool %q has no annotations", name)
+	}
+	if hints.ReadOnlyHint != (tool.Scope == identityapp.MCPScopeRead) {
+		t.Fatalf("tool %q: readOnlyHint=%v does not match scope %q", name, hints.ReadOnlyHint, tool.Scope)
+	}
+	if tool.Scope != identityapp.MCPScopeWrite {
+		return
+	}
+	if hints.DestructiveHint == nil || *hints.DestructiveHint != slices.Contains(destructiveMCPTools, name) {
+		t.Fatalf("tool %q: destructiveHint=%v, destructive tools %v", name, hints.DestructiveHint, destructiveMCPTools)
+	}
+	if hints.IdempotentHint {
+		t.Fatalf("tool %q: write tools are not idempotentHint", name)
 	}
 }

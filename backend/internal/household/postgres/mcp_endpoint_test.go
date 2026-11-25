@@ -55,6 +55,9 @@ type mcpEndpointFixture struct {
 	mcp      *identityapp.MCPService
 	endpoint *identityhttp.MCPEndpoint
 	clock    *mcpEndpointClock
+	// today is the item service's clock in the tools fixture, apart from the
+	// token clock so a golden recurrence date cannot expire a token.
+	today    *mcpEndpointClock
 	clientID string
 }
 

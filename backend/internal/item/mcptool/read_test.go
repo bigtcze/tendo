@@ -87,6 +87,11 @@ type session struct {
 }
 
 func newSession(t *testing.T, user string, scopes []string, tools ...identityhttp.MCPTool) *session {
+	return newSessionGrant(t, user, scopes, "g1", tools...)
+}
+
+// newSessionGrant is newSession for a token issued to the given grant.
+func newSessionGrant(t *testing.T, user string, scopes []string, grant string, tools ...identityhttp.MCPTool) *session {
 	t.Helper()
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil)
 	for _, tool := range tools {
@@ -96,7 +101,7 @@ func newSession(t *testing.T, user string, scopes []string, tools ...identityhtt
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if call, ok := req.(*mcp.CallToolRequest); ok && user != "" {
 				call.Extra = &mcp.RequestExtra{TokenInfo: &auth.TokenInfo{
-					Scopes: scopes, UserID: user, Extra: map[string]any{"grant_id": "g1"},
+					Scopes: scopes, UserID: user, Extra: map[string]any{"grant_id": grant},
 				}}
 			}
 			return next(ctx, method, req)

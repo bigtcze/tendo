@@ -289,20 +289,6 @@ func TestMCPEndpointRejectsOversizedBody(t *testing.T) {
 	}
 }
 
-func TestMCPEndpointTokenWithoutRequiredScopeIsForbidden(t *testing.T) {
-	access := identity.MCPAccess{GrantID: "g1", UserID: testMCPUser, Scopes: []string{identity.MCPScopeWrite}}
-	verifier := &fakeMCPVerifier{enabled: true, access: map[string]identity.MCPAccess{testMCPToken: access}}
-	e := newTestEndpoint(t, verifier)
-	w := serveMCP(e, http.MethodPost, `{}`, map[string]string{"Authorization": "Bearer " + testMCPToken})
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status=%d", w.Code)
-	}
-	want := `Bearer error="insufficient_scope", scope="tendo:read", resource_metadata="https://tendo.test/.well-known/oauth-protected-resource/mcp"`
-	if got := w.Header().Get("WWW-Authenticate"); got != want {
-		t.Fatalf("WWW-Authenticate=%q", got)
-	}
-}
-
 func TestMCPEndpointPerIPLimitReturnsRetryAfter(t *testing.T) {
 	e := newTestEndpoint(t, &fakeMCPVerifier{enabled: true})
 	var last *httptest.ResponseRecorder

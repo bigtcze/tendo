@@ -594,7 +594,8 @@ review recorded on #456.
   declared set, so `Install` cannot add an unchecked tool.
 - At the front, a token holding none of the scopes any registered tool needs
   gets 403 `insufficient_scope` with a challenge. In A4a that is a
-  `tendo:write`-only token, since the only tool needs `tendo:read`.
+  `tendo:write`-only token, since the only tool needs `tendo:read`. Slice B3
+  replaced this admission check with the step-up challenge (see "Slice B3").
 - Intersection with admin, user and household limits, write tools and
   cross-household tool tests remain #457.
 
@@ -729,7 +730,8 @@ each `Set-Cookie` value as a list, goes through the shared checker.
   verifier, exchange, code replay), B (refresh rotation, then replay of the old
   refresh token), C (`/mcp` protocol checks, then RFC 7009 revocation), D
   (Connected apps disconnect), E (kept across the kill switch), W
-  (`tendo:write` only, `/mcp` 403 `insufficient_scope`) and M (a second account
+  (`tendo:write` only; since B3 a write tool runs and a read tool is the
+  step-up 403 `insufficient_scope`) and M (a second account
   for cross-household isolation). Each revoked grant records exactly its own
   reason: A `code_reuse`, B `replay`, C `client`, D `user`.
 - **Kill switch.** The app alone is recreated (`up -d --no-deps --wait app`)
@@ -890,7 +892,7 @@ AND (account maximum ∩ user scopes ∩ grant scopes)
   switch the installation policy off before slice B1b, which makes every MCP
   route answer the disabled 404 while it is off.
 - The step-up 403 `insufficient_scope` that names a policy-allowed scope the
-  grant lacks ships with the write tools (B3).
+  grant lacks ships with the write tools (B3; done, see "Slice B3").
 - The consent screen still lists the requested scopes; showing requested ∩
   allowed (and a blocked state) is slice B4b.
 - `IssueAuthorizationCode` has no HTTP caller; it is the direct issuance seam
@@ -1235,7 +1237,9 @@ service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
   two users calling concurrently see only their own records and get the exact
   not-found refusal for each other's. Search covers notes as well as titles.
 - A real grant holding only `tendo:write` gets `403 insufficient_scope` from the
-  endpoint's front check for every read tool.
+  endpoint's front check for every read tool. Since B3 that is the step-up
+  challenge while the policy allows `tendo:read`, and the scope tool error once
+  it does not.
 - Not applicable in B2: "a completion id from another item" needs a tool that
   takes a completion id; it lands with `undo_completion` in B3.
 - Smoke: `scripts/mcp_smoke_driver.py` checks the full tool list, calls every
@@ -1244,3 +1248,97 @@ service's own. Every tool requires `tendo:read` and carries `readOnlyHint`.
   household's item and subject under the owner's household id all give the same
   refusal, and that search does not find the foreign item. This exercises the
   production `cmd/tendo` adapters, which the PostgreSQL fixture rebuilds.
+
+## Slice B3: write tools and step-up
+
+Five write tools join the read tools. Each requires `tendo:write` (which does
+not imply `tendo:read`), is a thin adapter in the owning module over the same
+application service the HTTP API uses, and is attributed to the token's user
+exactly as the HTTP call is (`created_by_user_id`, `completed_by_user_id`,
+`undone_by_user_id`). No tool reaches instance administration, members,
+invitations, roles, accounts or policy.
+
+| Tool | Input | Output | `destructiveHint` |
+| --- | --- | --- | --- |
+| `create_item` | `householdId`, `subjectId`, `title`, `idempotencyKey`, optional `responsibleUserId`, `notes`, `attentionOn`, `historicalCompletedOn`, `recurrence` | the item | false |
+| `update_item` | `householdId`, `itemId`, `version`, optional `title`, `subjectId`, `workflowState`, `archived`, and nullable `responsibleUserId`, `notes`, `attentionOn`, `recurrence` | the item | true |
+| `complete_item` | `householdId`, `itemId`, `version`, `idempotencyKey`, optional `completedOn` | `{completion, itemVersion, replayed}` | false |
+| `undo_completion` | `householdId`, `itemId`, `completionId`, `version` | `{completion, item}` | true |
+| `create_subject` | `householdId`, `name`, `type`, `idempotencyKey` | the subject | false |
+
+No write tool carries `readOnlyHint` or `idempotentHint`.
+
+### Decisions (B3)
+
+- `version` mirrors `If-Match`: required wherever the HTTP route requires it,
+  and a stale version is one fixed text asking the client to read again.
+- `update_item` keeps an absent field apart from an explicit `null` for
+  `responsibleUserId`, `notes`, `attentionOn` and `recurrence`, as the HTTP
+  merge patch does; a call that changes nothing is refused.
+- Idempotency keys are validated as the HTTP `Idempotency-Key` (1–128 visible
+  ASCII) and never reach a service raw. `identityhttp.MCPIdempotencyKey`
+  derives `mcp1.` + base64url SHA-256 over a fixed label, the lowercased grant
+  id and the client key, so the same key from two grants is two actions and a
+  retry within one grant replays. Tools never see the grant id. Replay order,
+  fingerprints and conflicts are the services' own; `complete_item` reports
+  `replayed`.
+- Errors are fixed texts. An unknown, foreign or cross-item household, item,
+  subject, member or completion, including `subjectId` or `responsibleUserId`
+  refused as an invalid reference, gives the same not-found text. Archived,
+  done, not-latest and superseded refusals have their own fixed texts; other
+  validation names only the argument.
+- Step-up is advisory and lives at the HTTP front, after the rate limits and
+  body checks. It answers 403 `insufficient_scope` only for a single
+  `tools/call` request with an id whose `params.name` is a registered tool,
+  when the tool's scope is not held and the account policy allows it now
+  (`MCPAccess.Allowed`, read in the same query as the effective scopes and never
+  passed to a tool). The challenge's `scope` is the held allowed scopes plus
+  the missing one, sorted. Everything else passes through to the scope
+  middleware, which stays the only authority; so a scope the policy refuses is
+  the tool error result inside a 200. A token holder learns whether its policy
+  allows the scope of a public tool name, which is accepted. This replaced the
+  A4a admission check and its fixed `scope="tendo:read"`.
+- The composition test pins every tool's name, scope, `readOnlyHint` and
+  `destructiveHint`, the read and write ports' method sets, and that each known
+  scope is required by at least one production tool.
+
+### Tests (B3)
+
+- Unit tests run each write tool over an in-memory SDK session: no principal
+  and a read-only token never reach the service; schema refusals; exact
+  arguments, derived keys per grant; every error mapping with no service text;
+  absent versus `null` for each nullable field; annotations. Front tests cover
+  the step-up matrix, request variants that must never run a tool unscoped, and
+  that rate limits come first.
+- Real PostgreSQL (`household/postgres/mcp_write_tools_test.go`): the tools over
+  the production services with attribution and derived keys; absent versus
+  `null`; every golden and mandatory coverage recurrence row through
+  `complete_item`, checking the stored schedule after each step and a replay on
+  PostgreSQL, then each Done undone in reverse restoring the exact stored
+  schedule and anchor; concurrent `complete_item` with one key records one
+  receipt; keys isolated per grant; every foreign reference, including a
+  completion of another item, and every tool after the caller's membership is
+  removed, gives the not-found result and writes nothing;
+  step-up for a read-only grant, the scope tool error under a read-only policy,
+  and a revoked grant or switched-off account refused on the next write call.
+- Smoke: grant W (`tendo:write` only) creates and replays a subject, and a read
+  tool call is the step-up 403 naming both scopes.
+
+### Deviations and follow-ups (B3)
+
+- `complete_item` reports `itemVersion` as the receipt's version before the
+  Done plus one, also on a replay. `undo_completion` cannot derive it (an
+  already-undone receipt replays unchanged), so it returns the whole item read
+  by the item service's `Get` right after the undo: the version and content come
+  from one read, so a concurrent change is never hidden behind a newer version
+  number. If that read fails the committed undo is still reported, with
+  `item: null`.
+- A Done or schedule change whose next occurrence would pass the supported
+  dates (`date_overflow`) has its own fixed text, not "temporarily unavailable".
+- HTTP does not reserve the `mcp1.` key prefix; a browser key could only collide
+  with a derived key by knowing the grant id, and the worst case is a "key
+  reused" refusal. Accepted.
+- `OpenWorldHint` stays unset on read and write tools, as in B2.
+- `create_item` does not report a replay: the item service does not expose it.
+- `create_subject` does not accept `linkedUserId`; linking a member stays in the
+  browser.
