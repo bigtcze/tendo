@@ -170,6 +170,47 @@ async function assertMembersSettled(page: Page, locale: 'en' | 'cs') {
   await expect(main.getByText(catalog['members.invitation.status.pending'], { exact: true })).toBeVisible();
   await expect(main.getByRole('button', { name: catalog['members.invitation.revoke'], exact: true })).toBeVisible();
 }
+
+/** A laid-out box, or a failure that names what was missing instead of a bare TypeError. */
+async function boxOf(locator: Locator, what: string) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error(`${what} has no layout box`);
+  return box;
+}
+
+/**
+ * Opening a pending invitation's revoke confirmation must not crush the invitation's own status and dates: below
+ * `md` the question and its two buttons move below the text; from `md` they sit beside it. Either way the text block
+ * keeps the height it had before. Leaves the confirmation open on the first pending row.
+ */
+async function openRevokeConfirmation(page: Page, locale: 'en' | 'cs', width: number, placement: 'below' | 'beside') {
+  const catalog = locale === 'cs' ? cs : en;
+  const label = `${locale} ${width}`;
+  const pending = page.getByRole('main').getByRole('list', { name: catalog['members.invitations.title'] })
+    .getByRole('listitem').filter({ hasText: catalog['members.invitation.status.pending'] }).first();
+  const text = pending.locator('p:has([data-invitation-details])');
+  const before = await boxOf(text, `${label} invitation text`);
+  await pending.getByRole('button', { name: catalog['members.invitation.revoke'], exact: true }).click();
+  const question = pending.getByText(catalog['members.invitation.revokeConfirm'], { exact: true });
+  await expect(question).toBeVisible();
+  const after = await boxOf(text, `${label} invitation text`);
+  expect(after.height, `${label}: revoke confirmation keeps the invitation text at its own height`)
+    .toBeLessThanOrEqual(before.height + 1);
+  const questionBox = await boxOf(question, `${label} revoke question`);
+  if (placement === 'below') {
+    expect(questionBox.y, `${label}: revoke confirmation sits below the invitation text`).toBeGreaterThanOrEqual(after.y + after.height - 1);
+  } else {
+    expect(questionBox.y, `${label}: revoke confirmation sits beside the invitation text`).toBeLessThan(after.y + after.height);
+  }
+  const rowBox = await boxOf(pending, `${label} invitation row`);
+  for (const name of [catalog['members.invitation.yes'], catalog['members.invitation.cancel']]) {
+    const box = await boxOf(pending.getByRole('button', { name, exact: true }), `${label} ${name}`);
+    expect(box.height, `${label}: ${name} target height`).toBeGreaterThanOrEqual(44);
+    expect(box.x + box.width, `${label}: ${name} stays inside the row`).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
+  }
+  return pending;
+}
+
 // The status filter label gains its count from the summary request after the first row renders. Capture only once
 // that settled label is present, so a native select never re-lays out its option text during screenshot rasterization.
 async function waitForAllItemsSummary(page: Page) {
@@ -810,8 +851,22 @@ test('Members owner and non-owner', async ({ browser }) => {
   await page.reload();
   await assertMembersSettled(page, 'cs');
   await capture(page, 'members-owner-cs-390', 390, 900, true);
+  const confirmingCs = await openRevokeConfirmation(page, 'cs', 390, 'below');
+  await capture(page, 'members-revoke-confirm-cs-390', 390, 900, true);
+  await confirmingCs.getByRole('button', { name: cs['members.invitation.cancel'], exact: true }).click();
+  // Either side of the `md` switch: below the text at 700, beside it again from 768.
+  for (const [width, placement] of [[700, 'below'], [768, 'beside']] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await assertMembersSettled(page, 'cs');
+    const confirming = await openRevokeConfirmation(page, 'cs', width, placement);
+    await confirming.getByRole('button', { name: cs['members.invitation.cancel'], exact: true }).click();
+  }
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await page.reload();
+  await page.setViewportSize({ width: 320, height: 900 });
+  await assertMembersSettled(page, 'en');
+  const confirmingEn = await openRevokeConfirmation(page, 'en', 320, 'below');
+  await confirmingEn.getByRole('button', { name: en['members.invitation.cancel'], exact: true }).click();
   await context.close();
   await darkScreen(browser, statePath, '/members', 'members');
   // The same pending token renders the real acceptance screen for a signed-out visitor.
