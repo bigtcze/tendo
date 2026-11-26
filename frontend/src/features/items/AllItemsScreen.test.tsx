@@ -423,7 +423,22 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
 
-  it('renders compact rows with a 44px title target, a real subject tile and the state in words', async () => {
+  it('reads like a Home row: subject named inline with its icon, no tile or pill, cadence on the same metadata line', async () => {
+    await openAllItems([makeItem(1, { title: 'Calm row', responsibleUserId: member.userId, recurrence: { intervalUnit: 'month', intervalValue: 1, mode: 'fixed' } })]);
+    const row = within(screen.getByRole('main')).getByText('Calm row').closest('li')!;
+    const metadata = row.querySelector('[data-item-meta]')!;
+    // The subject icon belongs to the subject's name, as on Home; no separate tile column precedes the title.
+    expect(row.querySelector('[data-subject-icon]')!.closest('[data-subject-pill]')).not.toBeNull();
+    expect(row.querySelector('[data-subject-icon]')!.closest('[data-item-meta]')).toBe(metadata);
+    // No filled pill or tile background anywhere in the row: state colour is carried by its words and icon only.
+    expect(row.querySelector('[class*="rounded-full"], [class*="rounded-xl"]')).toBeNull();
+    expect(row.querySelector('[class*="-bg"]')).toBeNull();
+    // Every fact is on the one metadata line: subject, state, who looks after it, then the cadence.
+    expect([...metadata.querySelectorAll('[data-subject-pill], [data-item-state], [data-item-responsible], [data-item-recurrence]')]
+      .map((node) => node.textContent)).toEqual(['Café', 'Needs attention', 'Looked after by you', '1 month · stays on the planned dates']);
+  });
+
+  it('renders compact rows with a 44px title target, the subject type icon and the state in words', async () => {
     await openAllItems([makeItem(1, { title: 'A long Czech title: nejneobhospodarovavatelnejsiho příslušenství'.repeat(2) })]);
     const link = screen.getByRole('link', { name: /A long Czech title/ });
     const row = link.closest('li')!;
@@ -431,7 +446,7 @@ describe('All items', () => {
     expect(link).toHaveClass('min-h-11');
     expect(row).toHaveClass('pt-[11px]', 'pb-2');
     expect(metadata).toHaveClass('mt-0.5');
-    // The tile derives from the real subject type, and the state is written next to an icon rather than colour alone.
+    // The icon derives from the real subject type, and the state is written next to an icon rather than colour alone.
     expect(row.querySelector('[data-subject-icon]')).toHaveAttribute('data-subject-icon', 'person');
     expect(within(row as HTMLElement).getByText('Café')).toHaveAttribute('data-subject-pill');
     const state = row.querySelector('[data-item-state]')!;

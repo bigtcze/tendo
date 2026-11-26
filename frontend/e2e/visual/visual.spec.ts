@@ -364,7 +364,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
   await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
   await page.reload();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
-  // All items reuses the same state vocabulary: an upcoming item keeps its mint tile and names a plain date.
+  // All items reuses the same state vocabulary: an upcoming item keeps its upcoming icon and names a plain date.
   await page.goto('/items?status=upcoming');
   const upcomingRow = page.locator('main li[data-item-id]').filter({ hasText: 'Schedule the car inspection' });
   await expect(upcomingRow).toBeVisible();
@@ -447,14 +447,13 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await page.goto('/items');
   await waitForAllItemsSummary(page);
   for (const width of [320, 390, 768, 1024, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
-  // Density guard: the first two-line row (title + one metadata line carrying pill, state and responsible)
-  // stays as compact as a Home row at 1440. The row is chosen structurally, not by a fixture title.
+  // Density guard: the first two-line row (title + one metadata line carrying subject, state and responsible,
+  // and the cadence when it repeats) stays as compact as a Home row at 1440. The row is chosen structurally.
   await page.setViewportSize({ width: 1440, height: 900 });
   const compactRow = page.locator('main li[data-item-id]')
     .filter({ has: page.locator('[data-item-meta] [data-subject-pill]') })
     .filter({ has: page.locator('[data-item-meta] [data-item-state]') })
     .filter({ has: page.locator('[data-item-meta] [data-item-responsible]') })
-    .filter({ hasNot: page.locator('[data-item-recurrence]') })
     .first();
   await expect(compactRow, 'a two-line All items row exists at 1440').toHaveCount(1);
   const compactRowHeight = await compactRow.evaluate((row) => row.getBoundingClientRect().height);
