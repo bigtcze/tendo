@@ -314,7 +314,15 @@ describe('All items', () => {
     const row = (title: string) => within(main).getByRole('link', { name: title }).closest('li')!;
     await waitFor(() => expect(row('Mine').querySelector('[data-item-responsible]')).toHaveTextContent(/^Looked after by you$/));
     expect(row('Mine')).not.toHaveTextContent('anna');
-    expect(row('Theirs').querySelector('[data-item-responsible]')).toHaveTextContent(/^Looked after by petr$/);
+    await waitFor(() => expect(row('Theirs').querySelector('[data-item-responsible]')).toHaveTextContent(/^Looked after by petr$/));
+  });
+
+  it('names a responsible account that left the household "Unknown member"', async () => {
+    installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { title: 'Orphaned', responsibleUserId: 'u-gone' })]) });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    const row = within(screen.getByRole('main')).getByRole('link', { name: 'Orphaned' }).closest('li')!;
+    await waitFor(() => expect(row.querySelector('[data-item-responsible]')).toHaveTextContent(/^Looked after by Unknown member$/));
   });
 
   it('names the search landmark and the results region', async () => {
