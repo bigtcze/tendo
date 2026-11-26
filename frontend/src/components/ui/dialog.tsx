@@ -40,6 +40,15 @@ function focusInitial(dialog: HTMLDialogElement, fallback: HTMLHeadingElement | 
   focusTarget?.focus();
 }
 
+/**
+ * Spans the dialog's padding edge to edge so the pinned band covers the content scrolling beneath it. Sticky insets
+ * are measured from the scrollport's content edge, so each band is offset by the dialog padding to reach its border.
+ * A short viewport (landscape phone, 400% zoom) unpins both: two bands would cover nearly all of its height.
+ */
+const BLEED = '-mx-4 bg-raised px-4 sm:-mx-6 sm:px-6';
+const HEADER = `sticky short:static -top-4 sm:-top-6 z-20 -mt-4 pt-4 pb-3 sm:-mt-6 sm:pt-6 ${BLEED}`;
+const ACTIONS = `sticky short:static -bottom-4 sm:-bottom-6 z-20 -mb-4 flex flex-wrap items-center gap-2 border-t border-line pt-4 pb-4 sm:-mb-6 sm:pb-6 ${BLEED}`;
+
 export function Dialog({
   open, onOpenChange, title, closeLabel, children, busy = false,
   triggerRef, returnFocusRef, initialFocusRef, sheet = false,
@@ -108,7 +117,7 @@ export function Dialog({
         // this with `m-0` (and its own md positioning), and twMerge keeps that override.
         'm-auto max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
         // Keyboard focus scrolled into view lands between the pinned header and a pinned DialogActions bar.
-        'scroll-pt-24 scroll-pb-28',
+        'scroll-pt-24 scroll-pb-28 short:scroll-p-0',
         sheetClasses,
       )}
     >
@@ -126,16 +135,8 @@ export function Dialog({
 }
 
 /**
- * Spans the dialog's padding edge to edge so the pinned band covers the content scrolling beneath it. Sticky insets
- * are measured from the scrollport's content edge, so each band is offset by the dialog padding to reach its border.
- */
-const BLEED = '-mx-4 bg-raised px-4 sm:-mx-6 sm:px-6';
-const HEADER = `sticky -top-4 sm:-top-6 z-20 -mt-4 pt-4 pb-3 sm:-mt-6 sm:pt-6 ${BLEED}`;
-const ACTIONS = `sticky -bottom-4 sm:-bottom-6 z-20 -mb-4 flex flex-wrap items-center gap-2 border-t border-line pt-4 pb-4 sm:-mb-6 sm:pb-6 ${BLEED}`;
-
-/**
- * A form's primary action bar, pinned to the bottom of the dialog while the form scrolls (#459), so a long form
- * (Repeat on, a 412 conflict, a short window) never pushes Save out of view. It must be the dialog's last content.
+ * A form's primary action bar, pinned to the bottom of the dialog while the form scrolls, so a long form
+ * (Repeat on, a 412 conflict) never pushes Save out of view. It must be the dialog's last content.
  */
 export function DialogActions({ children }: { children: ReactNode }) {
   return <div data-dialog-actions className={ACTIONS}>{children}</div>;

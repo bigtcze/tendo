@@ -88,7 +88,8 @@ export function AddItemPanel(props: AddItemPanelProps) {
         <Button type="button" variant="quiet" onClick={onCancel}>{t('items.cancel')}</Button>
       </div>
     </div> : null}
-    {subjectLoading && !recovering
+    {/* Only while no form shows: an editable recovery draft loads its catalogue behind its own Cancel. */}
+    {subjectLoading && !showForm
       ? <Button type="button" variant="quiet" className="mt-3" onClick={onCancel}>{t('items.cancel')}</Button>
       : null}
   </>;
