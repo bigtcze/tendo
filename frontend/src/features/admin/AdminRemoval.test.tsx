@@ -168,7 +168,7 @@ describe('Admin center membership removal', () => {
     [404, 'not_found', 'That person is no longer a member of this household. The list has been refreshed.', true],
     [412, 'precondition_failed', 'This account changed elsewhere. The list has been refreshed; check the current role and try again.', true],
     [409, 'last_admin', 'A household needs at least one administrator. Make someone else an administrator first.', false],
-    [503, 'unavailable', 'That didn’t work. Check your connection and try again.', false],
+    [503, 'unavailable', 'That didn’t work. Try again in a moment.', false],
   ])('speaks the calm outcome for a %i removal refusal', async (status, code, message, reloads) => {
     let listCalls = 0;
     installFakeServer({

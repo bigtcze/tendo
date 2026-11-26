@@ -68,7 +68,7 @@ describe('SubjectForm behavior', () => {
       </I18nProvider>,
     );
     fireEvent.submit(screen.getByRole('form', { name: 'Edit Anna' }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t save that. Check your connection and try again.'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t save that. Try again in a moment.'));
   });
 
   it('dismisses the notice when the user edits the name', async () => {

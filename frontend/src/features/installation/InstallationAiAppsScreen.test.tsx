@@ -276,7 +276,7 @@ describe('installation AI apps', () => {
     });
     await userEvent.click(await screen.findByRole('checkbox', { name: /^Change/ }));
     await userEvent.click(saveButton());
-    expect(await screen.findByText('AI app settings couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('AI app settings couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
@@ -289,7 +289,7 @@ describe('installation AI apps', () => {
     await userEvent.click(await screen.findByRole('switch', { name: 'Allow AI apps in Tendo' }));
     await userEvent.click(saveButton());
 
-    const alert = await screen.findByText('The settings couldn’t be saved. Check your connection and try again.');
+    const alert = await screen.findByText('The settings couldn’t be saved. Try again in a moment.');
     expect(alert.closest('[role="alert"]')).not.toBeNull();
     expect(installationSwitch()).not.toBeChecked();
     await userEvent.click(saveButton());
@@ -308,7 +308,7 @@ describe('installation AI apps', () => {
   it('offers a retry when the settings cannot be read', async () => {
     let attempt = 0;
     renderAt({ [readPath]: () => (++attempt === 1 ? problem(503, 'unavailable') : answer(settings(), 1)) });
-    expect(await screen.findByText('AI app settings couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('AI app settings couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('switch', { name: 'Allow AI apps in Tendo' })).toBeVisible();
@@ -323,7 +323,7 @@ describe('installation AI apps', () => {
 
   it('treats a read without its version as unusable rather than saving blind', async () => {
     renderAt({ [readPath]: json(200, settings()) });
-    expect(await screen.findByText('AI app settings couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('AI app settings couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
   });
 

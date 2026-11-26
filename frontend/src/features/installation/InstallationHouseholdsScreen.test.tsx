@@ -80,7 +80,7 @@ describe('installation household list', () => {
     const fake = renderAt({
       [listPath]: () => (++attempt === 1 ? problem(503) : json(200, { items: [veseli], nextCursor: null })),
     });
-    expect(await screen.findByText('Households couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Households couldn’t be loaded. Try again in a moment.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(rows()).toHaveLength(1));
     expect(fake.requests.filter((request) => request.path === '/api/v1/admin/households')).toHaveLength(2);
@@ -114,7 +114,7 @@ describe('installation household list', () => {
     });
     await waitFor(() => expect(rows()).toHaveLength(1));
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(await screen.findByText('Households couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Households couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(rows()).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(screen.getByRole('link', { name: 'Chata' })).toBeVisible());
@@ -144,7 +144,7 @@ describe('installation household list', () => {
 
   it('does not mistake a request-origin refusal for the calm grant refusal', async () => {
     renderAt({ [listPath]: problem(403, 'forbidden_origin') });
-    expect(await screen.findByText('Households couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Households couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Only an installation administrator can see this.' })).not.toBeInTheDocument();
   });
 

@@ -156,7 +156,7 @@ describe('members and invitations', () => {
     render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={() => {}} /></I18nProvider>);
     await screen.findByRole('button', { name: 'Try again' });
     const visibleError = await screen.findByRole('alert');
-    expect(visibleError).toHaveTextContent('Members could not be loaded. Check your connection and try again.');
+    expect(visibleError).toHaveTextContent('Members could not be loaded. Try again in a moment.');
     expect(visibleError).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
@@ -500,7 +500,7 @@ describe('members and invitations', () => {
     expect(alert).toHaveTextContent('This household isn’t available to your account.');
     expect(alert).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
-    expect(screen.queryByText('Members could not be loaded. Check your connection and try again.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Members could not be loaded. Try again in a moment.')).not.toBeInTheDocument();
   });
 
   it('invitation list error is retryable, not empty', async () => {
@@ -801,7 +801,7 @@ describe('members and invitations', () => {
     [403, 'admin_required', 'admin'],
     [403, undefined, 'refused'],
     [404, undefined, 'not-found'],
-    [503, undefined, 'That didn’t work. Check your connection and try again.'],
+    [503, undefined, 'That didn’t work. Try again in a moment.'],
   ])('revoke status %s maps to %s outcome', async (status, code, outcome) => {
     installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: page([invitation('one')]), [`DELETE ${base}/invitations/one`]: problem(status, code ? { code } : {}) , 'GET /api/v1/auth/setup': json(200, { required: false }) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
@@ -891,7 +891,7 @@ describe('members and invitations', () => {
     await userEvent.click(next);
     screen.getByRole('button', { name: 'Create invite link' }).focus();
     await act(async () => { release(problem(503)); await pending; });
-    const notice = await screen.findByText('That didn’t work. Check your connection and try again.');
+    const notice = await screen.findByText('That didn’t work. Try again in a moment.');
     expect(notice).toBeVisible();
     expect(notice.closest('[role="status"]')).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'Members' })).not.toHaveFocus();

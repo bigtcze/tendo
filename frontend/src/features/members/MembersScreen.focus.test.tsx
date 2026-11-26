@@ -42,7 +42,7 @@ describe('members screen focus ordering', () => {
     heading.addEventListener('focus', headingFocus);
     await userEvent.click(within(screen.getByRole('region', { name: 'Members' })).getByRole('button', { name: 'Next page' }));
     await act(async () => { memberPage.release(problem(503)); await memberPage.pending; });
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     expect(headingFocus).not.toHaveBeenCalled();
   });
 

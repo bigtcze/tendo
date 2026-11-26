@@ -291,7 +291,7 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`);
     app();
     await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
-    const failure = await screen.findByText('That didn’t work. Check your connection and try again.');
+    const failure = await screen.findByText('That didn’t work. Try again in a moment.');
     await waitFor(() => expect(failure.closest('[role="status"]')).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     const success = await screen.findByText('“Renew passport” is done.');
@@ -388,7 +388,7 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`);
     app();
     await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
-    await screen.findByText('That didn’t work. Check your connection and try again.');
+    await screen.findByText('That didn’t work. Try again in a moment.');
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(posts).toBe(2));
     const elsewhere = screen.getAllByRole('link')[0]!;
@@ -823,7 +823,7 @@ describe('item details', () => {
     const fake = installFakeServer(common({ [`GET ${path}`]: json(200, item({ archived: true }), { ETag: '"1"' }), [`PATCH ${path}`]: json(503) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Restore' }));
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     expect(screen.getByText(/This item stays here, and its history is still available\./)).toBeVisible();
     expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1);
 
@@ -832,7 +832,7 @@ describe('item details', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
     const undo = await screen.findByRole('button', { name: 'Undo' });
     await userEvent.click(undo);
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     expect(screen.getByText(/This item stays here, and its history is still available\./)).toBeVisible();
 
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
@@ -1353,7 +1353,7 @@ describe('item details', () => {
     const fake = installFakeServer(common({ [`GET ${path}`]: () => json(++itemReads === 2 ? 503 : 200, item(), { ETag: '"item"' }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    await screen.findByText('That didn’t work. Check your connection and try again.');
+    await screen.findByText('That didn’t work. Try again in a moment.');
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.click(screen.getByRole('dialog').querySelector('header button[aria-label="Close"]')!);

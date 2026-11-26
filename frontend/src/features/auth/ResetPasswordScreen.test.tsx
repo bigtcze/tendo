@@ -165,7 +165,7 @@ describe('reset-password screen', () => {
   it.each([
     [404, 'invalid_password_reset', 'This reset link is no longer valid. Ask a household administrator for a new one.'],
     [429, 'rate_limited', 'Too many attempts. Wait a little, then try again.'],
-    [503, 'unavailable', 'Tendo can’t be reached right now. Check your connection and try again.'],
+    [503, 'unavailable', 'Tendo can’t be reached right now. Try again in a moment.'],
   ])('shows the calm outcome for a %i redemption refusal', async (status, code, message) => {
     installFakeServer({
       ...signedOutBoot,

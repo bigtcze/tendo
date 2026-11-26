@@ -359,7 +359,7 @@ describe('list', () => {
     const host = document.querySelector<HTMLElement>('main p.sr-only[aria-live="polite"][aria-atomic="true"]');
     expect(host).not.toBeNull();
     // Exactly the sentence the visible notice shows; an extra title would be heard but never seen.
-    await waitFor(() => expect(host?.textContent).toBe('Check your connection and try again.'));
+    await waitFor(() => expect(host?.textContent).toBe('This couldn’t be loaded. Try again in a moment.'));
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Anna')).toBeVisible();
     // Same mounted node: the host persists across states and is emptied, never remounted pre-populated.

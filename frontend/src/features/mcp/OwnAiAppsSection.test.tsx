@@ -198,7 +198,7 @@ describe('own AI apps on Account', () => {
     await heading();
     await userEvent.click(change());
     await userEvent.click(saveButton());
-    expect(await screen.findByText('The settings couldn’t be saved. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('The settings couldn’t be saved. Try again in a moment.')).toBeVisible();
     next = problem(422, 'invalid_value');
     await userEvent.click(saveButton());
     expect(await screen.findByText('Choose at least one.')).toBeVisible();
@@ -241,7 +241,7 @@ describe('own AI apps on Account', () => {
     let failing = true;
     renders({ [READ]: () => (failing ? problem(503, 'unavailable') : answer(settings(), 1)) });
     const retry = await screen.findByRole('button', { name: 'Try again' });
-    expect(screen.getByText('Your AI app settings couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(screen.getByText('Your AI app settings couldn’t be loaded. Try again in a moment.')).toBeVisible();
     failing = false;
     await userEvent.click(retry);
     // The heading stays, so the section never empties under the reader while it reads again.

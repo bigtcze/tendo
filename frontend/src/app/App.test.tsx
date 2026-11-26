@@ -106,7 +106,7 @@ describe('signed out', () => {
     renderApp();
     await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'pw{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent('Tendo can’t be reached right now. Check your connection and try again; your account is safe.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tendo can’t be reached right now. Try again in a moment; your account is safe.');
   });
 
   it('disables submit while the request is in flight', async () => {

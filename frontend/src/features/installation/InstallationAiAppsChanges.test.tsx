@@ -169,11 +169,11 @@ describe('recent AI apps changes', () => {
   it('offers a retry when the changes cannot be read, and the settings stay usable', async () => {
     let reads = 0;
     renderAt({ [changesPath]: () => (++reads === 1 ? problem(503, 'unavailable') : page([change({})])) });
-    const failed = await screen.findByText('Recent changes couldn’t be loaded. Check your connection and try again.');
+    const failed = await screen.findByText('Recent changes couldn’t be loaded. Try again in a moment.');
     expect(screen.getByRole('switch', { name: 'Allow AI apps in Tendo' })).toBeEnabled();
     await userEvent.click(within(failed.closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(rows()).toHaveLength(1));
-    expect(screen.queryByText('Recent changes couldn’t be loaded. Check your connection and try again.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recent changes couldn’t be loaded. Try again in a moment.')).not.toBeInTheDocument();
   });
 
   it('reads the changes again after a save, so the save shows on the list', async () => {
@@ -250,7 +250,7 @@ describe('recent AI apps changes', () => {
     await waitFor(() => expect(rows()).toHaveLength(1));
     await userEvent.click(screen.getByRole('checkbox', { name: /^Change/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Recent changes couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Recent changes couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(rows()).toHaveLength(1);
   });
 
@@ -258,7 +258,7 @@ describe('recent AI apps changes', () => {
     const fake = renderAt({ [changesPath]: page([]), [savePath]: problem(503, 'unavailable') });
     await userEvent.click(await screen.findByRole('checkbox', { name: /^Change/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('The settings couldn’t be saved. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('The settings couldn’t be saved. Try again in a moment.')).toBeVisible();
     expect(changeReads(fake)).toHaveLength(1);
   });
 
@@ -292,7 +292,7 @@ describe('recent AI apps changes', () => {
 
   it('treats a refused list that is not about the grant as a failure to retry, not the calm state', async () => {
     renderAt({ [changesPath]: problem(403) });
-    expect(await screen.findByText('Recent changes couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Recent changes couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.queryByRole('heading', { level: 2, name: refusal })).not.toBeInTheDocument();
   });
 

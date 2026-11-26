@@ -368,7 +368,7 @@ describe('Admin center', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
 
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rowOf('petr')).toHaveTextContent('Member');
   });
@@ -407,7 +407,7 @@ describe('Admin center', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
 
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     expect(rowOf('petr')).toHaveTextContent('Member');
     expect(screen.getByRole('button', { name: 'Make administrator: petr' })).toBeEnabled();
   });
@@ -429,7 +429,7 @@ describe('Admin center', () => {
     await userEvent.click(within(screen.getByRole('navigation', { name: 'Accounts' })).getByRole('button', { name: 'Next page' }));
 
     // The failed page keeps the rows already on screen and offers a retry instead of jumping back to page one.
-    expect(await screen.findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(rowOf('anna')).toBeVisible();
     expect(rowOf('petr')).toBeVisible();
     expect(within(screen.getByRole('navigation', { name: 'Accounts' })).getByText('Page 1')).toBeVisible();
@@ -438,7 +438,7 @@ describe('Admin center', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
     await waitFor(() => expect(rowOf('jana')).toBeVisible());
-    expect(screen.queryByText('Accounts couldn’t be loaded. Check your connection and try again.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Accounts couldn’t be loaded. Try again in a moment.')).not.toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: 'Accounts' })).getByText('Page 2')).toBeVisible();
     expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/accounts` && request.query.get('cursor') === 'page-2')).toHaveLength(2);
   });
@@ -605,7 +605,7 @@ describe('Admin center', () => {
     [409, 'password_reset_not_permitted', 'You can’t reset jana’s password. They also belong to a household you don’t administer, or they administer this installation.'],
     [404, 'not_found', 'That person is no longer a member of this household. The list has been refreshed.'],
     [429, 'rate_limited', 'Too many reset links were created just now. Wait a little, then try again.'],
-    [503, 'unavailable', 'The reset link couldn’t be created. Check your connection and try again.'],
+    [503, 'unavailable', 'The reset link couldn’t be created. Try again in a moment.'],
   ])('speaks the calm outcome for a %i reset issue refusal', async (status, code, message) => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
