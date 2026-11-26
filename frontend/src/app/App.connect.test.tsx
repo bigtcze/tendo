@@ -8,6 +8,7 @@ import { HOUSEHOLD_ID, household, installFakeServer, json, session } from '../te
 import { clearConnectEntry, markConnectReturn, readConnectEntry, saveConnectHandle } from '../features/mcp/connectEntry';
 import { browserNavigation } from '../features/auth/oidcApi';
 import { itemRoutes } from '../test/fakeItems';
+import { findSignOut } from '../test/accountMenu';
 
 const handle = 'A'.repeat(43);
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
@@ -181,7 +182,7 @@ describe('abandoned consent flags', () => {
       'GET /api/v1/auth/oidc': json(200, { enabled: false }),
     });
     renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByLabelText('Username')).toBeVisible();
     expect(readConnectEntry()).toBeNull();
   });

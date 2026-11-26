@@ -88,7 +88,7 @@ async function signInMember(browser: Browser) {
   await member.getByRole('button', { name: en['login.submit'], exact: true }).click();
   expect((await signedIn).status(), 'member sign-in').toBe(201);
   // The login screen has a level-1 heading of its own, so only the signed-in shell proves the session exists.
-  await expect(member.getByRole('button', { name: en['header.signOut'], exact: true })).toBeVisible();
+  await expect(member.getByRole('banner').getByRole('button', { name: en['header.menu'].replace('{login}', REFERENCE_MEMBER_LOGIN), exact: true })).toBeVisible();
   const session = await api(member, 'get', '/api/v1/session');
   expect(session.status(), 'member session').toBe(200);
   expect((await session.json() as { login: string }).login, 'signed in as the reference member').toBe(REFERENCE_MEMBER_LOGIN);

@@ -62,6 +62,22 @@ async function captureScreen(page: Page, base: string, fullPage = false) {
   }
 }
 
+/** Opens the top bar's account menu and pins it open through capture()'s blur, as openMoreSheet does for More. */
+async function openAccountMenu(page: Page) {
+  const trigger = page.getByRole('banner').getByRole('button', { name: en['header.menu'].replace('{login}', OWNER_LOGIN), exact: true });
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  const panel = page.locator(`[id="${await trigger.getAttribute('aria-controls')}"]`);
+  await expect(panel.getByText(en['header.signedInAs'].replace('{login}', OWNER_LOGIN), { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: en['header.signOut'], exact: true })).toBeVisible();
+  const box = (await panel.boundingBox())!;
+  expect(box.x, 'account panel left edge').toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width, 'account panel right edge').toBeLessThanOrEqual(page.viewportSize()!.width + 0.5);
+  // A press on the panel's own padding keeps it open (useDismiss) and moves focus off the trigger.
+  await panel.click({ position: { x: box.width / 2, y: 3 } });
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+}
+
 /** One account's AI apps; the screen is settled once what apps may do now is shown. */
 const ACCOUNT_AI_APPS = /^\/admin\/accounts\/[^/]+\/ai-apps$/;
 
@@ -1006,6 +1022,15 @@ test('Account', async ({ browser }) => {
   await capture(page, 'account-cs-390', 390, 900, true);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await page.reload();
+  // The top bar's account menu open: who is signed in, Account settings and Sign out in words, at the narrowest
+  // phone and on a desktop.
+  for (const [width, height] of [[320, 640], [1440, 900]] as const) {
+    await page.setViewportSize({ width, height });
+    await assertAccountSettled(page, 'en', 'en');
+    await openAccountMenu(page);
+    await capture(page, `account-menu-${width}`, width, height, false);
+    await page.keyboard.press('Escape');
+  }
   await context.close();
   await darkScreen(browser, statePath, '/account', 'account');
 });

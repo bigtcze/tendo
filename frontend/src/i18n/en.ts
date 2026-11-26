@@ -14,6 +14,7 @@ export const en = {
   'header.signingOut': 'Signing out…',
   'header.signOutError': 'Couldn’t sign you out. Try again.',
   'header.account': 'Account settings',
+  'header.menu': 'Account: {login}',
   'nav.label': 'Household navigation',
   'nav.home': 'Home',
   'nav.allItems': 'All items',

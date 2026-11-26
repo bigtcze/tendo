@@ -17,6 +17,7 @@ import { SubjectsScreen } from './SubjectsScreen';
 import { clearPendingSubjectCreates } from './pendingSubjectCreate';
 import { cs } from '../../i18n/cs';
 import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
+import { findSignOut, openAccountMenu } from '../../test/accountMenu';
 
 function renderApp() {
   return render(
@@ -2108,8 +2109,8 @@ describe('other failures and edge cases', () => {
     });
     renderApp();
     await openPeople();
-    expect(screen.getByText('Signed in as anna')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(within(await openAccountMenu()).getByText('Signed in as anna')).toBeVisible();
+    await userEvent.click(await findSignOut());
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(sent(fake.requests, 'DELETE')).toHaveLength(1);
     expect(window.location.pathname).toBe('/');
