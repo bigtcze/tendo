@@ -976,7 +976,7 @@ describe('Home items', () => {
     const text = progress.textContent!.replaceAll('\u00a0', ' ');
     expect(text.indexOf('Attention date Jan 2')).toBeLessThan(text.indexOf('Looked after by petr'));
     expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Last done Dec 2, 2025'));
-    // The row stays compact: a Done box (check plus its from-lg word), the link, one line of facts and the
+    // The row stays compact: a Done box (check plus its word), the link, one line of facts and the
     // tile-free subject, never copies.
     expect(needs.querySelectorAll('*').length).toBeLessThanOrEqual(24);
   });

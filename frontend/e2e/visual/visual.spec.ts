@@ -185,24 +185,26 @@ async function assertDoneInWords(page: Page, locale: 'en' | 'cs', width: number)
   const word = (locale === 'cs' ? cs : en)['items.done'];
   const controls = await page.locator('main li[data-item-id] [data-action="done"]').evaluateAll((buttons) => buttons.map((button) => {
     const box = button.getBoundingClientRect();
-    // innerText is the rendered text, so a word hidden with display:none is not in it. The word's own line boxes must
-    // be text-sized (an sr-only 1 px clip is not) and sit inside the control. Rows below the fold are measured too,
-    // so this reads layout, not hit-testing.
+    // innerText is the rendered text, so a word hidden with display:none is not in it. Every element that holds the
+    // word's text must itself be text-sized, unclipped, visible and inside the control: an sr-only word keeps
+    // text-sized line boxes but its own element is a 1 px clip, and an opacity:0 word fails checkVisibility. Rows
+    // below the fold are measured too, so this reads layout and style, not hit-testing.
     const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
-    const rects: DOMRect[] = [];
+    const holders: HTMLElement[] = [];
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (!node.textContent?.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      rects.push(...[...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0));
+      if (node.textContent?.trim() && node.parentElement) holders.push(node.parentElement);
     }
-    const style = getComputedStyle(button);
+    const within = (rect: DOMRect) => rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5
+      && rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5;
     return {
       word: (button as HTMLElement).innerText.trim(), width: box.width, height: box.height,
-      textSized: rects.length > 0 && rects.every((rect) => rect.width >= 12 && rect.height >= 10),
-      inside: rects.length > 0 && rects.every((rect) => rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5
-        && rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5),
-      visible: style.visibility === 'visible' && style.opacity !== '0',
+      textSized: holders.length > 0 && holders.every((holder) => {
+        const rect = holder.getBoundingClientRect();
+        return rect.width >= 12 && rect.height >= 10 && getComputedStyle(holder).clipPath === 'none'
+          && getComputedStyle(holder).clip === 'auto';
+      }),
+      inside: holders.length > 0 && holders.every((holder) => within(holder.getBoundingClientRect())),
+      visible: holders.length > 0 && holders.every((holder) => holder.checkVisibility({ opacityProperty: true, visibilityProperty: true })),
     };
   }));
   expect(controls.length, `Home Done controls at ${width}`).toBeGreaterThan(0);

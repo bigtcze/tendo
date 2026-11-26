@@ -8,9 +8,9 @@ import { AlertIcon, CalendarIcon, CheckIcon } from './HomeIcons';
 import { responsibleLabel as labelFor, rowFacts, type RowFact } from './homeRowMeta';
 import type { Item, ItemGroup } from './itemsApi';
 
-// One reading line per row: the completion control in its own 44 px box, then the title and a single quiet
-// metadata line. Nothing is aligned into columns, so long Czech names and dates wrap instead of clipping and a
-// 320 px screen keeps the same order as a wide one.
+// One reading line per row: the completion control in its own column (at least 44 px each way), then the title and
+// a single quiet metadata line. Nothing is aligned into columns, so long Czech names and dates wrap instead of
+// clipping and a 320 px screen keeps the same order as a wide one.
 //
 // The link's own box is the text block, but its stretched pseudo-element covers the whole row: the row — not a
 // minimum height on the title — is the target, so a two-line row stays as short as its content honestly needs.
@@ -24,14 +24,14 @@ const FACT = 'inline max-w-full [overflow-wrap:anywhere]';
 // always named in words: below lg the check circle carries "Done" under it (a 56 px wide, 44 px+ tall column, like
 // the phone tabs); from lg the row has the room for one outlined pill with the check and the word side by side.
 const DONE = 'group relative z-10 flex w-14 min-h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg text-muted '
-  + 'transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 '
+  + 'transition-colors enabled:hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 '
   + 'focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-60 '
   + 'lg:w-auto lg:flex-row lg:gap-2 lg:rounded-full lg:border-[1.5px] lg:border-field lg:bg-raised lg:px-3 '
-  + 'lg:hover:border-accent';
+  + 'lg:enabled:hover:border-accent';
 // The check's own outer <svg> draws the phone circle (border and padding apply to an outer svg box), so the row keeps
 // its element count; from lg the pill's border takes over and the check is a plain 16 px glyph.
 const DONE_MARK = 'size-9 rounded-full border-[1.5px] border-field bg-raised p-2.5 transition-colors '
-  + 'group-hover:border-accent lg:size-4 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0';
+  + 'group-enabled:group-hover:border-accent lg:size-4 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0';
 const DONE_WORD = 'max-w-full text-micro font-medium [overflow-wrap:anywhere] max-lg:leading-tight lg:text-small';
 
 type Props = {
