@@ -1,4 +1,4 @@
-import { Fragment, type RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty-state';
@@ -66,6 +66,17 @@ function responsibleText(item: Item, members: Member[], userId: string, t: Trans
   return t('items.responsible.read', { name: login });
 }
 
+/**
+ * One fact with Home's decorative middle dot in a fixed 1rem box before it. Dot and fact wrap as one unit, and the
+ * metadata line's -1rem shift into a clipped parent hides whichever dot starts a line.
+ */
+function Parted({ children }: { children: ReactNode }) {
+  return <span data-item-fact className="inline-flex min-w-0 max-w-full items-center">
+    <span aria-hidden="true" data-item-separator className="w-4 shrink-0 select-none text-center text-muted">·</span>
+    {children}
+  </span>;
+}
+
 function ItemRow({ item, subjectName, subjectType, members, userId, onOpenItem }: {
   item: Item; subjectName: string | undefined; subjectType: SubjectType | undefined; members: Member[]; userId: string;
   onOpenItem: (itemId: string, returnTo: string) => void;
@@ -82,29 +93,31 @@ function ItemRow({ item, subjectName, subjectType, members, userId, onOpenItem }
   return <li data-item-id={item.id} className="px-4 pb-2 pt-[11px] xl:pb-0 xl:pt-2">
     <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
       className={titleLink}>{item.title}</NavLink>
-    <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-meta leading-snug">
-      {[
-        <span key="subject" data-subject-pill className={subjectClass}>
-          <span aria-hidden="true" data-subject-icon={kind} className="inline-flex shrink-0 text-muted">
-            <SubjectTypeIcon type={kind} className="size-3.5" />
+    {/* Every fact carries its own leading dot; the row shifts left by one dot box and clips it, so the dot that
+        would start any line (the first fact's, or one that wrapped) is hidden and none is left dangling. */}
+    <div className="overflow-hidden">
+      <div data-item-meta className="-ml-4 mt-0.5 flex flex-wrap items-center gap-y-1 text-meta leading-snug">
+        <Parted>
+          <span data-subject-pill className={subjectClass}>
+            <span aria-hidden="true" data-subject-icon={kind} className="inline-flex shrink-0 text-muted">
+              <SubjectTypeIcon type={kind} className="size-3.5" />
+            </span>
+            {subjectName ?? t('items.subject.unknown')}
           </span>
-          {subjectName ?? t('items.subject.unknown')}
-        </span>,
-        <span key="state" data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
-          <ItemStateIcon state={state} className="size-4 shrink-0" />
-          <span className="[overflow-wrap:anywhere]">{status}</span>
-        </span>,
-        responsible
-          ? <span key="responsible" data-item-responsible className="text-muted [overflow-wrap:anywhere]">{responsible}</span>
-          : null,
-        item.recurrence
-          ? <span key="recurrence" data-item-recurrence className="text-muted [overflow-wrap:anywhere]">{repeatSummary(t, item.recurrence, locale)}</span>
-          : null,
-      ].filter(Boolean).map((fact, index) => <Fragment key={index}>
-        {/* Home's decorative middle dot parts the facts, so the line never reads as one run-on phrase. */}
-        {index ? <span aria-hidden="true" data-item-separator className="select-none text-muted">·</span> : null}
-        {fact}
-      </Fragment>)}
+        </Parted>
+        <Parted>
+          <span data-item-state data-item-state-kind={state} className={`inline-flex min-w-0 items-center gap-1.5 font-semibold ${tone.text}`}>
+            <ItemStateIcon state={state} className="size-4 shrink-0" />
+            <span className="[overflow-wrap:anywhere]">{status}</span>
+          </span>
+        </Parted>
+        {responsible
+          ? <Parted><span data-item-responsible className="min-w-0 text-muted [overflow-wrap:anywhere]">{responsible}</span></Parted>
+          : null}
+        {item.recurrence
+          ? <Parted><span data-item-recurrence className="min-w-0 text-muted [overflow-wrap:anywhere]">{repeatSummary(t, item.recurrence, locale)}</span></Parted>
+          : null}
+      </div>
     </div>
   </li>;
 }

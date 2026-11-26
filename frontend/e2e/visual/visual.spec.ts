@@ -484,6 +484,24 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
   await expect(page.getByRole('main').getByRole('listitem').first()).toBeVisible();
   await capture(page, 'all-items-cs-390', 390, 900, false);
+  // A wrapped metadata line never starts or ends on a separator: at phone widths, in Czech, every dot that is
+  // visible sits after a fact on its own line, and every line-leading dot is clipped outside the line's box.
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const factCount = await page.locator('main li[data-item-id] [data-item-meta] > [data-item-fact]').count();
+    expect(factCount, `metadata facts at ${width}`).toBeGreaterThanOrEqual(8);
+    const strays = await page.locator('main li[data-item-id] [data-item-meta]').evaluateAll((lines) => lines.flatMap((line) => {
+      const clip = line.parentElement!.getBoundingClientRect();
+      const units = [...line.querySelectorAll(':scope > [data-item-fact]')].map((unit) => unit.getBoundingClientRect());
+      return units.flatMap((unit, index) => {
+        const dot = line.querySelectorAll(':scope > [data-item-fact] > [data-item-separator]')[index].getBoundingClientRect();
+        const leadsLine = index === 0 || Math.abs(units[index - 1].top - unit.top) > 2;
+        const shown = dot.left >= clip.left - 0.5;
+        return leadsLine === shown ? [`${line.textContent} #${index} leads=${leadsLine} shown=${shown}`] : [];
+      });
+    }));
+    expect(strays, `metadata separators at ${width}`).toEqual([]);
+  }
   // The reset and the "Filters" toggle share a phone line: they must never overlap, in either locale, at
   // either phone width, expanded or collapsed.
   const assertFilterControlsDoNotOverlap = async (label: string) => {

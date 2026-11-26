@@ -436,9 +436,21 @@ describe('All items', () => {
     // Every fact is on the one metadata line: subject, state, who looks after it, then the cadence.
     expect([...metadata.querySelectorAll('[data-subject-pill], [data-item-state], [data-item-responsible], [data-item-recurrence]')]
       .map((node) => node.textContent)).toEqual(['Café', 'Needs attention', 'Looked after by you', '1 month · stays on the planned dates']);
-    // Facts are parted like Home's: a decorative middle dot between each, hidden from assistive technology.
-    const separators = [...metadata.querySelectorAll('[data-item-separator]')];
-    expect(separators.map((node) => [node.textContent, node.getAttribute('aria-hidden')])).toEqual(Array(3).fill(['·', 'true']));
+    // Facts are parted like Home's: each fact is one wrapping unit led by a decorative middle dot hidden from
+    // assistive technology. The line is shifted into a clipped parent so a line never starts on a dot; the real
+    // browser check in visual.spec.ts measures that at phone widths.
+    const units = [...metadata.children];
+    expect(units.map((unit) => [unit.firstElementChild!.matches('[data-item-separator][aria-hidden="true"]'), unit.firstElementChild!.textContent, unit.children.length]))
+      .toEqual(Array(4).fill([true, '·', 2]));
+    expect(metadata.className).toContain('-ml-4');
+    expect(metadata.parentElement!.className).toContain('overflow-hidden');
+  });
+
+  it('parts only the facts a row has: no dot is doubled or left over when a fact is absent', async () => {
+    await openAllItems([makeItem(1, { title: 'Two facts', responsibleUserId: null, recurrence: null })]);
+    const metadata = within(screen.getByRole('main')).getByText('Two facts').closest('li')!.querySelector('[data-item-meta]')!;
+    expect(metadata.querySelectorAll('[data-item-fact]')).toHaveLength(2);
+    expect(metadata.textContent).toBe('·Café·Needs attention');
   });
 
   it('renders compact rows with a 44px title target, the subject type icon and the state in words', async () => {
