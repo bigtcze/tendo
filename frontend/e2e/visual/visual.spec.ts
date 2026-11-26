@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
-import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpPolicyEventDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
+import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, PASSWORD_RESET_DATES, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpPolicyEventDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
 import { assertArchiveSettled, assertHistoryPage, openMoreSheet, seedPagedHistory } from './archiveHistory';
 import { openConsent, setOwnAiApps } from './consentStates';
 import { captureLargeDataset } from './largeData';
@@ -1288,8 +1288,7 @@ async function pinPasswordResetIssuing(context: BrowserContext) {
         contentType: 'application/json',
         body: JSON.stringify({
           token: VISUAL_RESET_TOKEN,
-          createdAt: '2026-05-14T08:00:00Z',
-          expiresAt: '2026-05-15T08:00:00Z',
+          ...PASSWORD_RESET_DATES,
         }),
       });
     },

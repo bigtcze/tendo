@@ -110,6 +110,31 @@ export async function pinInvitationDates(context: BrowserContext) {
   });
 }
 
+// Admin-issued password-reset links are stamped with the server's wall clock as well (24-hour lifetime): the account
+// list states until when a row's link works, and the issuing response feeds the one-time-link dialog. Pin only those
+// two times; the real token passes through, so the issued link still opens the real reset screen. The single-account
+// read and the role-change response (`/accounts/{userId}`) also carry `passwordReset` but stay unpinned: no captured
+// state renders them for an account with an outstanding link.
+export const PASSWORD_RESET_DATES = { createdAt: '2026-05-14T08:00:00Z', expiresAt: '2026-05-15T08:00:00Z' } as const;
+
+export async function pinPasswordResetDates(context: BrowserContext) {
+  await context.route((url) => /^\/api\/v1\/households\/[^/]+\/accounts$/.test(url.pathname), async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 200) return route.fulfill({ response });
+    const page = await response.json() as components['schemas']['AccountList'];
+    const items = page.items.map((account) => ({ ...account, passwordReset: account.passwordReset && PASSWORD_RESET_DATES }));
+    await route.fulfill({ response, json: { ...page, items } });
+  });
+  await context.route((url) => /^\/api\/v1\/households\/[^/]+\/accounts\/[^/]+\/password-reset$/.test(url.pathname), async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 201) return route.fulfill({ response });
+    const created = await response.json() as components['schemas']['PasswordResetCreated'];
+    await route.fulfill({ response, json: { ...created, ...PASSWORD_RESET_DATES } });
+  });
+}
+
 // Connected-app timestamps are server wall-clock values too: when the person approved the app and the 90-day latest
 // end of its access. Pin both in real grant-list responses; the consent request's 5-minute expiry is pinned the same
 // way. Non-200 responses and every other field pass through unchanged.
