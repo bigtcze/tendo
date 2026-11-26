@@ -160,6 +160,28 @@ describe('item creation', () => {
     expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
   });
 
+  it('a locked re-check after an editable draft whose catalogue failed keeps one Cancel', async () => {
+    const key = 'd'.repeat(32);
+    const body = { title: 'Locked after failure', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [memberList]: memberPage(), [subjectList]: json(503),
+      [`POST ${base}/items`]: () => ++posts === 1
+        ? json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'subjectId', code: 'invalid_reference' })
+        : Promise.reject(new Error('offline')) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('People and things could not be loaded. Try again.');
+    const dialog = form.closest('dialog')!;
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    expect(await within(form).findByRole('button', { name: 'Check again' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(2);
+    // The catalogue error is back beside the locked form; only the form's action bar offers Cancel.
+    expect(within(dialog).getByText('People and things could not be loaded. Try again.')).toBeVisible();
+    expect(within(dialog).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+  });
+
   it('pending-create recovery renders immediately and retries unchanged despite failed subject fetches', async () => {
     const key = 'a'.repeat(32);
     const body = { title: 'Frozen recovery', subjectId: 'missing', recurrence: null };
@@ -324,8 +346,11 @@ describe('item creation', () => {
     app();
     await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
-    expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
+    const capped = await screen.findByText('People and things could not be loaded. Try again.');
+    expect(capped).toBeVisible();
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+    // With no form in the dialog, the error box carries the only Cancel.
+    expect(within(capped.closest('dialog')!).getAllByRole('button', { name: 'Cancel' })).toEqual([within(capped.parentElement!).getByRole('button', { name: 'Cancel' })]);
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(20);
     failWalk = true;
     await userEvent.click(within(screen.getByText('People and things could not be loaded. Try again.').parentElement!).getByRole('button', { name: 'Try again' }));

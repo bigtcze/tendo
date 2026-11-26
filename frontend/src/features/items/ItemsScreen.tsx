@@ -137,7 +137,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
     <Dialog open={adding} onOpenChange={(open) => { if (!open) cancelAddAndFocus(); }} title={t('items.add.formLabel')}
       busy={busy || recovering} sheet triggerRef={addRef} initialFocusRef={addInitialFocusRef}>
     <AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState}
-      editingRecovery={recoveryEditable && !!pendingCreate} draftShown={recoveryEditable} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={cancelAddAndFocus} />
+      editingRecovery={recoveryEditable && !!pendingCreate} formShown={recovering || recoveryEditable} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={cancelAddAndFocus} />
     <AddItemPanel
       adding={adding}
       busy={busy}
