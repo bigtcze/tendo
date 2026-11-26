@@ -47,6 +47,18 @@ async function openAdd(page: Page, label: string) {
   await expect(dialog.getByRole('textbox').first()).toBeFocused();
   return dialog;
 }
+// A long form scrolls inside its dialog. Opened at the top, the title, the close control and the primary action are
+// all on screen; scrolled to the end, the primary action still is, so the form never hides its own submit.
+async function expectDialogActionsOnScreen(dialog: Locator, submit: string, label: string) {
+  const primary = dialog.getByRole('button', { name: submit, exact: true });
+  await dialog.evaluate((element) => element.scrollTo({ top: 0 }));
+  for (const target of [dialog.getByRole('heading', { level: 2 }), dialog.getByRole('button', { name: en['dialog.close'], exact: true }), primary]) {
+    await expect(target, `${label} at the top`).toBeInViewport({ ratio: 1 });
+  }
+  await dialog.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await expect(primary, `${label} at the end`).toBeInViewport({ ratio: 1 });
+  await dialog.evaluate((element) => element.scrollTo({ top: 0 }));
+}
 // The Create dialog focuses its name field after showModal; wait for it so capture()'s blur cannot race it.
 async function openCreate(page: Page) {
   await page.getByRole('main').getByRole('button', { name: en['install.create.action'], exact: true }).click();
@@ -472,6 +484,8 @@ test('Add form and Repeat cadence', async ({ browser }) => {
     if (width === 390 || width === 1440) {
       await dialog.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
       await expect(dialog.getByRole('spinbutton')).toBeVisible();
+      await page.setViewportSize({ width, height: 900 });
+      await expectDialogActionsOnScreen(dialog, en['items.add.submit'], `add-repeat-${width}`);
       await capture(page, `add-repeat-${width}`, width, 900);
     }
     await dialog.getByRole('form', { name: en['items.add.formLabel'] }).getByRole('button', { name: en['items.cancel'], exact: true }).click();
@@ -651,6 +665,10 @@ test('Edit form and optimistic conflict', async ({ browser }) => {
   expect(concurrent.status()).toBe(200);
   await conflictForm.getByRole('button', { name: en['itemDetail.save'], exact: true }).click();
   await expect(page.getByText(en['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectDialogActionsOnScreen(page.getByRole('dialog'), en['itemDetail.save'], `edit-conflict-${width}`);
+  }
   // Evidence shows the conflict summary and the rebased form from the top of the dialog.
   await page.getByRole('dialog').evaluate((dialog) => dialog.scrollTo({ top: 0 }));
   await captureScreen(page, 'edit-conflict');
