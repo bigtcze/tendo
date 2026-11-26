@@ -260,8 +260,14 @@ getOidcStatus,getOidcIdentity,getOidcPending,cancelOidcPending,\
 createOidcPendingAccount,confirmOidcPendingLink,discardOidcAccount \
   node "$root/api/check-health.mjs" "$fixtures"
 # Secrets are random base64url values and may start with "-"; without "--" grep would read one as options (a
-# "-V..." value exits 0 as a false leak, an invalid one exits 2 and hides a real leak).
-log_contains() { grep -qF -- "$1" "$2"; }
+# "-V..." value exits 0 as a false leak, an invalid one exits 2 and reads as "not found" whether or not it leaked).
+# Any grep error fails the smoke instead of passing as "not found".
+log_contains() {
+  local rc=0
+  grep -qF -- "$1" "$2" || rc=$?
+  (( rc <= 1 )) || { echo "log leak search failed rc=$rc" >&2; exit 1; }
+  return "$rc"
+}
 # Self-check the leak search on dash-leading values before trusting it with the real secrets.
 log_canary=$(mktemp)
 printf 'request -Vcanary-leak -Xcanary-leak done\n' >"$log_canary"
