@@ -160,7 +160,7 @@ describe('item creation', () => {
     expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
   });
 
-  it('moves focus from a successful catalogue retry on an editable recovery draft to the flagged For field', async () => {
+  it('moves focus from a successful catalogue retry on an editable recovery draft to the For field it fills', async () => {
     const key = 'e'.repeat(32);
     const body = { title: 'Refocus after retry', subjectId: 'missing', recurrence: null };
     sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
@@ -173,15 +173,37 @@ describe('item creation', () => {
     const form = await screen.findByRole('form', { name: 'Add an item' });
     await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
     const failure = await screen.findByText('People and things could not be loaded. Try again.');
-    const dialog = form.closest('dialog')!;
     await userEvent.click(within(failure.parentElement!).getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(subjectCalls).toBe(2));
     await act(async () => release(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
     expect(await within(form).findByRole('option', { name: 'Garage' })).toBeInTheDocument();
-    // The form never remounts, so its title autofocus cannot catch the retry; the field the 422 flagged takes focus.
+    // The form never remounts, so its title autofocus cannot catch the retry; the For field the catalogue fills takes focus.
     await waitFor(() => expect(within(form).getByLabelText('For')).toHaveFocus());
-    expect(dialog).toContainElement(document.activeElement as HTMLElement);
     expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+  });
+
+  it('leaves focus where the user moved it while an editable recovery draft retries its catalogue', async () => {
+    const key = '1'.repeat(32);
+    const body = { title: 'Typing during retry', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    let subjectCalls = 0;
+    let release!: (response: Response) => void;
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [memberList]: memberPage(),
+      [subjectList]: () => ++subjectCalls === 1 ? json(503) : new Promise<Response>((resolve) => { release = resolve; }),
+      [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'subjectId', code: 'invalid_reference' }) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    const failure = await screen.findByText('People and things could not be loaded. Try again.');
+    await userEvent.click(within(failure.parentElement!).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(subjectCalls).toBe(2));
+    const title = within(form).getByLabelText('What needs doing?');
+    await userEvent.click(title);
+    expect(title).toHaveFocus();
+    await act(async () => release(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
+    expect(await within(form).findByRole('option', { name: 'Garage' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('People and things could not be loaded. Try again.')).not.toBeInTheDocument());
+    expect(title).toHaveFocus();
   });
 
   it('a locked re-check after an editable draft whose catalogue failed keeps one Cancel', async () => {
