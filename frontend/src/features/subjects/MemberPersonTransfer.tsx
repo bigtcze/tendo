@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
-import { cn } from '../../lib/cn';
+import { Select } from '../../components/ui/select';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
 import type { Subject } from './subjectsApi';
@@ -102,14 +102,10 @@ function MemberPicker({ id, memberId, members, pending, onChange }: {
   const { t } = useI18n();
   return <div className="space-y-1">
     <Label htmlFor={id}>{t('subjects.transfer.memberLabel')}</Label>
-    <select id={id} value={memberId} disabled={pending} onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        'min-h-11 w-full rounded-xl border border-field bg-raised px-3 text-control text-ink',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-      )}>
+    <Select id={id} value={memberId} disabled={pending} onChange={(event) => onChange(event.target.value)}>
       <option value="">{t('subjects.transfer.choose')}</option>
       {members.map((entry) => <option key={entry.userId} value={entry.userId}>{entry.login}</option>)}
-    </select>
+    </Select>
   </div>;
 }
 

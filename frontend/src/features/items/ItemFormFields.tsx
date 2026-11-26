@@ -118,7 +118,7 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
         onChange={(event) => state.update({ interval: event.target.value })} {...invalidProps(state, errorId, 'recurrence')}
       />
       <Select
-        disabled={disabled} aria-label={t('items.intervalUnit')} className="min-w-0 flex-1"
+        disabled={disabled} aria-label={t('items.intervalUnit')} containerClassName="min-w-0 flex-1"
         value={state.draft.unit}
         onChange={(event) => state.update({ unit: event.target.value as IntervalUnit })}
       >

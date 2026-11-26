@@ -32,7 +32,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 
 - `src/app`: shell, layout, and top-level status screens
 - `src/features/<feature>`: one folder per feature (`auth`, `home`, `subjects`, `members`) with its screens and API calls
-- `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
+- `src/components/ui`: shared primitives copied from shadcn/ui (MIT). Every select goes through `Select`, which keeps the native `<select>` but draws the app's stroke chevron in place of the platform arrow (`selectUsage.test.ts` rejects a raw `<select>` elsewhere, and visual captures assert the chevron)
 - `src/fonts.css`: self-hosted Inter Variable faces (`@fontsource-variable/inter` 5.3.0, SIL OFL 1.1; latin + latin-ext, no CDN)
 - `public/fonts/INTER-OFL-LICENSE.txt`: canonical OFL text, copied into the production build at `/fonts/INTER-OFL-LICENSE.txt`
 - `public/favicon.svg`, `public/favicon.ico`, `public/apple-touch-icon.png`, `public/icon-192.png`, `public/icon-512.png`, `public/manifest.webmanifest`: the brand tile and app icons linked from `index.html`

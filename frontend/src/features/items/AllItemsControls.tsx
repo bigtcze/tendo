@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from 'react';
 import { useId, useState } from 'react';
 import { Button } from '../../components/ui/button';
+import { Select } from '../../components/ui/select';
 import { useI18n } from '../../i18n';
 import type { AllItemsStatus, ItemSummary } from './itemsApi';
 import type { Draft, PageState } from './allItemsPageState';
@@ -10,7 +11,6 @@ import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 const labelClass = 'block min-w-0 text-label font-semibold text-ink';
-const controlClass = `mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 text-control font-normal text-ink ${focusRing}`;
 
 export function AllItemsSearch({ draft, page, actions, searchRef }: {
   draft: Draft; page: PageState; actions: AllItemsActions; searchRef: RefObject<HTMLInputElement | null>;
@@ -36,7 +36,7 @@ type FilterSelectProps = { label: string; value: string; onChange: (value: strin
 function FilterSelect({ label, value, onChange, children }: FilterSelectProps) {
   return <label className={labelClass}>
     {label}
-    <select value={value} onChange={(event) => onChange(event.target.value)} className={controlClass}>{children}</select>
+    <Select value={value} onChange={(event) => onChange(event.target.value)} containerClassName="mt-1.5">{children}</Select>
   </label>;
 }
 
@@ -113,10 +113,10 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
   return <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2 max-sm:gap-x-2 lg:grid lg:grid-cols-4 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
     <label className={`${labelClass} min-w-0 grow basis-28 sm:grow-0 sm:basis-60`}>
       {t('allItems.status.label')}
-      <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
-        className={controlClass}>
+      <Select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
+        containerClassName="mt-1.5">
         {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
-      </select>
+      </Select>
     </label>
     <FiltersDisclosure expanded={expanded} activeCount={activeCount} panelId={panelId} t={t}
       onToggle={() => setExpanded((open) => !open)} />
