@@ -47,6 +47,37 @@ async function openAdd(page: Page, label: string) {
   await expect(dialog.getByRole('textbox').first()).toBeFocused();
   return dialog;
 }
+// A long form scrolls inside its dialog, but the title, the close control and the primary action stay fully on
+// screen at either end of that scroll, so the form can always be dismissed or submitted without hunting for it.
+async function expectDialogActionsOnScreen(dialog: Locator, submit: string, label: string) {
+  const primary = dialog.getByRole('button', { name: submit, exact: true });
+  await dialog.evaluate((element) => element.scrollTo({ top: 0 }));
+  for (const target of [dialog.getByRole('heading', { level: 2 }), dialog.getByRole('button', { name: en['dialog.close'], exact: true }), primary]) {
+    await expect(target, `${label} at the top`).toBeInViewport({ ratio: 1 });
+  }
+  await dialog.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  for (const target of [dialog.getByRole('heading', { level: 2 }), dialog.getByRole('button', { name: en['dialog.close'], exact: true }), primary]) {
+    await expect(target, `${label} at the end`).toBeInViewport({ ratio: 1 });
+  }
+  await dialog.evaluate((element) => element.scrollTo({ top: 0 }));
+}
+// 400% zoom of 1280x720 leaves 320x180 CSS px: two pinned bands would cover nearly all of it, so on a short viewport
+// both scroll with the form and the focus scroll padding is dropped; every field Tab reaches is then fully visible.
+async function expectShortDialogUnpinned(page: Page, dialog: Locator) {
+  await page.setViewportSize({ width: 320, height: 180 });
+  const layout = await dialog.evaluate((element) => {
+    const style = (selector: string) => getComputedStyle(element.querySelector(selector)!).position;
+    const own = getComputedStyle(element);
+    return { header: style('header'), actions: style('[data-dialog-actions]'), padding: [own.scrollPaddingTop, own.scrollPaddingBottom] };
+  });
+  expect(layout).toEqual({ header: 'static', actions: 'static', padding: ['0px', '0px'] });
+  await dialog.getByLabel(en['items.title'], { exact: true }).focus();
+  for (let step = 0; step < 4; step += 1) {
+    await page.keyboard.press('Tab');
+    await expect(page.locator(':focus'), `short dialog Tab ${step + 1}`).toBeInViewport({ ratio: 1 });
+  }
+  await page.setViewportSize({ width: 320, height: 640 });
+}
 // The Create dialog focuses its name field after showModal; wait for it so capture()'s blur cannot race it.
 async function openCreate(page: Page) {
   await page.getByRole('main').getByRole('button', { name: en['install.create.action'], exact: true }).click();
@@ -472,8 +503,10 @@ test('Add form and Repeat cadence', async ({ browser }) => {
     if (width === 390 || width === 1440) {
       await dialog.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
       await expect(dialog.getByRole('spinbutton')).toBeVisible();
+      await expectDialogActionsOnScreen(dialog, en['items.add.submit'], `add-repeat-${width}`);
       await capture(page, `add-repeat-${width}`, width, 900);
     }
+    if (width === 320) await expectShortDialogUnpinned(page, dialog);
     await dialog.getByRole('form', { name: en['items.add.formLabel'] }).getByRole('button', { name: en['items.cancel'], exact: true }).click();
   }
   await context.close();
@@ -651,6 +684,10 @@ test('Edit form and optimistic conflict', async ({ browser }) => {
   expect(concurrent.status()).toBe(200);
   await conflictForm.getByRole('button', { name: en['itemDetail.save'], exact: true }).click();
   await expect(page.getByText(en['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectDialogActionsOnScreen(page.getByRole('dialog'), en['itemDetail.save'], `edit-conflict-${width}`);
+  }
   // Evidence shows the conflict summary and the rebased form from the top of the dialog.
   await page.getByRole('dialog').evaluate((dialog) => dialog.scrollTo({ top: 0 }));
   await captureScreen(page, 'edit-conflict');

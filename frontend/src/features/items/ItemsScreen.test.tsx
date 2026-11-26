@@ -126,6 +126,8 @@ describe('item creation', () => {
     expect(screen.getByRole('form', { name: 'Add an item' })).toBe(form);
     expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
     expect(within(form).getByRole('option', { name: 'Person or thing' })).toBeInTheDocument();
+    // The editable draft already offers Cancel in its pinned action bar; the loading Cancel must not follow it.
+    expect(within(form.closest('dialog')!).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
     await act(async () => release(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
     await userEvent.selectOptions(within(form).getByLabelText('For'), 's-2');
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));

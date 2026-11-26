@@ -1,5 +1,6 @@
 import { useId, useRef, type RefObject } from 'react';
 import { Button } from '../../components/ui/button';
+import { DialogActions } from '../../components/ui/dialog';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
 import { ItemFormFields } from './ItemFormFields';
@@ -66,8 +67,8 @@ function FormActions({ busy, mode, locked, pending, onCancel, retryLabel, submit
   const { t } = useI18n();
   const idleLabel = locked ? (retryLabel ?? t('items.add.submit')) : t(mode === 'edit' ? 'itemDetail.save' : 'items.add.submit');
   const label = pending ? (submittingLabel ?? t(mode === 'edit' ? 'itemDetail.saving' : 'items.add.submitting')) : idleLabel;
-  return <div className="flex flex-wrap items-center gap-2 pt-1">
+  return <DialogActions>
     <Button type="submit" disabled={pending || busy}>{label}</Button>
     <Button type="button" variant="quiet" onClick={onCancel} disabled={pending || (mode === 'edit' && busy)}>{t('items.cancel')}</Button>
-  </div>;
+  </DialogActions>;
 }
