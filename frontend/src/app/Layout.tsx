@@ -58,12 +58,14 @@ const MAIN_HOUSEHOLD = 'pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-are
   + ' short:pb-[calc(var(--notice-clearance,0px)+1.5rem+env(safe-area-inset-bottom))]'
   + ' lg:col-start-2 lg:row-start-1 lg:pb-[calc(var(--notice-clearance,0px)+3rem)] lg:min-w-0';
 /**
- * One content measure for every household page. Lists, item detail, People, Members and the Admin center end at the
- * same 72rem from main's content edge, so on a wide screen no page stretches its rows across the whole canvas while
- * another stops at a narrower cap. Below ~1460 px the column is narrower than the measure and fills it as before.
- * Forms and reading text keep their own narrower measures inside it.
+ * One content measure for every household page. Lists, item detail, People, Members and the Admin center are the
+ * same 72rem wide, so on a wide screen no page stretches its rows across the whole canvas while another stops at a
+ * narrower cap. The measure sits in the middle of main: the spare width on a wide screen is shared by both sides
+ * instead of collecting as one empty band on the right, and every page still starts at the same left edge. Below
+ * ~1460 px the column is narrower than the measure and fills it as before. Forms and reading text keep their own
+ * narrower measures inside it.
  */
-const CONTENT_MEASURE = 'w-full max-w-6xl';
+const CONTENT_MEASURE = 'mx-auto w-full max-w-6xl';
 const FOOTER = 'flex justify-center px-4 py-3 sm:px-6 lg:px-8 xl:px-10';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
