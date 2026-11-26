@@ -137,6 +137,29 @@ describe('item creation', () => {
     expect(JSON.parse(postsSent[1]!.body)).toEqual({ title: body.title, subjectId: 's-2', recurrence: null });
   });
 
+  it('recovery 422 whose catalogue load fails keeps one Cancel and retries the catalogue for the editable draft', async () => {
+    const key = 'c'.repeat(32);
+    const body = { title: 'Recover after failure', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    let subjectCalls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [memberList]: memberPage(),
+      [subjectList]: () => ++subjectCalls === 1 ? json(503) : json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null }),
+      [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'subjectId', code: 'invalid_reference' }) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    const failure = await screen.findByText('People and things could not be loaded. Try again.');
+    const dialog = form.closest('dialog')!;
+    expect(dialog).toContainElement(failure);
+    expect(within(dialog).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Try again' }));
+    expect(await within(form).findByRole('option', { name: 'Garage' })).toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2);
+    expect(within(dialog).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+  });
+
   it('pending-create recovery renders immediately and retries unchanged despite failed subject fetches', async () => {
     const key = 'a'.repeat(32);
     const body = { title: 'Frozen recovery', subjectId: 'missing', recurrence: null };

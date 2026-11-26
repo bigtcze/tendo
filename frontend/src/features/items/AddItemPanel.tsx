@@ -12,6 +12,8 @@ type CatalogueStatusProps = {
   subjectLoading: boolean;
   subjectState: SubjectState;
   editingRecovery: boolean;
+  /** An editable recovery draft is open with its own Cancel in the action bar. */
+  draftShown: boolean;
   retryRef: RefObject<HTMLButtonElement | null>;
   onRetry: () => void;
   onCancel: () => void;
@@ -19,7 +21,7 @@ type CatalogueStatusProps = {
 
 /** Catalogue loading and error states shown above the home overview while the add form opens. */
 export function AddItemCatalogueStatus(props: CatalogueStatusProps) {
-  const { adding, subjectLoading, subjectState, editingRecovery, retryRef, onRetry, onCancel } = props;
+  const { adding, subjectLoading, subjectState, editingRecovery, draftShown, retryRef, onRetry, onCancel } = props;
   const { t } = useI18n();
   return <>
     {adding && subjectLoading && !editingRecovery
@@ -31,7 +33,7 @@ export function AddItemCatalogueStatus(props: CatalogueStatusProps) {
         <Button ref={retryRef} type="button" variant="secondary" disabled={subjectLoading} onClick={onRetry}>
           {t('app.error.retry')}
         </Button>
-        <Button type="button" variant="quiet" onClick={onCancel}>{t('items.cancel')}</Button>
+        {draftShown ? null : <Button type="button" variant="quiet" onClick={onCancel}>{t('items.cancel')}</Button>}
       </div>
     </div> : null}
   </>;
