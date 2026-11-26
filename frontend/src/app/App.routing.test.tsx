@@ -8,6 +8,7 @@ import { getLoginNotice, type Props as SignedOutProps } from './SignedOutApp';
 import { I18nProvider } from '../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session } from '../test/fakeServer';
 import { itemRoutes } from '../test/fakeItems';
+import { findSignOut, openAccountMenu } from '../test/accountMenu';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 function renderApp() { return render(<I18nProvider><App /></I18nProvider>); }
@@ -111,7 +112,7 @@ describe('App route characterization', () => {
     seedPendingStores();
     installFakeServer(signedInRoutes({ 'DELETE /api/v1/session': json(204) }));
     renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByLabelText('Password')).toBeVisible();
     assertPendingStoresCleared();
   });
@@ -145,8 +146,8 @@ describe('App route characterization', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Go to your household' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('navigation', { name: 'Household navigation' })).toBeInTheDocument();
-    expect(screen.getByText('Signed in as anna')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
+    expect(within(await openAccountMenu()).getByText('Signed in as anna')).toBeVisible();
+    expect(await findSignOut()).toBeEnabled();
     expect(window.location.pathname).toBe('/unknown');
   });
 

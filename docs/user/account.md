@@ -1,6 +1,6 @@
 # Your account and sign-in
 
-Choose **Account** in the household navigation to open **Your account** and see which login you are signed in with. On phones and tablets, household destinations are in a bar at the bottom of the screen; on computers they are in a sidebar on the left. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
+Choose **Account** in the household navigation to open **Your account** and see which login you are signed in with. On phones and tablets, household destinations are in a bar at the bottom of the screen; on computers they are in a sidebar on the left. To sign out, select your initial at the right of the top bar (on computers it also shows your login) and choose **Sign out**; the same menu says which account you are signed in as and opens **Account settings**. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
 
 ## Changing your password
 

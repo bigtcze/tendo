@@ -729,7 +729,7 @@ describe('installation household detail', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(screen.getByText('petr')).toBeVisible());
     await userEvent.click(screen.getByRole('button', { name: 'First page' }));
-    await waitFor(() => expect(screen.getByText('anna')).toBeVisible());
+    await waitFor(() => expect(within(screen.getByRole('main')).getByText('anna')).toBeVisible());
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Accounts' })).toHaveFocus());
   });
 });

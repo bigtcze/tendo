@@ -175,6 +175,16 @@ const homeHeadings = new RegExp(`^(?:${[en, cs].map((messages) => escapeRegExp(m
 const householdSelector = (name: string) => new RegExp(`^(?:${[en, cs]
   .map((messages) => escapeRegExp(messages['household.menu.label'].replace('{name}', name))).join('|')})$`);
 
+/** The top bar's one account control; Sign out lives in the menu it opens. */
+const accountMenuName = new RegExp(`^(?:${[en, cs].map((messages) => escapeRegExp(messages['header.menu'].replace('{login}', ''))).join('|')})`);
+const accountSignOutName = new RegExp(`^(?:${[en, cs].map((messages) => escapeRegExp(messages['header.signOut'])).join('|')})$`);
+const accountMenu = (page: Page) => page.getByRole('banner').getByRole('button', { name: accountMenuName });
+
+async function signOutFromMenu(page: Page) {
+  await accountMenu(page).click();
+  await page.getByRole('banner').getByRole('button', { name: accountSignOutName }).click();
+}
+
 async function waitForSettledHome(page: Page, name: string) {
   await expect(page.getByRole('heading', { level: 1, name: homeHeadings })).toBeVisible();
   // The household name moved from the old headline into the top-bar selector; requiring it here keeps the same
@@ -361,7 +371,7 @@ test.describe('Tendo production journey', () => {
       await page.setViewportSize(viewport);
       await page.goto('/');
       await expect(page.getByRole('heading', { level: 1, name: homeHeadings })).toBeVisible();
-      await expect(page.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+      await expect(accountMenu(page)).toBeVisible();
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,
       );
@@ -1552,7 +1562,7 @@ test.describe('Tendo production journey', () => {
       await expect(memberPage.getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
       await expect(memberPage.getByText(en['members.help.body'])).toBeVisible();
 
-      await memberPage.getByRole('button', { name: en['header.signOut'] }).click();
+      await signOutFromMenu(memberPage);
       await expect(memberPage.getByRole('heading', { name: en['login.title'] })).toBeVisible();
       await memberPage.goto(secondLink);
       await memberPage.locator('#invite-login').fill('member_e2e_two');
@@ -2827,7 +2837,7 @@ test.describe('Tendo production journey', () => {
       page.off('request', recordOidcRequest);
     }
 
-    await page.getByRole('button', { name: en['header.signOut'] }).click();
+    await signOutFromMenu(page);
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     const oidcButton = page.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider) });
 
@@ -2867,7 +2877,7 @@ test.describe('Tendo production journey', () => {
     };
     page.on('framenavigated', recordMainFrameNavigation);
     try {
-      await page.getByRole('button', { name: en['header.signOut'] }).click();
+      await signOutFromMenu(page);
       await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
       await oidcButton.click();
       await expect(page.getByRole('heading', { level: 1, name: homeHeadings })).toBeVisible();
@@ -2930,7 +2940,7 @@ test.describe('Tendo production journey', () => {
       const visitorBody = await visitorSession.json() as { defaultHouseholdId?: string; login: string };
       expect(visitorBody.defaultHouseholdId).toBeUndefined();
       expect(visitorBody.login).toMatch(/^member-/);
-      await visitor.getByRole('button', { name: en['header.signOut'] }).click();
+      await signOutFromMenu(visitor);
       await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
 
       // A verified address that belongs to an account with a different subject is refused at the callback:
@@ -3027,7 +3037,7 @@ test.describe('Tendo production journey', () => {
 
       // The change itself needs the local session, so this browser replaces n9's provider session with the password
       // it is about to replace.
-      await page.getByRole('button', { name: en['header.signOut'] }).click();
+      await signOutFromMenu(page);
       await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
       await signIn(page, ownerPassword);
       await waitForSettledHome(page, householdName);
@@ -3310,6 +3320,16 @@ test.describe('Tendo production journey', () => {
         expect(panelBox.x + panelBox.width, `household panel right edge at ${width}px`).toBeLessThanOrEqual(width + 0.5);
         await page.keyboard.press('Escape');
         await expect(panel).toBeHidden();
+        // The account menu shares the phone clamp: its panel hangs from the header's own insets, never off-screen.
+        await accountMenu(page).click();
+        const accountPanel = page.getByRole('banner').getByRole('group', { name: accountMenuName });
+        await expect(accountPanel.getByRole('button', { name: accountSignOutName })).toBeVisible();
+        const accountBox = (await accountPanel.boundingBox())!;
+        console.info(`journey-account-panel width=${width} left=${accountBox.x} right=${accountBox.x + accountBox.width}`);
+        expect(accountBox.x, `account panel left edge at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(accountBox.x + accountBox.width, `account panel right edge at ${width}px`).toBeLessThanOrEqual(width + 0.5);
+        await page.keyboard.press('Escape');
+        await expect(accountPanel).toBeHidden();
       }
       const more = upcoming.locator('[data-group-more="upcoming"]');
       await more.focus();
@@ -5041,7 +5061,7 @@ test.describe('Tendo production journey', () => {
 
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await waitForSettledHome(page, householdName);
-    await page.getByRole('button', { name: en['header.signOut'] }).click();
+    await signOutFromMenu(page);
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     // Replay the old cookie from a clean client: only server-side revocation can make this fail.
     const fresh = await request.newContext({ baseURL });
@@ -6574,7 +6594,7 @@ test.describe('Tendo production journey', () => {
       await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
       const loginResponse = await loginResponsePromise;
       expect(loginResponse.status()).toBe(201);
-      await expect(actor.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+      await expect(accountMenu(actor)).toBeVisible();
     };
     const member = await makeActor();
     try {
@@ -6634,7 +6654,7 @@ test.describe('Tendo production journey', () => {
     try {
       await signIntoExisting(joining.actor, 'existing_conflict_e2e');
       await waitForSettledHome(joining.actor, 'Conflict household');
-      await expect(joining.actor.getByRole('banner')).toContainText('existing_conflict_e2e');
+      await expect(joining.actor.getByRole('banner').getByRole('button', { name: en['header.menu'].replace('{login}', 'existing_conflict_e2e'), exact: true })).toBeVisible();
       const beforeJoinSession = await joining.actor.request.get('/api/v1/session');
       expect(beforeJoinSession.status()).toBe(200);
       expect((await beforeJoinSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
@@ -6853,7 +6873,7 @@ test.describe('Tendo production journey', () => {
       await actor.getByLabel(en['login.login'], { exact: true }).fill(ownerLogin);
       await actor.getByLabel(en['login.password']).fill(ownerPassword);
       await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
-      await expect(actor.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+      await expect(accountMenu(actor)).toBeVisible();
       await actor.goto(`/items/${created.id}`);
       await expect(actor.getByRole('heading', { level: 1, name: title })).toBeVisible();
       return { context, actor };
@@ -7241,7 +7261,7 @@ test.describe('Tendo production journey', () => {
         && new URL(response.url()).pathname === '/api/v1/session');
       await loginPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
       expect((await signedIn).status(), 'a live account still signs in').toBe(201);
-      await expect(loginPage.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+      await expect(accountMenu(loginPage)).toBeVisible();
     } finally {
       await context.close();
     }
@@ -7523,7 +7543,7 @@ test.describe('Tendo production journey', () => {
       expect((await member.page.request.get('/api/v1/session')).status(), 'deletion ends the live session').toBe(401);
       await member.page.reload();
       await expect(member.page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
-      await expect(member.page.getByRole('button', { name: en['header.signOut'] })).toHaveCount(0);
+      await expect(accountMenu(member.page)).toHaveCount(0);
       member.assertClean(['GET /api/v1/admin/accounts 403']);
     } catch (error) { primaryFailure = error; }
     // A cleanup failure never hides the step's own failure.

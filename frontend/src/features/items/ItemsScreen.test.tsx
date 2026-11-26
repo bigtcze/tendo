@@ -12,6 +12,7 @@ import type { Item, Subject } from './itemsApi';
 import { clearPendingItemCreates } from './pendingItemCreate';
 import { itemRoutes } from '../../test/fakeItems';
 import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
+import { findSignOut } from '../../test/accountMenu';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const subjectList = `GET ${base}/subjects`;
@@ -1466,7 +1467,7 @@ describe('Home items', () => {
     sessionStorage.setItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`, key);
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, 'DELETE /api/v1/session': json(204), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
     expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
     expect(requestsOf(fake.requests, 'DELETE', '/api/v1/session')).toHaveLength(1);
@@ -1863,7 +1864,7 @@ describe('Home items', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
     await screen.findByRole('button', { name: 'Check again' });
     expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).not.toBeNull();
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     await screen.findByRole('heading', { name: 'Welcome back' });
     expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
     expect(requestsOf(fake.requests, 'DELETE', '/api/v1/session')).toHaveLength(1);

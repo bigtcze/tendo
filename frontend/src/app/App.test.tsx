@@ -5,6 +5,7 @@ import { I18nProvider } from '../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, memberHousehold, session } from '../test/fakeServer';
 import { itemRoutes } from '../test/fakeItems';
 import { App } from './App';
+import { findSignOut, openAccountMenu } from '../test/accountMenu';
 
 function renderApp() {
   return render(
@@ -151,7 +152,7 @@ describe('signed in', () => {
     expect(fake.requests.some((r) => r.path === `/api/v1/households/${HOUSEHOLD_ID}`)).toBe(true);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toHaveFocus();
-    expect(screen.getByText('Signed in as anna')).toBeVisible();
+    expect(within(await openAccountMenu()).getByText('Signed in as anna')).toBeVisible();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(screen.queryByText(/switch/i)).not.toBeInTheDocument();
@@ -255,12 +256,48 @@ describe('signed in', () => {
     expect(householdButton.className).toContain('min-h-11');
     expect(within(banner).queryByRole('combobox')).not.toBeInTheDocument();
     expect(within(banner).queryByRole('searchbox')).not.toBeInTheDocument();
-    expect(document.querySelector('[data-avatar]')).toHaveTextContent('A');
+    // The initial is a drawn glyph, so the trigger's visible text (the login, from lg) stays inside its accessible name.
+    expect(document.querySelector('[data-avatar]')).toHaveAttribute('data-initial', 'A');
+    expect(document.querySelector('[data-avatar]')).toBeEmptyDOMElement();
     expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
-    const account = screen.getByRole('link', { name: 'Account settings' });
+    await userEvent.click(within(banner).getByRole('button', { name: 'Account: anna' }));
+    const account = within(banner).getByRole('link', { name: 'Account settings' });
     expect(account).toHaveAttribute('href', '/account');
     await userEvent.click(account);
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
+  });
+
+  it('the top bar holds one account menu: no identity sentence and no icon-only sign out until it is opened', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    const banner = screen.getByRole('banner');
+    // Closed, the bar is brand, household and account access: the identity sentence and the sign out wait in the
+    // hidden menu, so neither is visible nor in the accessibility tree.
+    expect(within(banner).queryByText('Signed in as anna')).not.toBeVisible();
+    expect(within(banner).queryByRole('button', { name: 'Sign out' })).toBeNull();
+    const trigger = within(banner).getByRole('button', { name: 'Account: anna' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger.className).toContain('min-h-11');
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const panel = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+    expect(panel).toBeVisible();
+    expect(within(panel).getByText('Signed in as anna')).toBeVisible();
+    // Sign out is named by its own visible words at every width, never by an icon with a hidden label.
+    const signOut = within(panel).getByRole('button', { name: 'Sign out' });
+    expect(signOut).not.toHaveAttribute('aria-label');
+    expect(signOut).toHaveTextContent(/^Sign out$/);
+    expect(signOut.querySelector('svg')).toBeNull();
+    // Escape closes the menu and hands focus back to the trigger.
+    await userEvent.keyboard('{Escape}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(panel).not.toBeVisible();
+    expect(trigger).toHaveFocus();
   });
 
   it('keeps the floating notice’s scroll clearance reserved on short viewports', async () => {
@@ -485,7 +522,7 @@ describe('signed in', () => {
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
       'Join your household by invitation',
     );
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    expect(await findSignOut()).toBeVisible();
     const navigation = screen.getByRole('navigation', { name: 'Household navigation' });
     expect(within(navigation).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/', '/account']);
     expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
@@ -558,7 +595,7 @@ describe('signed in', () => {
       'GET /api/v1/auth/oidc': json(200, { enabled: false }),
     });
     renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
     expect(fake.requests.some((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toBe(true);
@@ -574,9 +611,43 @@ describe('signed in', () => {
       'DELETE /api/v1/session': problem(503),
     });
     renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign you out. Try again.');
     expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  });
+
+  it('sign out in flight stays focusable, sends once, and a failure after the menu closed reopens it', async () => {
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+      [householdPath]: json(200, household),
+      'DELETE /api/v1/session': () => held,
+    });
+    renderApp();
+    const signOut = await findSignOut();
+    await userEvent.click(signOut);
+    const inFlight = within(document.getElementById(screen.getByRole('button', { name: 'Account: anna' }).getAttribute('aria-controls')!)!)
+      .getByRole('button', { name: 'Signing out…' });
+    expect(inFlight).toHaveAttribute('aria-disabled', 'true');
+    expect(inFlight).toHaveFocus();
+    await userEvent.click(inFlight);
+    expect(fake.requests.filter((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toHaveLength(1);
+    // The reader leaves the menu while the request is out; the failure must still be seen, not land in a hidden panel.
+    const trigger = screen.getByRole('button', { name: 'Account: anna' });
+    await userEvent.keyboard('{Escape}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    release(problem(503));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign you out. Try again.');
+    expect(screen.getByRole('alert')).toBeVisible();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveFocus();
+    // A fresh opening starts clean: the old failure does not greet the next visit to the menu.
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(trigger);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('401 on household fetch explains the ended session, then deliberate sign out has no notice', async () => {
@@ -599,7 +670,7 @@ describe('signed in', () => {
     await userEvent.type(screen.getByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
@@ -624,7 +695,7 @@ describe('signed in', () => {
     const row = within(itemTitle.closest('li')!);
     await userEvent.click(row.getByRole('button', { name: 'Done: Delayed item' }));
     await waitFor(() => expect(fake.requests.some((r) => r.method === 'POST' && r.path === `${base}/items/${item.id}/completions`)).toBe(true));
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await userEvent.click(await findSignOut());
     expect(await screen.findByLabelText('Password')).toBeVisible();
     release(problem(401));
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus());
@@ -690,6 +761,6 @@ describe('localization', () => {
     });
     renderApp();
     expect(await screen.findByText('Teď nic nevyžaduje pozornost.')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Odhlásit se' })).toBeVisible();
+    expect(await findSignOut('Odhlásit se')).toBeVisible();
   });
 });
