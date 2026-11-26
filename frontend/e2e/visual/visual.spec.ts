@@ -1104,6 +1104,83 @@ test('Account', async ({ browser }) => {
   await darkScreen(browser, statePath, '/account', 'account');
 });
 
+/**
+ * The content's right edge inside main: the furthest right anything the page actually draws reaches, as an offset from
+ * main's content box. Drawn means visible text, a control, an image or icon, or a box that paints a border, background
+ * or shadow. Plain layout boxes (the shell's measure wrapper, a page's root section) are not drawn, so they cannot
+ * make a page that ends at its own narrower width look as wide as the measure. Dialogs and fixed layers (the floating
+ * notice) belong to the viewport, not the page.
+ */
+async function contentReach(page: Page) {
+  return page.getByRole('main').evaluate((main) => {
+    const style = getComputedStyle(main);
+    const box = main.getBoundingClientRect();
+    const left = box.left + parseFloat(style.paddingLeft);
+    const available = box.right - parseFloat(style.paddingRight) - left;
+    const outsidePage = (element: Element) => {
+      for (let node: Element | null = element; node && node !== main; node = node.parentElement) {
+        const computed = getComputedStyle(node);
+        if (node.tagName === 'DIALOG' || computed.position === 'fixed' || computed.visibility === 'hidden' || computed.display === 'none') return true;
+      }
+      return false;
+    };
+    const painted = (color: string) => color !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(color);
+    const drawn = (element: Element) => {
+      if (element.matches('button, input, select, textarea, img, svg, hr, progress')) return true;
+      const computed = getComputedStyle(element);
+      if (painted(computed.backgroundColor) || computed.boxShadow !== 'none') return true;
+      return (['Top', 'Right', 'Bottom', 'Left'] as const).some((side) => parseFloat(computed[`border${side}Width`]) > 0
+        && computed[`border${side}Style`] !== 'none' && painted(computed[`border${side}Color`]));
+    };
+    let right = left;
+    const reach = (rect: DOMRect) => { if (rect.width > 1 && rect.height > 1) right = Math.max(right, rect.right); };
+    for (const element of main.querySelectorAll('*')) {
+      if (!outsidePage(element) && drawn(element)) reach(element.getBoundingClientRect());
+    }
+    const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      if (!text.textContent?.trim() || !text.parentElement || outsidePage(text.parentElement)) continue;
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      for (const rect of range.getClientRects()) reach(rect);
+    }
+    return { reach: Math.round(right - left), available: Math.round(available) };
+  });
+}
+
+test('Household pages share one content measure at 1920', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { context, page } = await authenticated(browser);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const item = requiredFixture().items[1];
+  const pages: Array<[string, string, () => Promise<void>]> = [
+    ['Home', '/', async () => { await expect(page.locator('main li[data-item-id]').first()).toBeVisible(); }],
+    ['All items', '/items', async () => { await expect(page.locator('main li[data-item-id]').first()).toBeVisible(); await waitForAllItemsSummary(page); }],
+    ['item detail', `/items/${item.id}`, async () => { await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible(); }],
+    ['People and things', '/people', async () => { await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible(); }],
+    ['Members', '/members', async () => { await expect(page.getByRole('main').getByRole('list', { name: en['members.list.title'] })).toBeVisible(); }],
+    ['Admin center', '/admin', async () => { await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible(); }],
+  ];
+  const reaches: Record<string, number> = {};
+  for (const [name, path, settled] of pages) {
+    await page.goto(path);
+    await settled();
+    const { reach, available } = await contentReach(page);
+    reaches[name] = reach;
+    // The canvas is wider than the measure, so a page that fills its measure stops visibly short of main's edge.
+    expect(available, `main content width at 1920 (${name})`).toBeGreaterThan(1152 + 100);
+  }
+  console.info(`visual-content-measure-1920 ${JSON.stringify(reaches)}`);
+  // Every page draws out to exactly that one 72rem measure: none stretches across the canvas, none ends at its own cap.
+  expect(reaches).toEqual(Object.fromEntries(pages.map(([name]) => [name, 1152])));
+  for (const [base, path] of [['wide-home', '/'], ['wide-people', '/people']] as const) {
+    await page.goto(path);
+    await pages.find(([, candidate]) => candidate === path)![2]();
+    await capture(page, `${base}-1920`, 1920, 1080, false);
+  }
+  await context.close();
+});
+
 test('Not found signed in and signed out', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await page.goto('/no-such-page');

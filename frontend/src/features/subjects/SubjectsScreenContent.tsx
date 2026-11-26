@@ -35,7 +35,7 @@ export function SubjectsScreenContent({
   // the title wraps its own words at 320 px instead of pushing Add onto a second line. It comes first in the DOM, so
   // the Add control is also the first thing a keyboard user reaches.
   return <section className="settle flex min-w-0 flex-col">
-    <div className="min-w-0 max-w-5xl">
+    <div className="min-w-0">
       <div className="flex min-w-0 items-center justify-between gap-x-4">
         <Heading className="min-w-0 text-h1 font-semibold text-ink">{t('subjects.title')}</Heading>
         {canAdd ? <div className="shrink-0">
@@ -45,10 +45,10 @@ export function SubjectsScreenContent({
         </div> : null}
       </div>
     </div>
-    <div className="min-w-0 max-w-5xl">
+    <div className="min-w-0">
       <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
     </div>
-    <div className="mt-6 min-w-0 max-w-5xl">
+    <div className="mt-6 min-w-0">
       {showArchived && list.kind !== 'noHousehold' ? <h2 className="text-h2 font-bold leading-snug text-ink">
         {t('subjects.archived.title')}
       </h2> : null}
