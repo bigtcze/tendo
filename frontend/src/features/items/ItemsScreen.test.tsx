@@ -976,7 +976,7 @@ describe('Home items', () => {
     const text = progress.textContent!.replaceAll('\u00a0', ' ');
     expect(text.indexOf('Attention date Jan 2')).toBeLessThan(text.indexOf('Looked after by petr'));
     expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Last done Dec 2, 2025'));
-    // The row stays compact: a Done box (check plus its from-lg word), the link, one line of facts and the
+    // The row stays compact: a Done box (check plus its word), the link, one line of facts and the
     // tile-free subject, never copies.
     expect(needs.querySelectorAll('*').length).toBeLessThanOrEqual(24);
   });
@@ -1261,12 +1261,13 @@ describe('Home items', () => {
     app();
     const title = await screen.findByText('Renew passport');
     const done = within(title.closest('li')!).getByRole('button', { name: /Done:/ });
-    // The control is visually a check box, so the title is the only place its purpose is stated.
+    // The visible word is the same "Done" in every row, so the accessible name adds the title to tell rows apart.
     expect(done).toHaveAttribute('aria-label', 'Done: Renew passport');
+    expect(done).toHaveTextContent('Done');
     // The row action is identified by its own attribute, not by borrowing the shared Button's variant styling.
     expect(done).toHaveAttribute('data-action', 'done');
     expect(done).not.toHaveAttribute('data-variant');
-    expect(done).toHaveClass('size-11');
+    expect(done).toHaveClass('w-14', 'min-h-11');
   });
 
   it('reuses the unresolved key when the server committed but the response was lost', async () => {
@@ -2562,7 +2563,8 @@ describe('Home items', () => {
     const row = title.closest('li')!;
     const done = within(row).getByRole('button', { name: 'Done: Renew passport' });
     // The controls are their own 44 px boxes; neither relies on an invisible padded hit area.
-    expect(done.className).toContain('size-11');
+    // At least 44 px each way: a 56 px column at least 44 px tall below lg, a 44 px tall pill from lg.
+    expect(done).toHaveClass('w-14', 'min-h-11');
     expect(done.className).not.toContain('before:');
     // The row itself is the target: the title has no minimum height of its own, and the link's stretched
     // pseudo-element covers the whole row instead.

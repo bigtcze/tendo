@@ -179,6 +179,42 @@ async function assertReferenceFactsAt390(page: Page, locale: 'en' | 'cs') {
   await expect(car.getByText(referenceDate('2026-05-28', locale)).first()).toBeVisible();
   await expect(car.getByText(/anna_novak/).first()).toBeVisible();
 }
+// UX "Accessibility": no icon-only critical action. Every Home row's Done names itself in words at every width, inside
+// a target of at least 44 px each way, and the word is not clipped by the control.
+async function assertDoneInWords(page: Page, locale: 'en' | 'cs', width: number) {
+  const word = (locale === 'cs' ? cs : en)['items.done'];
+  const controls = await page.locator('main li[data-item-id] [data-action="done"]').evaluateAll((buttons) => buttons.map((button) => {
+    const box = button.getBoundingClientRect();
+    // innerText is the rendered text, so a word hidden with display:none is not in it. Every element that holds the
+    // word's text must itself be text-sized, unclipped, visible and inside the control: an sr-only word keeps
+    // text-sized line boxes but its own element is a 1 px clip, and an opacity:0 word fails checkVisibility. Rows
+    // below the fold are measured too, so this reads layout and style, not hit-testing.
+    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+    const holders: HTMLElement[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent?.trim() && node.parentElement) holders.push(node.parentElement);
+    }
+    const within = (rect: DOMRect) => rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5
+      && rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5;
+    return {
+      word: (button as HTMLElement).innerText.trim(), width: box.width, height: box.height,
+      textSized: holders.length > 0 && holders.every((holder) => {
+        const rect = holder.getBoundingClientRect();
+        return rect.width >= 12 && rect.height >= 10 && getComputedStyle(holder).clipPath === 'none'
+          && getComputedStyle(holder).clip === 'auto';
+      }),
+      inside: holders.length > 0 && holders.every((holder) => within(holder.getBoundingClientRect())),
+      visible: holders.length > 0 && holders.every((holder) => holder.checkVisibility({ opacityProperty: true, visibilityProperty: true })),
+    };
+  }));
+  expect(controls.length, `Home Done controls at ${width}`).toBeGreaterThan(0);
+  for (const control of controls) {
+    expect(control, `Done in words at ${locale} ${width}`).toMatchObject({ word, textSized: true, inside: true, visible: true });
+    expect(control.width, `Done target width at ${locale} ${width}`).toBeGreaterThanOrEqual(44);
+    expect(control.height, `Done target height at ${locale} ${width}`).toBeGreaterThanOrEqual(44);
+  }
+}
+
 // The title target must be 44 px, win hit-testing at both edges, and start inside its group panel.
 async function assertTitleTargetGeometry(page: Page, width: number) {
   const row = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
@@ -316,6 +352,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
     await assertSettledReference(page, 'en');
     await assertNeedsSinceWording(page, 'en', width);
     if (width === 390) await assertReferenceFactsAt390(page, 'en');
+    await assertDoneInWords(page, 'en', width);
     if ([320, 390, 1024, 1440].includes(width)) await assertTitleTargetGeometry(page, width);
     if (width === 1440 || width === 1024) {
       await assertInterReady(page, `reference-row-height-${width}`);
@@ -348,6 +385,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
     await assertSettledReference(page, 'cs');
     await assertNeedsSinceWording(page, 'cs', width);
     if (width === 390) await assertReferenceFactsAt390(page, 'cs');
+    await assertDoneInWords(page, 'cs', width);
     await capture(page, `home-reference-cs-light-${width}`, width, height, true);
   }
 
