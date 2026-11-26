@@ -15,6 +15,26 @@ const problem = (status: number, code?: string, extra: Record<string, unknown> =
 const signedOut = { 'GET /api/v1/session': problem(401), 'GET /api/v1/auth/setup': json(200, { required: false }) };
 const signedIn = { 'GET /api/v1/session': json(200, session()), [`GET /api/v1/households/${HOUSEHOLD_ID}`]: json(200, household), ...emptyHome };
 const enabled = { 'GET /api/v1/auth/oidc': json(200, { enabled: true, displayName: 'Pocket ID' }) };
+
+/** Holds the household read until released, so Account's household section mounts only after the fragment is scrubbed. */
+function heldHouseholdRead() {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const route = { [`GET /api/v1/households/${HOUSEHOLD_ID}`]: async () => { await held; return json(200, household); } };
+  return { route, release };
+}
+
+const accountSection = (id: string) => screen.getByRole('main').querySelector<HTMLElement>(`section[aria-labelledby="${id}"]`);
+
+/** One Account section's own live region, waited for: the household section renders only once its read settles. */
+async function accountSectionStatus(id: string): Promise<HTMLElement> {
+  const section = await waitFor(() => {
+    const found = accountSection(id);
+    if (!found) throw new Error(`missing Account section ${id}`);
+    return found;
+  });
+  return within(section).getByRole('status');
+}
 const authorizationUrl = 'https://id.example/authorize?client_id=tendo&state=opaque';
 
 function renderApp() {
@@ -368,34 +388,37 @@ describe('account screen', () => {
 
   it('/account#oidc=connected scrubs the fragment and shows the normal account screen without a notice', async () => {
     window.history.replaceState(null, '', '/account#oidc=connected');
-    const fake = installFakeServer({ ...signedIn, ...enabled });
+    const householdRead = heldHouseholdRead();
+    const fake = installFakeServer({ ...signedIn, ...enabled, ...householdRead.route });
     renderApp();
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
     await waitFor(() => expect(window.location.hash).toBe(''));
     expect(window.location.pathname).toBe('/account');
+    // The household section comes from its own read, so it mounts only after the scrub.
+    expect(accountSection('account-household-heading')).toBeNull();
+    await act(async () => { householdRead.release(); });
     // Both outcome hosts on Account — the password form's and the household section's — stay mounted and empty,
     // so "no notice" means each section's own live region is empty.
-    const main = screen.getByRole('main');
-    const passwordSection = main.querySelector('section[aria-labelledby="account-password-heading"]') as HTMLElement;
-    const householdSection = main.querySelector('section[aria-labelledby="account-household-heading"]') as HTMLElement;
-    expect(within(passwordSection).getByRole('status')).toBeEmptyDOMElement();
-    expect(within(householdSection).getByRole('status')).toBeEmptyDOMElement();
+    for (const id of ['account-password-heading', 'account-household-heading']) {
+      expect(await accountSectionStatus(id)).toBeEmptyDOMElement();
+    }
     expect(screen.queryByText(/Connected\./)).not.toBeInTheDocument();
     expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc/identity')).toBe(false);
   });
 
   it('a signed-in /account error fragment is scrubbed without a callback notice', async () => {
     window.history.replaceState(null, '', '/account#oidcError=identity_conflict');
-    installFakeServer({ ...signedIn, ...enabled });
+    const householdRead = heldHouseholdRead();
+    installFakeServer({ ...signedIn, ...enabled, ...householdRead.route });
     renderApp();
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
     await waitFor(() => expect(window.location.hash).toBe(''));
-    expect(screen.queryByText(en['oidc.error.identity_conflict'], { exact: true })).not.toBeInTheDocument();
-    const main = screen.getByRole('main');
+    expect(accountSection('account-household-heading')).toBeNull();
+    await act(async () => { householdRead.release(); });
     for (const id of ['account-password-heading', 'account-household-heading']) {
-      const section = main.querySelector(`section[aria-labelledby="${id}"]`) as HTMLElement;
-      expect(within(section).getByRole('status')).toBeEmptyDOMElement();
+      expect(await accountSectionStatus(id)).toBeEmptyDOMElement();
     }
+    expect(screen.queryByText(en['oidc.error.identity_conflict'], { exact: true })).not.toBeInTheDocument();
   });
 
   it('renders Czech', async () => {
