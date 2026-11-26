@@ -259,10 +259,23 @@ API_REQUIRE_OPERATION_COVERAGE=1 \
 getOidcStatus,getOidcIdentity,getOidcPending,cancelOidcPending,\
 createOidcPendingAccount,confirmOidcPendingLink,discardOidcAccount \
   node "$root/api/check-health.mjs" "$fixtures"
+# Secrets are random base64url values and may start with "-"; without "--" grep would read one as options (a
+# "-V..." value exits 0 as a false leak, an invalid one exits 2 and hides a real leak).
+log_contains() { grep -qF -- "$1" "$2"; }
+# Self-check the leak search on dash-leading values before trusting it with the real secrets.
+log_canary=$(mktemp)
+printf 'request -Vcanary-leak -Xcanary-leak done\n' >"$log_canary"
+for canary in -Vcanary-leak -Xcanary-leak; do
+  log_contains "$canary" "$log_canary" || { rm -f "$log_canary"; echo "log leak check missed dash-leading value $canary" >&2; exit 1; }
+done
+for absent in -Vcanary-absent -Xcanary-absent; do
+  if log_contains "$absent" "$log_canary"; then rm -f "$log_canary"; echo "log leak check reported absent dash-leading value $absent" >&2; exit 1; fi
+done
+rm -f "$log_canary"
 "${compose[@]}" logs --no-color app >"$logs"
 while IFS= read -r secret; do
   [[ -z "$secret" ]] && continue
-  if grep -F "$secret" "$logs" >/dev/null; then echo 'OIDC code, state, or cookie value appeared in app logs' >&2; exit 1; fi
+  if log_contains "$secret" "$logs"; then echo 'OIDC code, state, or cookie value appeared in app logs' >&2; exit 1; fi
 done <"$secrets"
 if grep -E 'code=' "$logs" >/dev/null; then echo 'OIDC callback query marker found in app logs' >&2; exit 1; fi
 printf 'OIDC API, PostgreSQL, provider, replay, denial, and log-privacy smoke passed.\n'
