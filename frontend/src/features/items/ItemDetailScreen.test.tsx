@@ -69,6 +69,16 @@ describe('item details', () => {
     expect(document.querySelector('[data-item-fact="responsible"]')).toBeNull();
   });
 
+  it('names the viewer as "You" on their own item, not by their login', async () => {
+    const viewer = { userId: session().userId, login: 'anna_viewer', role: 'admin' as const };
+    const mine = item({ responsibleUserId: viewer.userId });
+    installFakeServer(common({ [`GET ${path}`]: json(200, mine, { ETag: '"1"' }), [`GET ${base}/members`]: json(200, { items: [viewer, secondMember], nextCursor: null }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    await waitFor(() => expect(document.querySelector('[data-item-fact="responsible"] dd')).toHaveTextContent(/^You$/));
+    expect(document.querySelector('[data-item-facts]')).not.toHaveTextContent('anna_viewer');
+  });
+
   it('loads history while the member list is still pending', async () => {
     let release!: (response: Response) => void;
     const pendingMembers = new Promise<Response>((resolve) => { release = resolve; });

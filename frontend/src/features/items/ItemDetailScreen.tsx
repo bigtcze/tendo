@@ -37,7 +37,7 @@ export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, o
     {/* The gone screen keeps a way out: the All items link when it came from there, the overview otherwise. */}
     <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} onOverview={allItemsReturnTo() ? null : onBack} />
     {state === 'ready' && item ? <ItemDetailReady
-      item={item} subjectOverride={subjectOverride} subjectName={subjectName} detail={detail} busy={busy} edit={edit} history={history} locale={locale} t={t}
+      item={item} userId={userId} subjectOverride={subjectOverride} subjectName={subjectName} detail={detail} busy={busy} edit={edit} history={history} locale={locale} t={t}
       onReload={screen.actions.reload}
       refs={{
         notice: screen.noticeRef,

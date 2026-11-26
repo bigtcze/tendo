@@ -678,6 +678,7 @@ export const cs: Record<MessageKey, string> = {
   'itemDetail.fact.lastDone': 'Naposledy hotovo',
   'itemDetail.fact.repeat': 'Opakování',
   'itemDetail.fact.responsible': 'Stará se',
+  'itemDetail.fact.responsibleYou': 'Vy',
   'itemDetail.done': 'Tato položka je hotová. Její historie je níže.',
   'itemDetail.completionUndone': 'Dokončení bylo vráceno. Položka je znovu otevřená.',
   'itemDetail.refreshFailed': 'Položku se nepodařilo obnovit. Před další změnou ji znovu načtěte.',

@@ -57,12 +57,20 @@ function attentionKey(item: Item): 'items.needsSince' | 'items.rowAttentionDate'
   return open && item.attention === 'needs_attention' ? 'items.needsSince' : 'items.rowAttentionDate';
 }
 
-function ItemRow({ item, subjectName, subjectType, members, onOpenItem }: {
-  item: Item; subjectName: string | undefined; subjectType: SubjectType | undefined; members: Member[];
+/** Home's wording: the viewer reads "you", another member their login, a departed account "Unknown member". */
+function responsibleText(item: Item, members: Member[], userId: string, t: Translate): string | null {
+  if (!item.responsibleUserId) return null;
+  if (item.responsibleUserId === userId) return t('items.responsible.you');
+  const login = members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
+  return t('items.responsible.read', { name: login });
+}
+
+function ItemRow({ item, subjectName, subjectType, members, userId, onOpenItem }: {
+  item: Item; subjectName: string | undefined; subjectType: SubjectType | undefined; members: Member[]; userId: string;
   onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
-  const responsible = members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
+  const responsible = responsibleText(item, members, userId, t);
   const attention = item.attentionOn ? t(attentionKey(item), { date: formatDate(item.attentionOn, locale) }) : null;
   const state = itemState(item);
   const tone = itemStateTone[state];
@@ -83,8 +91,8 @@ function ItemRow({ item, subjectName, subjectType, members, onOpenItem }: {
           <ItemStateIcon state={state} className="size-4 shrink-0" />
           <span className="[overflow-wrap:anywhere]">{status}</span>
         </span>
-        {item.responsibleUserId
-          ? <span data-item-responsible className="text-muted [overflow-wrap:anywhere]">{t('items.responsible.read', { name: responsible })}</span>
+        {responsible
+          ? <span data-item-responsible className="text-muted [overflow-wrap:anywhere]">{responsible}</span>
           : null}
       </div>
       {item.recurrence
@@ -114,9 +122,9 @@ function Pager({ context, nextCursor, goToCursor }: PagerProps) {
   </nav>;
 }
 
-export function AllItemsResults({ view, context, page, subjectNames, subjectTypes, members, actions, resultRef, onBack, onOpenItem }: {
+export function AllItemsResults({ view, context, page, subjectNames, subjectTypes, members, userId, actions, resultRef, onBack, onOpenItem }: {
   view: ResultsView; context: Context; page: PageState; subjectNames: Map<string, string>; subjectTypes: Map<string, SubjectType>;
-  members: Member[]; actions: AllItemsActions;
+  members: Member[]; userId: string; actions: AllItemsActions;
   resultRef: RefObject<HTMLElement | null>; onBack: () => void; onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
@@ -135,7 +143,8 @@ export function AllItemsResults({ view, context, page, subjectNames, subjectType
     <h2 className="text-row-title font-semibold text-ink">{range}</h2>
     <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
       {page.items.map((item) =>
-        <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem}
+        <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} userId={userId}
+          onOpenItem={onOpenItem}
           subjectType={subjectTypes.get(item.subjectId)} />)}
     </ul>
     <Pager context={context} nextCursor={page.nextCursor} goToCursor={actions.goToCursor} />

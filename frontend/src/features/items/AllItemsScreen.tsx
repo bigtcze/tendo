@@ -50,7 +50,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
         {page.error ? <LoadError role={null} message={t('app.error.body')} retryLabel={t('app.error.retry')}
           onRetry={actions.retry} retryProps={{ 'data-all-items-retry': true }} /> : null}
         <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} subjectTypes={subjectTypes}
-          members={facets.members.values} actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
+          members={facets.members.values} userId={userId} actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
       </div>
     </section>
   </Layout>;

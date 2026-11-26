@@ -304,6 +304,19 @@ describe('All items', () => {
     expect(within(within(main).getByText('Fluid result').closest('li')!).getByText('1 day · counted from when it’s done')).toBeVisible();
   });
 
+  it('says "you" for the viewer’s own items and names other members by login, like Home', async () => {
+    const other = { userId: 'u-2', login: 'petr', role: 'member' as const };
+    installFakeServer({ ...bootRoutes, [membersPath]: json(200, { items: [member, other], nextCursor: null }),
+      ...itemRoutes(base, [makeItem(1, { title: 'Mine', responsibleUserId: member.userId }), makeItem(2, { title: 'Theirs', responsibleUserId: other.userId })]) });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    const main = screen.getByRole('main');
+    const row = (title: string) => within(main).getByRole('link', { name: title }).closest('li')!;
+    await waitFor(() => expect(row('Mine').querySelector('[data-item-responsible]')).toHaveTextContent(/^Looked after by you$/));
+    expect(row('Mine')).not.toHaveTextContent('anna');
+    expect(row('Theirs').querySelector('[data-item-responsible]')).toHaveTextContent(/^Looked after by petr$/);
+  });
+
   it('names the search landmark and the results region', async () => {
     await openAllItems([makeItem(1, { title: 'Named result' })]);
     await waitFor(() => expect(document.title).toBe('All items — Tendo'));
