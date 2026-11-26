@@ -236,8 +236,12 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-cs-390.png', capture, 390);
   await oidcContext.close();
 
+  const ownerCookies = await page.context().cookies();
   for (const width of [390, 1440] as const) {
     const accountContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: heightFor(width) } });
+    // The stubbed session only fixes the sign-in method; Account's own reads (AI app settings, connected apps) go to
+    // the real server, which answers 401 without the owner's cookie and the app then correctly signs out.
+    await accountContext.addCookies(ownerCookies);
     const accountPage = await accountContext.newPage();
     await accountPage.route('**/api/v1/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ userId: '0198a2f0-0000-7000-8000-000000000001', login: 'audit_owner', expiresAt: '2030-01-01T00:00:00Z', signInMethod: 'password' }) }));
     await accountPage.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));

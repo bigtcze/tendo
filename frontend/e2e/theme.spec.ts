@@ -4,6 +4,7 @@ import { designTokens } from '../src/designTokens';
 import { THEME_STORAGE_KEY } from '../src/theme/theme';
 import { auditContrast, collectContrastCandidates, contrastShortfalls } from './contrastAudit';
 import { effectiveThemeColor } from './themeColor';
+import { measureCapture } from './audit/metrics';
 
 // Self-contained appearance proof for signed-out routes. It creates its own contexts and never touches journey.spec.ts
 // state. The Appearance control lives on the signed-in Account screen (journey.spec.ts drives it there), so here a
@@ -407,5 +408,23 @@ test.describe('self-hosted Inter Variable', () => {
     expect(license).toContain('The Inter Project Authors');
     expect(license).toContain('SIL OPEN FONT LICENSE Version 1.1');
     await context.close();
+  });
+});
+
+test.describe('audit target-size measurement', () => {
+  test('counts a stretched row link by its row, and a partial overlay or bare small control by itself', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setContent(`<html><head><style>
+      li { position: relative; height: 56px; width: 300px; list-style: none; }
+      a { display: inline-block; height: 22px; }
+      .stretched::after { content: ''; position: absolute; inset: 0; }
+      .partial::after { content: ''; position: absolute; top: 0; right: 0; width: 8px; height: 8px; }
+    </style></head><body><ul>
+      <li><a class="stretched" href="#a">Stretched row</a></li>
+      <li><a class="partial" href="#b">Partial overlay</a></li>
+    </ul><button style="width: 20px; height: 20px; padding: 0">x</button></body></html>`);
+    const metrics = await measureCapture(page);
+    expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual(['Partial overlay', 'x']);
+    expect(metrics.interactiveTargetsUnder44).toBe(2);
   });
 });
