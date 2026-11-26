@@ -1927,6 +1927,8 @@ test.describe('Tendo production journey', () => {
         // The household section appears once the household's role has loaded; wait for all four before measuring.
         const czechSwitcher = page.getByRole('navigation', { name: cs['admin.sections.label'] });
         await expect(czechSwitcher.getByRole('link')).toHaveCount(4);
+        // The page's entry animation translates the links; mid-flight a 44 px link measures 43.99998 px.
+        await waitForSettledAnimations(page);
         const czechSections = await czechSwitcher.getByRole('link')
           .evaluateAll((nodes) => nodes.map((node) => {
             const box = node.getBoundingClientRect();
