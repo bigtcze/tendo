@@ -71,10 +71,24 @@ async function expectShortDialogUnpinned(page: Page, dialog: Locator) {
     return { header: style('header'), actions: style('[data-dialog-actions]'), padding: [own.scrollPaddingTop, own.scrollPaddingBottom] };
   });
   expect(layout).toEqual({ header: 'static', actions: 'static', padding: ['0px', '0px'] });
+  // The full-height sheet follows the resize through `dvh`; Tab is only meaningful once it fits the short window,
+  // otherwise a field inside the dialog's own scrollport can still sit below the viewport.
+  const geometry = () => dialog.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const focused = document.activeElement?.getBoundingClientRect();
+    return { top: box.top, bottom: box.bottom, viewport: window.innerHeight, scrollTop: element.scrollTop,
+      clientHeight: element.clientHeight, focused: focused ? [focused.top, focused.bottom] : null };
+  });
+  await expect.poll(async () => { const now = await geometry(); return now.top >= 0 && now.bottom <= now.viewport; },
+    { message: 'short dialog fits the 180 px window' }).toBe(true);
   await dialog.getByLabel(en['items.title'], { exact: true }).focus();
   for (let step = 0; step < 4; step += 1) {
     await page.keyboard.press('Tab');
-    await expect(page.locator(':focus'), `short dialog Tab ${step + 1}`).toBeInViewport({ ratio: 1 });
+    try {
+      await expect(page.locator(':focus')).toBeInViewport({ ratio: 1 });
+    } catch (error) {
+      throw new Error(`short dialog Tab ${step + 1}: focused control not fully visible ${JSON.stringify(await geometry())}`, { cause: error });
+    }
   }
   await page.setViewportSize({ width: 320, height: 640 });
 }
