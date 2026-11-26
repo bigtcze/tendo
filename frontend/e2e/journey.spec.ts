@@ -1909,11 +1909,15 @@ test.describe('Tendo production journey', () => {
     };
     try {
       // Every section link is a 44 px target in both languages; the Czech labels are the short ones ("Účty").
+      let czechFailure: unknown;
       await chooseLocale(page, 'cs');
       try {
         await page.goto('/admin/households');
         await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
-        const czechSections = await page.getByRole('navigation', { name: cs['admin.sections.label'] }).getByRole('link')
+        // The household section appears once the household's role has loaded; wait for all four before measuring.
+        const czechSwitcher = page.getByRole('navigation', { name: cs['admin.sections.label'] });
+        await expect(czechSwitcher.getByRole('link')).toHaveCount(4);
+        const czechSections = await czechSwitcher.getByRole('link')
           .evaluateAll((nodes) => nodes.map((node) => {
             const box = node.getBoundingClientRect();
             return { name: node.textContent ?? '', width: box.width, height: box.height };
@@ -1923,9 +1927,10 @@ test.describe('Tendo production journey', () => {
           expect(section.width, `Czech admin section ${section.name} width`).toBeGreaterThanOrEqual(44);
           expect(section.height, `Czech admin section ${section.name} height`).toBeGreaterThanOrEqual(44);
         }
-      } finally {
-        await chooseLocale(page, 'en');
-      }
+      } catch (error) { czechFailure = error; }
+      // Every later step reads the owner's page in English; a cleanup failure never hides the check's own failure.
+      try { await chooseLocale(page, 'en'); } catch (error) { czechFailure ??= error; }
+      if (czechFailure) throw czechFailure;
 
       // The switcher is the only way from the household Admin center to the installation list.
       await page.goto('/');

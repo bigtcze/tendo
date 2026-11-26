@@ -239,12 +239,13 @@ describe('App route characterization', () => {
       .getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')).toHaveLength(1);
   });
 
-  it.each([['/members', 'true'], ['/items?status=archived', 'true'], ['/', null], ['/account', null]])(
-    'marks the phone More button current only when %s lives in its sheet', async (path, current) => {
+  it.each([['/members', 'true'], ['/items?status=archived', 'true'], ['/admin', 'true'], ['/', null], ['/account', null]])(
+    'More aria-current on %s is %s: set only while the open screen lives in its sheet', async (path, current) => {
       window.history.replaceState(null, '', path);
-      installFakeServer(signedInRoutes());
+      installFakeServer(signedInRoutes({ [`GET ${base}/accounts`]: json(200, { items: [], nextCursor: null }) }));
       renderApp();
       const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
+      // The links and More read one navigation context in one render, so a marked link means More is settled too.
       await waitFor(() => expect(within(navigation).getAllByRole('link').some((link) => link.getAttribute('aria-current') === 'page')).toBe(true));
       const more = within(navigation).getByRole('button', { name: 'More' });
       if (current) expect(more).toHaveAttribute('aria-current', current);

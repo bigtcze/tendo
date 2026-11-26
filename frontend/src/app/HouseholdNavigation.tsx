@@ -108,7 +108,10 @@ function NavItem({ spec, className, context, onSelect }: {
   </NavLink>;
 }
 
-/** `current` marks the phone bar's place when the open screen lives in the sheet, so a phone always shows where it is. */
+/**
+ * `current` marks More as the current group (`aria-current="true"`, never "page") while the open screen lives in its
+ * sheet, so a phone always shows where it is; the sheet's own link carries `aria-current="page"`.
+ */
 function MoreButton({ open, current, panelId, onToggle, buttonRef }: {
   open: boolean; current: boolean; panelId: string; onToggle: () => void; buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
