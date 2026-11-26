@@ -252,6 +252,27 @@ describe('App route characterization', () => {
       else expect(more).not.toHaveAttribute('aria-current');
     });
 
+  it('an archive deep link never marks All items as the current page, not even on the first render', async () => {
+    window.history.replaceState(null, '', '/items?status=archived');
+    installFakeServer(signedInRoutes());
+    const marked: string[] = [];
+    const record = () => {
+      const nav = document.querySelector('nav[aria-label="Household navigation"]');
+      if (!nav) return;
+      for (const link of nav.querySelectorAll('a[aria-current="page"]')) marked.push(link.textContent ?? '');
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-current'] });
+    try {
+      renderApp();
+      const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
+      await waitFor(() => expect(within(navigation).getByRole('button', { name: 'More' })).toHaveAttribute('aria-current', 'true'));
+      record();
+    } finally { observer.disconnect(); }
+    expect(marked.length).toBeGreaterThan(0);
+    expect(marked.filter((name) => name !== 'Archive')).toEqual([]);
+  });
+
   it('late 401 cannot navigate away from a later signed-out invite visit', async () => {
     let releaseSubject!: (response: Response) => void;
     let releaseHistory!: (response: Response) => void;

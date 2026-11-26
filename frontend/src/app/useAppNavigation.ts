@@ -175,7 +175,8 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   // list is showing the archive. They are set by the actions above; a reload keeps them only because the history
   // entry an item was pushed with still names where it was opened from.
   const [itemOrigin, setItemOrigin] = useState<ItemOrigin>(() => (route.kind === 'item' ? historyOrigin() : null));
-  const [archivedView, setArchivedView] = useState(false);
+  // A deep link or reload of the archive opens with Archive (and phone More) current from the first render.
+  const [archivedView, setArchivedView] = useState(() => route.kind === 'allItems' && isArchivedSearch(window.location.search));
   const [adminTargetName, setAdminTargetName] = useState<AdminTargetName | null>(null);
   const userId = state.kind === 'signedIn' ? state.session.userId : null;
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
