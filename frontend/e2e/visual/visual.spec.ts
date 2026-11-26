@@ -1276,27 +1276,23 @@ test('Household pages share one content measure at 1920', async ({ browser }) =>
     ['Account', '/account', async () => { await expect(page.locator('#account-identity-heading')).toBeVisible(); }],
   ];
   const spans: Record<string, { start: number; end: number }> = {};
-  let available = 0;
+  const expected: Record<string, { start: number; end: number }> = {};
   for (const [name, path, settled] of pages) {
     await page.goto(path);
     await settled();
-    const measured = await contentReach(page);
-    spans[name] = { start: measured.start, end: measured.reach };
-    available = measured.available;
+    const { start, reach, available } = await contentReach(page);
     // The canvas is wider than the measure, so a page that fills its measure stops visibly short of main's edge.
     expect(available, `main content width at 1920 (${name})`).toBeGreaterThan(1152 + 100);
+    spans[name] = { start, end: reach };
+    // The measure sits in the middle of main, so the spare width is shared by both sides instead of piling up as one
+    // void on the right. Every household page starts at that one left edge and draws out to exactly the 72rem
+    // measure: none stretches across the canvas, none ends at its own cap. Account keeps its 48rem (768 px) form
+    // measure inside the centred column.
+    const inset = Math.round((available - 1152) / 2);
+    expected[name] = { start: inset, end: inset + (name === 'Account' ? 768 : 1152) };
   }
-  console.info(`visual-content-measure-1920 available=${available} ${JSON.stringify(spans)}`);
-  // The measure sits in the middle of main, so the spare width is shared by both sides instead of piling up as one
-  // void on the right. Every household page starts at that one left edge and draws out to exactly the 72rem measure:
-  // none stretches across the canvas, none ends at its own cap. Account keeps its narrower form measure, so only its
-  // start is held to the shared edge.
-  const inset = Math.round((available - 1152) / 2);
-  const expected = Object.fromEntries(pages.map(([name]) => [name, {
-    start: inset, end: name === 'Account' ? spans[name].end : inset + 1152,
-  }]));
+  console.info(`visual-content-measure-1920 ${JSON.stringify(spans)}`);
   expect(spans).toEqual(expected);
-  expect(spans['Account'].end, 'Account keeps its narrower form measure').toBeLessThan(inset + 1152);
   for (const [base, path] of [['wide-home', '/'], ['wide-people', '/people'], ['wide-account', '/account']] as const) {
     await page.goto(path);
     await pages.find(([, candidate]) => candidate === path)![2]();
