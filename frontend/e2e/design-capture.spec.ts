@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { DesignCapture, heightFor, open, WIDTHS, type Catalog } from './design/capture';
+import { CATALOGS, DesignCapture, heightFor, open, WIDTHS, type Catalog } from './design/capture';
 import { HeldRequest } from './design/hold';
 import { seedLargeDataset } from './design/seed';
 import {
@@ -12,7 +12,7 @@ import {
   seedReferenceFixture,
 } from './referenceFixture';
 import { en } from '../src/i18n/en';
-import { api, HOUSEHOLD, idempotencyKey, ownerPassword } from './visual/fixtures';
+import { api, HOUSEHOLD, idempotencyKey, ownerPassword, pinInvitationDates, pinPasswordResetDates } from './visual/fixtures';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -39,6 +39,16 @@ const CONTEXT: BrowserContextOptions = {
 // Item business dates are fixed by the runner; the browser clock is pinned to the same instant for relative copy.
 const FIXED_NOW = new Date('2026-05-14T08:00:00Z');
 const MEMBER_PASSWORD = `${present(ownerPassword, 'E2E_OWNER_PASSWORD')}${REFERENCE_MEMBER_PASSWORD_SUFFIX}`;
+/**
+ * The server stamps invitations and reset links with its real wall clock, not the business date. The owner context
+ * pins those times to the capture instant (as the visual suite does), so a capture taken today never shows November
+ * next to May data. These are the dates the pinned values render as in the Europe/Prague browser zone.
+ */
+const PINNED_SERVER_DATES = {
+  en: { created: 'May 14, 2026', expires: 'May 21, 2026', resetUntil: 'May 15, 2026, 10:00 AM' },
+  cs: { created: '14. 5. 2026', expires: '21. 5. 2026', resetUntil: '15. 5. 2026 10:00' },
+} as const;
+const pinnedDates = (catalog: Catalog) => PINNED_SERVER_DATES[catalog === CATALOGS.cs ? 'cs' : 'en'];
 /**
  * 39 everyday states x 6 widths x 2 languages x 2 themes, the 1000+ item Home at 2 widths x 2 x 2, and an extra
  * full-page image for the 4 states whose point can sit below the fold (Home, detail, and the two Members states at
@@ -156,6 +166,8 @@ test('capture every route and state across widths, languages and themes', async 
   for (const name of readdirSync(dir)) rmSync(join(dir, name));
   const shots = new DesignCapture(dir);
   await page.clock.install({ time: FIXED_NOW });
+  await pinInvitationDates(page.context());
+  await pinPasswordResetDates(page.context());
 
   // Signed-out first. Onboarding is the one state that only exists before the household does.
   await shots.state(page, 'onboarding', async (target, catalog) => {
@@ -339,6 +351,11 @@ test('capture every route and state across widths, languages and themes', async 
     await expect(target.getByRole('heading', { level: 1, name: catalog['members.title'] })).toBeVisible();
     await expect(target.getByText(catalog['members.loading'], { exact: true })).toHaveCount(0);
     await expect(target.getByRole('main').getByText(`${REFERENCE_OWNER_LOGIN} (${catalog['members.you']})`, { exact: true })).toBeVisible();
+    // The reference member's accepted invitation is the only one so far; its dates are the pinned capture dates.
+    const dates = pinnedDates(catalog);
+    await expect(target.getByRole('main').locator('[data-invitation-details]')).toHaveText([
+      `${catalog['members.invitation.created'].replace('{date}', dates.created)} · ${catalog['members.invitation.expires'].replace('{date}', dates.expires)}`,
+    ]);
   });
 
   await shots.state(page, 'account', async (target, catalog) => {
@@ -370,6 +387,11 @@ test('capture every route and state across widths, languages and themes', async 
   await shots.state(page, 'admin-reset-link', async (target, catalog) => {
     resetLink = await issueResetLink(target, catalog, REFERENCE_MEMBER_LOGIN);
     await expect(target.getByRole('textbox', { name: catalog['admin.reset.link.label'] })).toBeVisible();
+    // Both the dialog and the account row behind it state the pinned expiry, never the server's real one.
+    const { resetUntil } = pinnedDates(catalog);
+    await expect(target.getByRole('dialog')).toContainText(catalog['admin.reset.link.expires'].replace('{date}', resetUntil));
+    await expect(target.locator('main [data-account-reset]'))
+      .toHaveText([catalog['admin.reset.active'].replace('{date}', resetUntil)]);
   });
 
   // The reset screen the member receives: a fresh signed-out document at the real link, never submitted.
