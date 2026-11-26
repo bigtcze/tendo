@@ -447,8 +447,9 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await page.goto('/items');
   await waitForAllItemsSummary(page);
   for (const width of [320, 390, 768, 1024, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
-  // Density guard: the first two-line row (title + one metadata line carrying subject, state and responsible,
-  // and the cadence when it repeats) stays as compact as a Home row at 1440. The row is chosen structurally.
+  // Density guard: a two-line row (title + one metadata line carrying subject, state and responsible) stays as
+  // compact as a Home row at 1440, and so does a repeating row, whose cadence joins that same line. Rows are
+  // chosen structurally, not by fixture title.
   await page.setViewportSize({ width: 1440, height: 900 });
   const compactRow = page.locator('main li[data-item-id]')
     .filter({ has: page.locator('[data-item-meta] [data-subject-pill]') })
@@ -460,6 +461,14 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   console.info(`visual-all-items-row-height height=${compactRowHeight}`);
   expect(compactRowHeight, 'two-line All items row height at 1440').toBeGreaterThanOrEqual(48);
   expect(compactRowHeight, 'two-line All items row height at 1440').toBeLessThanOrEqual(58);
+  const repeatingRow = page.locator('main li[data-item-id]')
+    .filter({ has: page.locator('[data-item-meta] [data-item-recurrence]') })
+    .first();
+  await expect(repeatingRow, 'a repeating All items row exists at 1440').toHaveCount(1);
+  const repeatingRowHeight = await repeatingRow.evaluate((row) => row.getBoundingClientRect().height);
+  console.info(`visual-all-items-repeating-row-height height=${repeatingRowHeight}`);
+  expect(repeatingRowHeight, 'repeating All items row height at 1440').toBeGreaterThanOrEqual(48);
+  expect(repeatingRowHeight, 'repeating All items row height at 1440').toBeLessThanOrEqual(58);
   // The desktop toolbar scans as one band: Show and the three refinements share a single row.
   const filterTops = await page.getByRole('main').getByRole('combobox')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));

@@ -333,7 +333,7 @@ describe('All items', () => {
     expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
   });
 
-  it('words the attention date by state so the words agree with the state tile and icon', async () => {
+  it('words the attention date by state so the words agree with the state icon', async () => {
     await openAllItems([
       makeItem(1, { title: 'Overdue result', attentionOn: '2025-11-18', attention: 'needs_attention' }),
       makeItem(2, { title: 'Upcoming result', attentionOn: '2026-02-15', attention: 'upcoming' }),
@@ -341,7 +341,7 @@ describe('All items', () => {
     ]);
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
     expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
-    // An open upcoming item keeps its mint "coming up" tile, so it names a plain attention date, never "Needs attention".
+    // An open upcoming item keeps its upcoming icon and tone, so it names a plain attention date, never "Needs attention".
     expect(row('Upcoming result').getByText('Attention date Feb 15, 2026')).toBeVisible();
     expect(row('Upcoming result').queryByText(/Needs attention/)).not.toBeInTheDocument();
     expect(row('Paused result').getByText('Paused · Attention date Mar 1, 2026')).toBeVisible();
@@ -436,6 +436,9 @@ describe('All items', () => {
     // Every fact is on the one metadata line: subject, state, who looks after it, then the cadence.
     expect([...metadata.querySelectorAll('[data-subject-pill], [data-item-state], [data-item-responsible], [data-item-recurrence]')]
       .map((node) => node.textContent)).toEqual(['Café', 'Needs attention', 'Looked after by you', '1 month · stays on the planned dates']);
+    // Facts are parted like Home's: a decorative middle dot between each, hidden from assistive technology.
+    const separators = [...metadata.querySelectorAll('[data-item-separator]')];
+    expect(separators.map((node) => [node.textContent, node.getAttribute('aria-hidden')])).toEqual(Array(3).fill(['·', 'true']));
   });
 
   it('renders compact rows with a 44px title target, the subject type icon and the state in words', async () => {

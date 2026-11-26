@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { Fragment, type RefObject } from 'react';
 import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty-state';
@@ -23,7 +23,7 @@ const titleLink = 'relative z-10 flex min-h-11 max-w-full items-center rounded-l
   + 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus';
 const addLink = `inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 // The subject reads as on Home: its type icon beside its name, no filled pill or separate tile column.
-const subjectName = 'inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-ink [overflow-wrap:anywhere]';
+const subjectClass = 'inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-ink [overflow-wrap:anywhere]';
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
 
@@ -66,7 +66,7 @@ function responsibleText(item: Item, members: Member[], userId: string, t: Trans
   return t('items.responsible.read', { name: login });
 }
 
-function ItemRow({ item, subjectName: subjectLabel, subjectType, members, userId, onOpenItem }: {
+function ItemRow({ item, subjectName, subjectType, members, userId, onOpenItem }: {
   item: Item; subjectName: string | undefined; subjectType: SubjectType | undefined; members: Member[]; userId: string;
   onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
@@ -82,23 +82,29 @@ function ItemRow({ item, subjectName: subjectLabel, subjectType, members, userId
   return <li data-item-id={item.id} className="px-4 pb-2 pt-[11px] xl:pb-0 xl:pt-2">
     <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
       className={titleLink}>{item.title}</NavLink>
-    <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta leading-snug">
-      <span data-subject-pill className={subjectName}>
-        <span aria-hidden="true" data-subject-icon={kind} className="inline-flex shrink-0 text-muted">
-          <SubjectTypeIcon type={kind} className="size-3.5" />
-        </span>
-        {subjectLabel ?? t('items.subject.unknown')}
-      </span>
-      <span data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
-        <ItemStateIcon state={state} className="size-4 shrink-0" />
-        <span className="[overflow-wrap:anywhere]">{status}</span>
-      </span>
-      {responsible
-        ? <span data-item-responsible className="text-muted [overflow-wrap:anywhere]">{responsible}</span>
-        : null}
-      {item.recurrence
-        ? <span data-item-recurrence className="text-muted [overflow-wrap:anywhere]">{repeatSummary(t, item.recurrence, locale)}</span>
-        : null}
+    <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-meta leading-snug">
+      {[
+        <span key="subject" data-subject-pill className={subjectClass}>
+          <span aria-hidden="true" data-subject-icon={kind} className="inline-flex shrink-0 text-muted">
+            <SubjectTypeIcon type={kind} className="size-3.5" />
+          </span>
+          {subjectName ?? t('items.subject.unknown')}
+        </span>,
+        <span key="state" data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
+          <ItemStateIcon state={state} className="size-4 shrink-0" />
+          <span className="[overflow-wrap:anywhere]">{status}</span>
+        </span>,
+        responsible
+          ? <span key="responsible" data-item-responsible className="text-muted [overflow-wrap:anywhere]">{responsible}</span>
+          : null,
+        item.recurrence
+          ? <span key="recurrence" data-item-recurrence className="text-muted [overflow-wrap:anywhere]">{repeatSummary(t, item.recurrence, locale)}</span>
+          : null,
+      ].filter(Boolean).map((fact, index) => <Fragment key={index}>
+        {/* Home's decorative middle dot parts the facts, so the line never reads as one run-on phrase. */}
+        {index ? <span aria-hidden="true" data-item-separator className="select-none text-muted">·</span> : null}
+        {fact}
+      </Fragment>)}
     </div>
   </li>;
 }
