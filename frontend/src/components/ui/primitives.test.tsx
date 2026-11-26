@@ -268,6 +268,19 @@ describe('UI primitive behavior', () => {
     expect(onOpenChange).toHaveBeenCalledTimes(1);
     expect(dialog.open).toBe(false);
   });
+  it('select keeps the native control and its name, and draws one decorative chevron instead of the platform arrow', () => {
+    render(<><label htmlFor="unit">Unit</label><Select id="unit" disabled containerClassName="mt-1.5"><option>day</option></Select></>);
+    const select = screen.getByRole('combobox', { name: 'Unit' });
+    expect(select.tagName).toBe('SELECT');
+    expect(select).toBeDisabled();
+    expect(select).toHaveClass('appearance-none', 'min-h-11', 'text-control', 'pr-10');
+    const root = select.closest('[data-select]');
+    expect(root).toHaveClass('relative', 'mt-1.5');
+    const chevrons = root!.querySelectorAll('[data-select-chevron]');
+    expect(chevrons).toHaveLength(1);
+    expect(chevrons[0]).toHaveAttribute('aria-hidden', 'true');
+    expect(chevrons[0]).toHaveClass('pointer-events-none');
+  });
   it('switch native input spans the full visible track at touch height', () => {
     render(<Switch aria-label="Repeat" checked={false} onCheckedChange={() => undefined} />);
     const toggle = screen.getByRole('switch', { name: 'Repeat' });
