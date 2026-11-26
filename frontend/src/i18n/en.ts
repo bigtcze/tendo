@@ -675,6 +675,7 @@ export const en = {
   'itemDetail.fact.lastDone': 'Last done',
   'itemDetail.fact.repeat': 'Repeats',
   'itemDetail.fact.responsible': 'Looked after by',
+  'itemDetail.fact.responsibleYou': 'You',
   'itemDetail.done': 'This item is complete. Its history is below.',
   'itemDetail.completionUndone': 'Completion undone. This item is open again.',
   'itemDetail.refreshFailed': 'The item could not be refreshed. Reload before making another change.',

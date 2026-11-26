@@ -26,9 +26,10 @@ function StatePill({ item, t }: { item: Item; t: Translate }) {
   </p>;
 }
 
-/** The assigned member's name, or "Unknown member" when the account left the household. */
-function responsibleName(item: Item, members: Member[], t: Translate) {
+/** "You" for the viewer, another member's login, or "Unknown member" when the account left the household. */
+function responsibleName(item: Item, members: Member[], userId: string, t: Translate) {
   if (!item.responsibleUserId) return null;
+  if (item.responsibleUserId === userId) return t('itemDetail.fact.responsibleYou');
   return members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
 }
 
@@ -38,8 +39,9 @@ function StateSentence({ item, t }: { item: Item; t: Translate }) {
   return sentence ? <p className="mt-4 max-w-prose text-muted">{sentence}</p> : null;
 }
 
-export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, onReload, actions }: {
+export function ItemDetailReady({ item, userId, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, onReload, actions }: {
   item: Item;
+  userId: string;
   subjectOverride: string | null;
   subjectName: string;
   detail: ItemDetailState;
@@ -67,7 +69,7 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
   };
 }) {
   const { notice, undoArchive, members, editing, editLoading, completionNotice } = detail;
-  const responsible = responsibleName(item, members, t);
+  const responsible = responsibleName(item, members, userId, t);
 
   return <>
     <header className="mt-2 min-w-0">
