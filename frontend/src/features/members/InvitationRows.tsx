@@ -28,7 +28,9 @@ function RevokeControl({ inv, actions, t }: { inv: Invitation; actions: InviteAc
     </Button>;
   }
   const questionId = `invitation-${inv.id}-revoke-question`;
-  return <div className="flex min-h-11 flex-wrap items-center gap-2">
+  // Below `md` the question and its buttons take their own line, so they never squeeze the invitation's status and
+  // dates into a narrow column beside them.
+  return <div className="flex min-h-11 basis-full flex-wrap items-center gap-2 md:basis-auto">
     <span id={questionId} className="text-small text-ink">{t('members.invitation.revokeConfirm')}</span>
     <Button ref={track(yesButtonsRef, inv.id)} variant="secondary" size="small" disabled={busy}
       aria-describedby={`${questionId} ${invitationDetailsId(inv.id)}`} onClick={() => void revoke(inv.id)}>
