@@ -411,20 +411,26 @@ test.describe('self-hosted Inter Variable', () => {
   });
 });
 
+// Not an appearance proof: this pins the opt-in UX audit's target-size measurement (e2e/audit/metrics.ts) in the gate,
+// which runs this file in the `e2e` project. Static markup only; no server state.
 test.describe('audit target-size measurement', () => {
-  test('counts a stretched row link by its row, and a partial overlay or bare small control by itself', async ({ page }) => {
+  test('counts a stretched row link by its row, and a partial overlay, small row, self-positioned link or bare small control by itself', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.setContent(`<html><head><style>
       li { position: relative; height: 56px; width: 300px; list-style: none; }
       a { display: inline-block; height: 22px; }
       .stretched::after { content: ''; position: absolute; inset: 0; }
       .partial::after { content: ''; position: absolute; top: 0; right: 0; width: 8px; height: 8px; }
+      li.small { height: 30px; }
+      a.self { position: relative; }
     </style></head><body><ul>
       <li><a class="stretched" href="#a">Stretched row</a></li>
       <li><a class="partial" href="#b">Partial overlay</a></li>
+      <li class="small"><a class="stretched" href="#c">Small row</a></li>
+      <li><a class="stretched self" href="#d">Self-positioned</a></li>
     </ul><button style="width: 20px; height: 20px; padding: 0">x</button></body></html>`);
     const metrics = await measureCapture(page);
-    expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual(['Partial overlay', 'x']);
-    expect(metrics.interactiveTargetsUnder44).toBe(2);
+    expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual(['Partial overlay', 'Small row', 'Self-positioned', 'x']);
+    expect(metrics.interactiveTargetsUnder44).toBe(4);
   });
 });

@@ -29,10 +29,11 @@ export async function measureCapture(page: Page, firstResultSelector?: string): 
     // The box a reader actually presses. A stretched link (Home rows) pins an absolutely positioned `::after` to all
     // four edges of its positioned row, so a press anywhere on the row opens it: the row, not the 22 px text line, is
     // the target. A partial overlay (a dot, a corner badge) is not pinned on every side and changes nothing. This is
-    // the same rule as the required journey n21 target-size predicate.
+    // the same rule as the required journey n21 target-size predicate. A link that is positioned itself is the overlay's
+    // containing block, so the overlay covers only the link and the link is measured.
     const pressedArea = (element: HTMLElement) => {
       const overlay = getComputedStyle(element, '::after');
-      const pinned = overlay.position === 'absolute' && [overlay.top, overlay.right, overlay.bottom, overlay.left].every(side => side === '0px');
+      const pinned = getComputedStyle(element).position === 'static' && overlay.position === 'absolute' && [overlay.top, overlay.right, overlay.bottom, overlay.left].every(side => side === '0px');
       const covering = pinned ? element.offsetParent : null;
       return covering && covering !== document.body ? covering : element;
     };
