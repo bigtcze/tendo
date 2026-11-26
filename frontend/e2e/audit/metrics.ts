@@ -26,8 +26,19 @@ export async function measureCapture(page: Page, firstResultSelector?: string): 
     const fontSizes = textNodes.map(element => Number.parseFloat(getComputedStyle(element).fontSize)).filter(Number.isFinite);
     const interactiveSelector = 'a,button,input,select,textarea,[role="button"],[tabindex]:not([tabindex="-1"])';
     const interactive = [...document.querySelectorAll<HTMLElement>(interactiveSelector)].filter(visible);
+    // The box a reader actually presses. A stretched link (Home rows) pins an absolutely positioned `::after` to all
+    // four edges of its positioned row, so a press anywhere on the row opens it: the row, not the 22 px text line, is
+    // the target. A partial overlay (a dot, a corner badge) is not pinned on every side and changes nothing. This is
+    // the same rule as the required journey n21 target-size predicate. A link that is positioned itself is the overlay's
+    // containing block, so the overlay covers only the link and the link is measured.
+    const pressedArea = (element: HTMLElement) => {
+      const overlay = getComputedStyle(element, '::after');
+      const pinned = getComputedStyle(element).position === 'static' && overlay.position === 'absolute' && [overlay.top, overlay.right, overlay.bottom, overlay.left].every(side => side === '0px');
+      const covering = pinned ? element.offsetParent : null;
+      return covering && covering !== document.body ? covering : element;
+    };
     const offenders = interactive.map(element => {
-      const rect = element.getBoundingClientRect();
+      const rect = pressedArea(element).getBoundingClientRect();
       const label = element.getAttribute('aria-label') || element.innerText || element.getAttribute('placeholder') || '';
       return {
         role: element.getAttribute('role') || element.tagName.toLowerCase(),
