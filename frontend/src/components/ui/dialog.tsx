@@ -136,7 +136,8 @@ export function Dialog({
 
 /**
  * A form's primary action bar, pinned to the bottom of the dialog while the form scrolls, so a long form
- * (Repeat on, a 412 conflict) never pushes Save out of view. It must be the dialog's last content.
+ * (Repeat on, a 412 conflict) keeps Save in view; short viewports unpin it (see ACTIONS). It must be the dialog's
+ * last content.
  */
 export function DialogActions({ children }: { children: ReactNode }) {
   return <div data-dialog-actions className={ACTIONS}>{children}</div>;
