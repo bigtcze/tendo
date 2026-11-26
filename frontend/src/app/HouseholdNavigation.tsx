@@ -108,8 +108,12 @@ function NavItem({ spec, className, context, onSelect }: {
   </NavLink>;
 }
 
-function MoreButton({ open, panelId, onToggle, buttonRef }: {
-  open: boolean; panelId: string; onToggle: () => void; buttonRef: React.RefObject<HTMLButtonElement | null>;
+/**
+ * `current` marks More as the current group (`aria-current="true"`, never "page") while the open screen lives in its
+ * sheet, so a phone always shows where it is; the sheet's own link carries `aria-current="page"`.
+ */
+function MoreButton({ open, current, panelId, onToggle, buttonRef }: {
+  open: boolean; current: boolean; panelId: string; onToggle: () => void; buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const { t } = useI18n();
   return <button
@@ -118,8 +122,10 @@ function MoreButton({ open, panelId, onToggle, buttonRef }: {
     data-nav-more
     aria-expanded={open}
     aria-controls={panelId}
+    aria-current={current ? 'true' : undefined}
     onClick={onToggle}
-    className={`${BAR_LINK} ${open ? 'text-ink' : 'text-muted'}`}
+    // A button sizes to its content even as a flex box; w-full gives it the whole tab cell, as the links have.
+    className={`${BAR_LINK} w-full ${current ? SELECTED : open ? 'font-medium text-ink' : QUIET}`}
   >
     <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.75" strokeLinecap="round" className="size-5 shrink-0 lg:size-[1.125rem]">
@@ -170,7 +176,7 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
       {/* One Account link for both widths: the last phone tab, and the quiet last row of the desktop rail. */}
       <li className="min-w-0 flex-1 lg:mt-4 lg:flex-none lg:border-t lg:border-line lg:pt-4"><NavItem spec={ACCOUNT} className={BAR_LINK} context={navigation} /></li>
       <li className="min-w-0 flex-1 lg:hidden">
-        <MoreButton open={moreOpen} panelId={panelId} buttonRef={moreButtonRef} onToggle={() => setMoreOpen(!moreOpen)} />
+        <MoreButton open={moreOpen} current={sheet.some((spec) => spec.key === activeKey(navigation))} panelId={panelId} buttonRef={moreButtonRef} onToggle={() => setMoreOpen(!moreOpen)} />
       </li>
     </ul>
     {moreOpen ? <div id={panelId} className={SHEET}>

@@ -1640,6 +1640,16 @@ test.describe('Tendo production journey', () => {
       await expect(main.getByRole('heading', { name: en['admin.account.title'] })).toBeVisible();
       await expect(page.locator(`nav[aria-label="${en['nav.label']}"] a:visible`)).toHaveCount(4);
       await expect(householdNav.getByRole('button', { name: en['nav.more'], exact: true })).toBeVisible();
+      // Every phone tab, More included, is a full 44 px target in both directions (UX.md "Touch targets").
+      const phoneTabs = await householdNav.locator('a:visible, button:visible').evaluateAll((nodes) => nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        return { name: node.getAttribute('aria-label') ?? node.textContent ?? '', width: box.width, height: box.height };
+      }));
+      expect(phoneTabs).toHaveLength(5);
+      for (const tab of phoneTabs) {
+        expect(tab.width, `phone tab ${tab.name} width at 390`).toBeGreaterThanOrEqual(44);
+        expect(tab.height, `phone tab ${tab.name} height at 390`).toBeGreaterThanOrEqual(44);
+      }
       await expect(householdNav.getByRole('link', { name: en['admin.title'], exact: true })).toBeHidden();
       await main.getByRole('link', { name: en['admin.account.link'], exact: true }).click();
       await expect(page).toHaveURL(/\/admin$/);
@@ -1898,6 +1908,30 @@ test.describe('Tendo production journey', () => {
       return items.find((item) => item.login === login)?.role;
     };
     try {
+      // Every section link is a 44 px target in both languages; the Czech labels are the short ones ("Účty").
+      let czechFailure: unknown;
+      await chooseLocale(page, 'cs');
+      try {
+        await page.goto('/admin/households');
+        await expect(page.getByRole('heading', { level: 1, name: cs['install.page.title'] })).toBeVisible();
+        // The household section appears once the household's role has loaded; wait for all four before measuring.
+        const czechSwitcher = page.getByRole('navigation', { name: cs['admin.sections.label'] });
+        await expect(czechSwitcher.getByRole('link')).toHaveCount(4);
+        const czechSections = await czechSwitcher.getByRole('link')
+          .evaluateAll((nodes) => nodes.map((node) => {
+            const box = node.getBoundingClientRect();
+            return { name: node.textContent ?? '', width: box.width, height: box.height };
+          }));
+        expect(czechSections).toHaveLength(4);
+        for (const section of czechSections) {
+          expect(section.width, `Czech admin section ${section.name} width`).toBeGreaterThanOrEqual(44);
+          expect(section.height, `Czech admin section ${section.name} height`).toBeGreaterThanOrEqual(44);
+        }
+      } catch (error) { czechFailure = error; }
+      // Every later step reads the owner's page in English; a cleanup failure never hides the check's own failure.
+      try { await chooseLocale(page, 'en'); } catch (error) { czechFailure ??= error; }
+      if (czechFailure) throw czechFailure;
+
       // The switcher is the only way from the household Admin center to the installation list.
       await page.goto('/');
       await waitForSettledHome(page, householdName);
