@@ -198,7 +198,7 @@ describe('installation account directory', () => {
     const fake = renderAt({
       [directoryPath]: () => (++attempt === 1 ? problem(503) : json(200, { items: [petr], nextCursor: null })),
     });
-    expect(await screen.findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(logins()).toEqual(['petr']));
     expect(asks(fake)).toHaveLength(2);
@@ -232,7 +232,7 @@ describe('installation account directory', () => {
     await waitFor(() => expect(logins()).toEqual(['petr']));
 
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(await screen.findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(logins()).toEqual(['petr']);
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -265,7 +265,7 @@ describe('installation account directory', () => {
 
   it('does not mistake a request-origin refusal for the calm grant refusal', async () => {
     renderAt({ [directoryPath]: problem(403, 'forbidden_origin') });
-    expect(await screen.findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Only an installation administrator can see this.' })).not.toBeInTheDocument();
   });
 

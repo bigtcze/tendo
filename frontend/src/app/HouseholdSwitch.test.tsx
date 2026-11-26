@@ -112,7 +112,7 @@ describe('household switcher', () => {
     renderApp();
     const { panel } = await openPanel();
 
-    expect(await within(panel).findByText('Your households couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await within(panel).findByText('Your households couldn’t be loaded. Try again in a moment.')).toBeVisible();
     await userEvent.click(within(panel).getByRole('button', { name: 'Try again' }));
 
     expect(await within(panel).findByRole('button', { name: 'Chalupa' })).toBeVisible();
@@ -309,7 +309,7 @@ describe('household switcher', () => {
     release();
 
     expect(await within(panel).findByRole('alert'))
-      .toHaveTextContent('Couldn’t move to that household. Check your connection and try again.');
+      .toHaveTextContent('Couldn’t move to that household. Try again in a moment.');
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(trigger).toHaveAccessibleName('Household: Veselí');
     expect(window.location.pathname).toBe('/');

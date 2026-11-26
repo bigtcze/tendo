@@ -247,7 +247,7 @@ describe('one account’s AI apps', () => {
     });
     await userEvent.click(await screen.findByRole('radio', { name: 'Not allowed' }));
     await userEvent.click(saveButton());
-    const alert = await screen.findByText('The settings couldn’t be saved. Check your connection and try again.');
+    const alert = await screen.findByText('The settings couldn’t be saved. Try again in a moment.');
     expect(alert.closest('[role="alert"]')).not.toBeNull();
     expect(radio(useGroup, 'Not allowed')).toBeChecked();
     await userEvent.click(saveButton());
@@ -301,7 +301,7 @@ describe('one account’s AI apps', () => {
   it('offers a retry when the account cannot be read, and none for a read refused for another reason', async () => {
     let attempt = 0;
     renderAt({ [readPath]: () => (++attempt === 1 ? problem(503, 'unavailable') : answer(policy(), 1)) });
-    expect(await screen.findByText('This account’s AI apps couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('This account’s AI apps couldn’t be loaded. Try again in a moment.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('radio', { name: 'Allowed' })).toBeVisible();
   });
@@ -314,7 +314,7 @@ describe('one account’s AI apps', () => {
 
   it('treats a read without its version as unusable rather than saving blind', async () => {
     renderAt({ [readPath]: json(200, policy()) });
-    expect(await screen.findByText('This account’s AI apps couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('This account’s AI apps couldn’t be loaded. Try again in a moment.')).toBeVisible();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
   });
 

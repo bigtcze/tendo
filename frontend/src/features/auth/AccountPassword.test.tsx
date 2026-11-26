@@ -209,7 +209,7 @@ describe('Account password section', () => {
     ['a spent throttle', passwordChange({ currentPassword: OLD, rateLimited: true }).routes,
       'Too many attempts. Wait a little, then try again.'],
     ['an unavailable Tendo', { [changePath]: json(503, { type: 'about:blank', title: 'x', status: 503, code: 'unavailable' }) },
-      'Tendo can’t be reached right now. Check your connection and try again.'],
+      'Tendo can’t be reached right now. Try again in a moment.'],
   ])('%s keeps the form usable so a retry is the whole recovery', async (_case, route, message) => {
     installFakeServer({ ...accountRoutes(), ...route });
     openAccount();

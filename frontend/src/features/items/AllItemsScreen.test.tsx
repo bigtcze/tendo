@@ -850,10 +850,10 @@ describe('All items', () => {
     await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
     await screen.findByRole('heading', { name: 'All items' });
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
-    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.'));
-    expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.');
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('This couldn’t be loaded. Try again in a moment.'));
+    expect(outcomeRegion()).toHaveTextContent('This couldn’t be loaded. Try again in a moment.');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('Check your connection and try again.', { selector: 'p:not(.sr-only)' })).toBeVisible();
+    expect(screen.getByText('This couldn’t be loaded. Try again in a moment.', { selector: 'p:not(.sr-only)' })).toBeVisible();
     expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -872,7 +872,7 @@ describe('All items', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'fail');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
-    expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.');
+    expect(outcomeRegion()).toHaveTextContent('This couldn’t be loaded. Try again in a moment.');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
     expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
@@ -982,7 +982,7 @@ describe('All items', () => {
     await screen.findByText('Item 1');
     await act(async () => releaseSubjects());
     await waitFor(() => expect(screen.queryByLabelText('For')).not.toBeInTheDocument());
-    expect(screen.getAllByText('Check your connection and try again.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('This couldn’t be loaded. Try again in a moment.').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
@@ -1040,9 +1040,9 @@ describe('All items', () => {
     const routes = itemRoutes(base, [makeItem(1)]);
     installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items/summary`]: json(500, {}) });
     app();
-    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.'));
-    expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.');
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('This couldn’t be loaded. Try again in a moment.'));
+    expect(outcomeRegion()).toHaveTextContent('This couldn’t be loaded. Try again in a moment.');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('Check your connection and try again.', { selector: 'p:not(.sr-only)' })).toBeVisible();
+    expect(screen.getByText('This couldn’t be loaded. Try again in a moment.', { selector: 'p:not(.sr-only)' })).toBeVisible();
   });
 });

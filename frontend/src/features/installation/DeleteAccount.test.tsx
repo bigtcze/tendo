@@ -345,7 +345,7 @@ describe('deleting an installation account', () => {
 
     await userEvent.click(submitButton(dialog));
     expect(await within(dialog).findByText(
-      'The account couldn’t be deleted. Check your connection and try again.',
+      'The account couldn’t be deleted. Try again in a moment.',
     )).toBeVisible();
     expect(screen.getByRole('dialog')).toBeVisible();
     expect(confirm).toHaveValue('petr');

@@ -41,6 +41,15 @@ describe('locale catalogs', () => {
     }
   });
 
+  it('never blames the person’s connection for a failure Tendo cannot attribute to it', () => {
+    // A failed request is as often a server error (5xx) as a lost network, and the client cannot tell which, so
+    // failure copy asks to try again instead of sending the person to check a connection that may be fine.
+    const blamesConnection = /check your connection|connection and try|zkontrolujte připojení/i;
+    for (const [key, value] of [...Object.entries(en), ...Object.entries(cs)]) {
+      expect(value, key).not.toMatch(blamesConnection);
+    }
+  });
+
   it('has no empty translations', () => {
     for (const [key, value] of [...Object.entries(en), ...Object.entries(cs)]) {
       expect(value.trim(), key).not.toBe('');

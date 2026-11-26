@@ -281,7 +281,7 @@ describe('installation household adding an account', () => {
     const dialog = await openDialog();
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Next page' }));
-    expect(await within(dialog).findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
     // The page in hand is still there, and the page that could not be read is the one asked for again.
     expect(within(dialog).getByRole('radio', { name: 'petr' })).toBeInTheDocument();
 
@@ -404,7 +404,7 @@ describe('installation household adding an account', () => {
     await waitFor(() => expect(within(dialog).getByRole('radio', { name: 'petr' })).toBeInTheDocument());
 
     await userEvent.type(loginField(), 'pet{Enter}');
-    expect(await within(dialog).findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Try again' }));
     expect(await within(dialog).findByRole('radio', { name: 'petr' })).toBeInTheDocument();
@@ -475,7 +475,7 @@ describe('installation household adding an account', () => {
     await choose(dialog, 'petr');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add to household' }));
 
-    expect(await within(dialog).findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await within(dialog).findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     // The reader keeps the account and the role they picked, so trying again is one press away.
     expect(within(dialog).getByRole('radio', { name: 'petr' })).toBeChecked();
     expect(within(dialog).getByRole('radio', { name: 'Member' })).toBeChecked();

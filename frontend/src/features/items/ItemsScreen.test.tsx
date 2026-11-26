@@ -723,7 +723,7 @@ describe('Home items', () => {
     // A refresh that fails keeps the rendered rows, so it must keep the overflow evidence and the link too.
     summaryFails = true;
     await userEvent.click(within(section).getAllByRole('button', { name: /^Done/ })[0]!);
-    await screen.findByText('Check your connection and try again.');
+    await screen.findByText('This couldn’t be loaded. Try again in a moment.');
     const refreshed = within(screen.getByRole('main')).getByRole('heading', { level: 2, name: 'Coming up 100 items' }).closest('section')!;
     expect(within(refreshed).getAllByRole('listitem')).toHaveLength(100);
     expect(within(refreshed).getByRole('link', { name: 'See all in All items' })).toHaveAttribute('href', '/items?status=upcoming');
@@ -1284,7 +1284,7 @@ describe('Home items', () => {
     app();
     const done = await screen.findByRole('button', { name: /Done:/ });
     await userEvent.click(done);
-    const completionNotice = (await screen.findByText('That didn’t work. Check your connection and try again.')).closest<HTMLElement>('[role="status"]')!;
+    const completionNotice = (await screen.findByText('That didn’t work. Try again in a moment.')).closest<HTMLElement>('[role="status"]')!;
     expect(within(completionNotice).getByRole('button', { name: 'Try again' })).toBeEnabled();
     await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
     await screen.findByText('“Renew passport” is done.');
@@ -1385,7 +1385,7 @@ describe('Home items', () => {
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     const key = requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
-    await screen.findByText('That didn’t work. Check your connection and try again.');
+    await screen.findByText('That didn’t work. Try again in a moment.');
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
     await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
@@ -1795,7 +1795,7 @@ describe('Home items', () => {
     });
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Try again in a moment.')).toBeVisible();
     expect(requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('If-Match')).toBe('"7"');
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText(/Next time: Jan 1, 2027/)).toBeVisible();
@@ -2277,7 +2277,7 @@ describe('Home items', () => {
       [`GET ${base}/items`]: () => json(400, { status: 400, code: 'invalid_query', parameter: 'attentionDate' }),
     });
     app();
-    await screen.findByText('Check your connection and try again.');
+    await screen.findByText('This couldn’t be loaded. Try again in a moment.');
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2);
     expect(requestsOf(fake.requests, 'GET', `${base}/items`)).toHaveLength(2);
   });
@@ -2308,7 +2308,7 @@ describe('Home items', () => {
     app();
     await screen.findByText('Stale error 0');
     await userEvent.click(screen.getByRole('button', { name: 'Show more (2 remaining)' }));
-    await screen.findByText('Check your connection and try again.');
+    await screen.findByText('This couldn’t be loaded. Try again in a moment.');
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2);
     expect(requestsOf(fake.requests, 'GET', `${base}/items`)).toHaveLength(3);
   });
@@ -2336,7 +2336,7 @@ describe('Home items', () => {
       [`GET ${base}/items`]: (request) => request.query.get('workflowState') === 'in_progress' && calls++ === 0 ? json(503) : json(200, { items: request.query.get('workflowState') === 'in_progress' ? [item({ id: 'other', workflowState: 'in_progress', attention: 'needs_attention' })] : [item()], nextCursor: null }),
     });
     app();
-    await screen.findByText('Check your connection and try again.');
+    await screen.findByText('This couldn’t be loaded. Try again in a moment.');
     expect(screen.queryByText('Renew passport')).not.toBeInTheDocument();
     expect(within(screen.getByRole('main')).queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]!);

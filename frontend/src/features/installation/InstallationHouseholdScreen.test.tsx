@@ -713,7 +713,7 @@ describe('installation household detail', () => {
     renderAt({
       [accountsPath]: () => (++attempt === 1 ? problem(503) : json(200, { items: [anna], nextCursor: null })),
     });
-    expect(await screen.findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('Accounts couldn’t be loaded. Try again in a moment.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(accountRows()).toHaveLength(1));
     expect(attempt).toBe(2);
