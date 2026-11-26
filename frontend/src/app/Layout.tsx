@@ -57,6 +57,13 @@ const MAIN_HOUSEHOLD = 'pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-are
   + ' sm:pb-[calc(var(--notice-clearance,0px)+6.5rem+env(safe-area-inset-bottom))]'
   + ' short:pb-[calc(var(--notice-clearance,0px)+1.5rem+env(safe-area-inset-bottom))]'
   + ' lg:col-start-2 lg:row-start-1 lg:pb-[calc(var(--notice-clearance,0px)+3rem)] lg:min-w-0';
+/**
+ * One content measure for every household page. Lists, item detail, People, Members and the Admin center end at the
+ * same 72rem from main's content edge, so on a wide screen no page stretches its rows across the whole canvas while
+ * another stops at a narrower cap. Below ~1460 px the column is narrower than the measure and fills it as before.
+ * Forms and reading text keep their own narrower measures inside it.
+ */
+const CONTENT_MEASURE = 'w-full max-w-6xl';
 const FOOTER = 'flex justify-center px-4 py-3 sm:px-6 lg:px-8 xl:px-10';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
@@ -98,7 +105,7 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
       </header>
       <div className={household ? BODY : 'contents'}>
         <main id="main" ref={mainRef} tabIndex={-1} className={`${shell === 'centered' ? MAIN_CENTERED : MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
-          {children}
+          {household ? <div className={CONTENT_MEASURE}>{children}</div> : children}
         </main>
         {navigation ? <HouseholdNavigation rail={household} /> : null}
       </div>
