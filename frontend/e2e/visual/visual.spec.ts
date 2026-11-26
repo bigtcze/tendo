@@ -488,18 +488,23 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   // visible sits after a fact on its own line, and every line-leading dot is clipped outside the line's box.
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    const factCount = await page.locator('main li[data-item-id] [data-item-meta] > [data-item-fact]').count();
-    expect(factCount, `metadata facts at ${width}`).toBeGreaterThanOrEqual(8);
-    const strays = await page.locator('main li[data-item-id] [data-item-meta]').evaluateAll((lines) => lines.flatMap((line) => {
-      const clip = line.parentElement!.getBoundingClientRect();
-      const units = [...line.querySelectorAll(':scope > [data-item-fact]')].map((unit) => unit.getBoundingClientRect());
-      return units.flatMap((unit, index) => {
-        const dot = line.querySelectorAll(':scope > [data-item-fact] > [data-item-separator]')[index].getBoundingClientRect();
-        const leadsLine = index === 0 || Math.abs(units[index - 1].top - unit.top) > 2;
-        const shown = dot.left >= clip.left - 0.5;
-        return leadsLine === shown ? [`${line.textContent} #${index} leads=${leadsLine} shown=${shown}`] : [];
+    const lines = await page.locator('main li[data-item-id] [data-item-meta]').evaluateAll((metas) => metas.map((meta) => {
+      const clip = meta.parentElement!.getBoundingClientRect();
+      const start = meta.getBoundingClientRect().left;
+      return [...meta.querySelectorAll(':scope > [data-item-meta-unit]')].map((unit, index) => {
+        // In a left-aligned flex-wrap line a unit starts a line exactly when it sits at the line box's left edge,
+        // whatever the heights of its neighbours.
+        const leadsLine = Math.abs(unit.getBoundingClientRect().left - start) < 1;
+        const shown = unit.querySelector(':scope > [data-item-separator]')!.getBoundingClientRect().left >= clip.left - 0.5;
+        return { text: unit.textContent, index, leadsLine, shown };
       });
     }));
+    const units = lines.flat();
+    expect(units.length, `metadata units at ${width}`).toBeGreaterThanOrEqual(8);
+    // The wrap case is really exercised: some fact after the first starts a line of its own.
+    expect(units.some((unit) => unit.index > 0 && unit.leadsLine), `a wrapped fact at ${width}`).toBe(true);
+    const strays = units.filter((unit) => unit.leadsLine === unit.shown || (unit.index === 0 && !unit.leadsLine))
+      .map((unit) => `${unit.text} #${unit.index} leads=${unit.leadsLine} shown=${unit.shown}`);
     expect(strays, `metadata separators at ${width}`).toEqual([]);
   }
   // The reset and the "Filters" toggle share a phone line: they must never overlap, in either locale, at

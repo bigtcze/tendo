@@ -449,7 +449,7 @@ describe('All items', () => {
   it('parts only the facts a row has: no dot is doubled or left over when a fact is absent', async () => {
     await openAllItems([makeItem(1, { title: 'Two facts', responsibleUserId: null, recurrence: null })]);
     const metadata = within(screen.getByRole('main')).getByText('Two facts').closest('li')!.querySelector('[data-item-meta]')!;
-    expect(metadata.querySelectorAll('[data-item-fact]')).toHaveLength(2);
+    expect(metadata.querySelectorAll('[data-item-meta-unit]')).toHaveLength(2);
     expect(metadata.textContent).toBe('·Café·Needs attention');
   });
 

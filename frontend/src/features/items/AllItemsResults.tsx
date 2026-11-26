@@ -71,7 +71,7 @@ function responsibleText(item: Item, members: Member[], userId: string, t: Trans
  * metadata line's -1rem shift into a clipped parent hides whichever dot starts a line.
  */
 function Parted({ children }: { children: ReactNode }) {
-  return <span data-item-fact className="inline-flex min-w-0 max-w-full items-center">
+  return <span data-item-meta-unit className="inline-flex min-w-0 max-w-full items-center">
     <span aria-hidden="true" data-item-separator className="w-4 shrink-0 select-none text-center text-muted">·</span>
     {children}
   </span>;
