@@ -160,6 +160,30 @@ describe('item creation', () => {
     expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
   });
 
+  it('moves focus from a successful catalogue retry on an editable recovery draft to the flagged For field', async () => {
+    const key = 'e'.repeat(32);
+    const body = { title: 'Refocus after retry', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    let subjectCalls = 0;
+    let release!: (response: Response) => void;
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [memberList]: memberPage(),
+      [subjectList]: () => ++subjectCalls === 1 ? json(503) : new Promise<Response>((resolve) => { release = resolve; }),
+      [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'subjectId', code: 'invalid_reference' }) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    const failure = await screen.findByText('People and things could not be loaded. Try again.');
+    const dialog = form.closest('dialog')!;
+    await userEvent.click(within(failure.parentElement!).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(subjectCalls).toBe(2));
+    await act(async () => release(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
+    expect(await within(form).findByRole('option', { name: 'Garage' })).toBeInTheDocument();
+    // The form never remounts, so its title autofocus cannot catch the retry; the field the 422 flagged takes focus.
+    await waitFor(() => expect(within(form).getByLabelText('For')).toHaveFocus());
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+  });
+
   it('a locked re-check after an editable draft whose catalogue failed keeps one Cancel', async () => {
     const key = 'd'.repeat(32);
     const body = { title: 'Locked after failure', subjectId: 'missing', recurrence: null };
@@ -180,6 +204,34 @@ describe('item creation', () => {
     // The catalogue error is back beside the locked form; only the form's action bar offers Cancel.
     expect(within(dialog).getByText('People and things could not be loaded. Try again.')).toBeVisible();
     expect(within(dialog).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+  });
+
+  it('moves focus from a successful catalogue retry beside a locked recovery form to Check again', async () => {
+    const key = 'f'.repeat(32);
+    const body = { title: 'Locked refocus', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    let posts = 0;
+    let subjectCalls = 0;
+    let release!: (response: Response) => void;
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [memberList]: memberPage(),
+      [subjectList]: () => ++subjectCalls === 1 ? json(503) : new Promise<Response>((resolve) => { release = resolve; }),
+      [`POST ${base}/items`]: () => ++posts === 1
+        ? json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'subjectId', code: 'invalid_reference' })
+        : Promise.reject(new Error('offline')) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('People and things could not be loaded. Try again.');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    const checkAgain = await within(form).findByRole('button', { name: 'Check again' });
+    expect(within(form).getByLabelText('For')).toBeDisabled();
+    const failure = screen.getByText('People and things could not be loaded. Try again.');
+    await userEvent.click(within(failure.parentElement!).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(subjectCalls).toBe(2));
+    await act(async () => release(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
+    await waitFor(() => expect(screen.queryByText('People and things could not be loaded. Try again.')).not.toBeInTheDocument());
+    // For is frozen while the create is unconfirmed, so the locked form's own action takes focus.
+    await waitFor(() => expect(checkAgain).toHaveFocus());
   });
 
   it('pending-create recovery renders immediately and retries unchanged despite failed subject fetches', async () => {

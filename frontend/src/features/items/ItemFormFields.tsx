@@ -21,6 +21,7 @@ type FormFieldsProps = FieldProps & {
   historyDisabled: boolean;
   titleRef?: RefObject<HTMLInputElement | null>;
   onTitleRef?: (node: HTMLInputElement | null) => void;
+  subjectRef?: RefObject<HTMLSelectElement | null>;
 };
 
 /**
@@ -66,11 +67,11 @@ function TitleField({ id, state, disabled, titleRef, onTitleRef }: TitleFieldPro
   </Field>;
 }
 
-function SubjectField({ id, errorId, state, disabled, subjects }: FieldProps & { subjects: Subject[] }) {
+function SubjectField({ id, errorId, state, disabled, subjects, subjectRef }: FieldProps & Pick<FormFieldsProps, 'subjects' | 'subjectRef'>) {
   const { t } = useI18n();
   return <Field id={controlId(id, 'subjectId')} label={t('items.subject')}>
     {(field) => <Select
-      disabled={disabled} value={state.draft.subjectId}
+      ref={subjectRef} disabled={disabled} value={state.draft.subjectId}
       onChange={(event) => state.update({ subjectId: event.target.value })}
       {...field} {...invalidProps(state, errorId, 'subjectId')}
     >

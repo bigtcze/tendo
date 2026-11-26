@@ -151,7 +151,8 @@ export function ItemsScreen(props: ItemsScreenProps) {
       members={add.members}
       initialValues={recovering ? add.pendingValues : add.retryDraft}
       noSubjectsRef={add.noSubjectsRef}
-       initialFocusRef={addInitialFocusRef}
+      subjectFieldRef={add.subjectFieldRef}
+      initialFocusRef={addInitialFocusRef}
       onSubmit={add.create}
       onCancel={cancelAddAndFocus}
       onOpenPeople={() => { add.cancelForPeople(); onOpenPeople(); }}
