@@ -27,7 +27,7 @@ export function useAddSubjectCatalogue(options: CatalogueOptions) {
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
   const subjectGeneration = useRef(0);
   const catalogueLoaded = useRef(false);
-  const { catalogueRetryRef, noSubjectsRef, markRetryFocus } = useCatalogueRetryFocus(subjectState);
+  const { catalogueRetryRef, noSubjectsRef, subjectFieldRef, markRetryFocus, clearRetryFocus } = useCatalogueRetryFocus(subjectState);
   const activeSubjects = useMemo(
     () => subjectScope === `${userId}:${householdId}` ? subjects : [],
     [subjectScope, userId, householdId, subjects],
@@ -84,6 +84,7 @@ export function useAddSubjectCatalogue(options: CatalogueOptions) {
   function cancel() {
     subjectGeneration.current++;
     setSubjectLoading(false);
+    clearRetryFocus();
   }
 
   /** After a rejected recovery attempt, the editable draft needs the catalogue that was never loaded. */
@@ -98,7 +99,7 @@ export function useAddSubjectCatalogue(options: CatalogueOptions) {
   });
 
   return {
-    activeSubjects, names, subjectLoading, subjectState, catalogueRetryRef, noSubjectsRef,
+    activeSubjects, names, subjectLoading, subjectState, catalogueRetryRef, noSubjectsRef, subjectFieldRef,
     open, retryCatalogue, cancel, loadIfMissing,
   };
 }
@@ -158,17 +159,37 @@ function useRecoverySubjectLookup(options: RecoveryLookupOptions) {
 function useCatalogueRetryFocus(subjectState: SubjectState) {
   const catalogueRetryRef = useRef<HTMLButtonElement>(null);
   const noSubjectsRef = useRef<HTMLButtonElement>(null);
+  const subjectFieldRef = useRef<HTMLSelectElement>(null);
   const catalogueRetryHadFocus = useRef(false);
+  const formShownAtRetry = useRef(false);
   useEffect(() => {
     if (subjectState === 'loading') return;
     const active = document.activeElement;
     if (catalogueRetryHadFocus.current && (active === catalogueRetryRef.current || active === document.body)) {
-      // A successful retry mounts ItemForm, which focuses its title field itself; an empty catalogue focuses its People and things action.
+      // A fresh form mounts with the catalogue and focuses its title itself. A recovery form was already mounted:
+      // an editable draft focuses the For field the catalogue fills, a locked one (For frozen) its Check again action.
+      // An empty catalogue focuses its People and things action.
       if (subjectState === 'error') catalogueRetryRef.current?.focus();
+      else if (formShownAtRetry.current) focusRecoveryForm(subjectFieldRef.current);
       else noSubjectsRef.current?.focus();
     }
-    catalogueRetryHadFocus.current = false;
+    clearRetryFocus();
   }, [subjectState]);
-  function markRetryFocus() { catalogueRetryHadFocus.current = document.activeElement === catalogueRetryRef.current; }
-  return { catalogueRetryRef, noSubjectsRef, markRetryFocus };
+  /** A cancelled retry never settles here (the state stays loading), so its intent must not reach the next open. */
+  function clearRetryFocus() {
+    catalogueRetryHadFocus.current = false;
+    formShownAtRetry.current = false;
+  }
+  function markRetryFocus() {
+    catalogueRetryHadFocus.current = document.activeElement === catalogueRetryRef.current;
+    formShownAtRetry.current = Boolean(subjectFieldRef.current?.isConnected);
+  }
+  return { catalogueRetryRef, noSubjectsRef, subjectFieldRef, markRetryFocus, clearRetryFocus };
+}
+
+/** Relies on ItemForm keeping its primary action (Check again while locked) as the form's only submit button. */
+function focusRecoveryForm(subjectField: HTMLSelectElement | null) {
+  if (!subjectField?.isConnected) return;
+  if (!subjectField.disabled) { subjectField.focus(); return; }
+  subjectField.form?.querySelector<HTMLButtonElement>('button[type="submit"]:not(:disabled)')?.focus();
 }

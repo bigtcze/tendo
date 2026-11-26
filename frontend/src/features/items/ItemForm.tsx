@@ -26,6 +26,8 @@ type ItemFormProps = {
   submittingLabel?: string;
   preserveDraftOnUnlock?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /** The For select, for callers that move focus to it after the form is already mounted. */
+  subjectRef?: RefObject<HTMLSelectElement | null>;
 };
 
 export function ItemForm(props: ItemFormProps) {
@@ -46,7 +48,7 @@ export function ItemForm(props: ItemFormProps) {
   >
     <ItemFormFields
       id={id} errorId={errorId} state={state} mode={mode} subjects={subjects} members={members}
-      titleRef={initialTitleRef}
+      titleRef={initialTitleRef} subjectRef={props.subjectRef}
       onTitleRef={(node) => { if (node && !notice && initialFocusRef) initialFocusRef.current = node; }}
       disabled={pendingOrLocked || (mode === 'edit' && busy)} historyDisabled={pendingOrLocked}
     />
