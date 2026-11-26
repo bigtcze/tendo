@@ -160,7 +160,8 @@ describe('one account’s connected apps', () => {
     await userEvent.click(disconnectFor('Claude Code'));
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['connectedApps.dialog.confirm'] }));
     const heading = await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] });
-    expect(heading).toHaveFocus();
+    // The heading renders before the screen's passive effect moves focus to it; wait for the focus itself.
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.queryByRole('region', { name: en['connectedApps.title'] })).not.toBeInTheDocument();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
   });
@@ -170,7 +171,8 @@ describe('one account’s connected apps', () => {
     await screen.findByText('Claude Code');
     await userEvent.click(disconnectFor('Claude Code'));
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['connectedApps.dialog.confirm'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
+    const focused = await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] });
+    await waitFor(() => expect(focused).toHaveFocus());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -184,7 +186,8 @@ describe('one account’s connected apps', () => {
     expect(await screen.findByText(en['accountAiApps.error.load'])).toBeVisible();
     await userEvent.click(disconnectFor('Claude Code'));
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['connectedApps.dialog.confirm'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
+    const focused = await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] });
+    await waitFor(() => expect(focused).toHaveFocus());
   });
 
   it('signs out when the session ended during a disconnect', async () => {
@@ -251,7 +254,8 @@ describe('one account’s connected apps', () => {
     await screen.findByText('Claude Code');
     await userEvent.click(allButton());
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['accountApps.all.confirm'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
+    const focused = await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] });
+    await waitFor(() => expect(focused).toHaveFocus());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -286,7 +290,8 @@ describe('one account’s connected apps', () => {
     await screen.findByText('Claude Code');
     await userEvent.click(allButton());
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en['accountApps.all.confirm'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] })).toHaveFocus();
+    const focused = await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] });
+    await waitFor(() => expect(focused).toHaveFocus());
   });
 
   it('puts focus on the refusal when Retry finds the grant gone', async () => {
@@ -295,7 +300,8 @@ describe('one account’s connected apps', () => {
     await within(await screen.findByRole('region', { name: en['connectedApps.title'] })).findByText(en['connectedApps.error.load']);
     answer = problem(403, 'instance_admin_required');
     await userEvent.click(within(section()).getByRole('button', { name: en['connectedApps.retry'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] })).toHaveFocus();
+    const focused = await screen.findByRole('heading', { level: 2, name: en['install.onlyAdmins.title'] });
+    await waitFor(() => expect(focused).toHaveFocus());
   });
 
   it('puts focus on the gone account when Show more finds it deleted', async () => {
@@ -305,7 +311,8 @@ describe('one account’s connected apps', () => {
     });
     await screen.findByText('Claude Code');
     await userEvent.click(screen.getByRole('button', { name: en['connectedApps.more'] }));
-    expect(await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] })).toHaveFocus();
+    const focused = await screen.findByRole('heading', { level: 2, name: en['accountAiApps.gone.title'] });
+    await waitFor(() => expect(focused).toHaveFocus());
   });
 
   it('gives the installation refusal when the list is refused for the grant', async () => {

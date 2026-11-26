@@ -333,7 +333,7 @@ describe('All items', () => {
     expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
   });
 
-  it('words the attention date by state so the words agree with the state tile and icon', async () => {
+  it('words the attention date by state so the words agree with the state icon', async () => {
     await openAllItems([
       makeItem(1, { title: 'Overdue result', attentionOn: '2025-11-18', attention: 'needs_attention' }),
       makeItem(2, { title: 'Upcoming result', attentionOn: '2026-02-15', attention: 'upcoming' }),
@@ -341,7 +341,7 @@ describe('All items', () => {
     ]);
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
     expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
-    // An open upcoming item keeps its mint "coming up" tile, so it names a plain attention date, never "Needs attention".
+    // An open upcoming item keeps its upcoming icon and tone, so it names a plain attention date, never "Needs attention".
     expect(row('Upcoming result').getByText('Attention date Feb 15, 2026')).toBeVisible();
     expect(row('Upcoming result').queryByText(/Needs attention/)).not.toBeInTheDocument();
     expect(row('Paused result').getByText('Paused · Attention date Mar 1, 2026')).toBeVisible();
@@ -423,7 +423,37 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
 
-  it('renders compact rows with a 44px title target, a real subject tile and the state in words', async () => {
+  it('reads like a Home row: subject named inline with its icon, no tile or pill, cadence on the same metadata line', async () => {
+    await openAllItems([makeItem(1, { title: 'Calm row', responsibleUserId: member.userId, recurrence: { intervalUnit: 'month', intervalValue: 1, mode: 'fixed' } })]);
+    const row = within(screen.getByRole('main')).getByText('Calm row').closest('li')!;
+    const metadata = row.querySelector('[data-item-meta]')!;
+    // The subject icon belongs to the subject's name, as on Home; no separate tile column precedes the title.
+    expect(row.querySelector('[data-subject-icon]')!.closest('[data-subject-pill]')).not.toBeNull();
+    expect(row.querySelector('[data-subject-icon]')!.closest('[data-item-meta]')).toBe(metadata);
+    // No filled pill or tile background anywhere in the row: state colour is carried by its words and icon only.
+    expect(row.querySelector('[class*="rounded-full"], [class*="rounded-xl"]')).toBeNull();
+    expect(row.querySelector('[class*="-bg"]')).toBeNull();
+    // Every fact is on the one metadata line: subject, state, who looks after it, then the cadence.
+    expect([...metadata.querySelectorAll('[data-subject-pill], [data-item-state], [data-item-responsible], [data-item-recurrence]')]
+      .map((node) => node.textContent)).toEqual(['Café', 'Needs attention', 'Looked after by you', '1 month · stays on the planned dates']);
+    // Facts are parted like Home's: each fact is one wrapping unit led by a decorative middle dot hidden from
+    // assistive technology. The line is shifted into a clipped parent so a line never starts on a dot; the real
+    // browser check in visual.spec.ts measures that at phone widths.
+    const units = [...metadata.children];
+    expect(units.map((unit) => [unit.firstElementChild!.matches('[data-item-separator][aria-hidden="true"]'), unit.firstElementChild!.textContent, unit.children.length]))
+      .toEqual(Array(4).fill([true, '·', 2]));
+    expect(metadata.className).toContain('-ml-4');
+    expect(metadata.parentElement!.className).toContain('overflow-hidden');
+  });
+
+  it('parts only the facts a row has: no dot is doubled or left over when a fact is absent', async () => {
+    await openAllItems([makeItem(1, { title: 'Two facts', responsibleUserId: null, recurrence: null })]);
+    const metadata = within(screen.getByRole('main')).getByText('Two facts').closest('li')!.querySelector('[data-item-meta]')!;
+    expect(metadata.querySelectorAll('[data-item-meta-unit]')).toHaveLength(2);
+    expect(metadata.textContent).toBe('·Café·Needs attention');
+  });
+
+  it('renders compact rows with a 44px title target, the subject type icon and the state in words', async () => {
     await openAllItems([makeItem(1, { title: 'A long Czech title: nejneobhospodarovavatelnejsiho příslušenství'.repeat(2) })]);
     const link = screen.getByRole('link', { name: /A long Czech title/ });
     const row = link.closest('li')!;
@@ -431,7 +461,7 @@ describe('All items', () => {
     expect(link).toHaveClass('min-h-11');
     expect(row).toHaveClass('pt-[11px]', 'pb-2');
     expect(metadata).toHaveClass('mt-0.5');
-    // The tile derives from the real subject type, and the state is written next to an icon rather than colour alone.
+    // The icon derives from the real subject type, and the state is written next to an icon rather than colour alone.
     expect(row.querySelector('[data-subject-icon]')).toHaveAttribute('data-subject-icon', 'person');
     expect(within(row as HTMLElement).getByText('Café')).toHaveAttribute('data-subject-pill');
     const state = row.querySelector('[data-item-state]')!;

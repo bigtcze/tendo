@@ -364,7 +364,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
   await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
   await page.reload();
   await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
-  // All items reuses the same state vocabulary: an upcoming item keeps its mint tile and names a plain date.
+  // All items reuses the same state vocabulary: an upcoming item keeps its upcoming icon and names a plain date.
   await page.goto('/items?status=upcoming');
   const upcomingRow = page.locator('main li[data-item-id]').filter({ hasText: 'Schedule the car inspection' });
   await expect(upcomingRow).toBeVisible();
@@ -447,20 +447,28 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await page.goto('/items');
   await waitForAllItemsSummary(page);
   for (const width of [320, 390, 768, 1024, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
-  // Density guard: the first two-line row (title + one metadata line carrying pill, state and responsible)
-  // stays as compact as a Home row at 1440. The row is chosen structurally, not by a fixture title.
+  // Density guard: a two-line row (title + one metadata line carrying subject, state and responsible) stays as
+  // compact as a Home row at 1440, and so does a repeating row, whose cadence joins that same line. Rows are
+  // chosen structurally, not by fixture title.
   await page.setViewportSize({ width: 1440, height: 900 });
   const compactRow = page.locator('main li[data-item-id]')
     .filter({ has: page.locator('[data-item-meta] [data-subject-pill]') })
     .filter({ has: page.locator('[data-item-meta] [data-item-state]') })
     .filter({ has: page.locator('[data-item-meta] [data-item-responsible]') })
-    .filter({ hasNot: page.locator('[data-item-recurrence]') })
     .first();
   await expect(compactRow, 'a two-line All items row exists at 1440').toHaveCount(1);
   const compactRowHeight = await compactRow.evaluate((row) => row.getBoundingClientRect().height);
   console.info(`visual-all-items-row-height height=${compactRowHeight}`);
   expect(compactRowHeight, 'two-line All items row height at 1440').toBeGreaterThanOrEqual(48);
   expect(compactRowHeight, 'two-line All items row height at 1440').toBeLessThanOrEqual(58);
+  const repeatingRow = page.locator('main li[data-item-id]')
+    .filter({ has: page.locator('[data-item-meta] [data-item-recurrence]') })
+    .first();
+  await expect(repeatingRow, 'a repeating All items row exists at 1440').toHaveCount(1);
+  const repeatingRowHeight = await repeatingRow.evaluate((row) => row.getBoundingClientRect().height);
+  console.info(`visual-all-items-repeating-row-height height=${repeatingRowHeight}`);
+  expect(repeatingRowHeight, 'repeating All items row height at 1440').toBeGreaterThanOrEqual(48);
+  expect(repeatingRowHeight, 'repeating All items row height at 1440').toBeLessThanOrEqual(58);
   // The desktop toolbar scans as one band: Show and the three refinements share a single row.
   const filterTops = await page.getByRole('main').getByRole('combobox')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
@@ -476,6 +484,29 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
   await expect(page.getByRole('main').getByRole('listitem').first()).toBeVisible();
   await capture(page, 'all-items-cs-390', 390, 900, false);
+  // A wrapped metadata line never starts or ends on a separator: at phone widths, in Czech, every dot that is
+  // visible sits after a fact on its own line, and every line-leading dot is clipped outside the line's box.
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const lines = await page.locator('main li[data-item-id] [data-item-meta]').evaluateAll((metas) => metas.map((meta) => {
+      const clip = meta.parentElement!.getBoundingClientRect();
+      const start = meta.getBoundingClientRect().left;
+      return [...meta.querySelectorAll(':scope > [data-item-meta-unit]')].map((unit, index) => {
+        // In a left-aligned flex-wrap line a unit starts a line exactly when it sits at the line box's left edge,
+        // whatever the heights of its neighbours.
+        const leadsLine = Math.abs(unit.getBoundingClientRect().left - start) < 1;
+        const shown = unit.querySelector(':scope > [data-item-separator]')!.getBoundingClientRect().left >= clip.left - 0.5;
+        return { text: unit.textContent, index, leadsLine, shown };
+      });
+    }));
+    const units = lines.flat();
+    expect(units.length, `metadata units at ${width}`).toBeGreaterThanOrEqual(8);
+    // The wrap case is really exercised: some fact after the first starts a line of its own.
+    expect(units.some((unit) => unit.index > 0 && unit.leadsLine), `a wrapped fact at ${width}`).toBe(true);
+    const strays = units.filter((unit) => unit.leadsLine === unit.shown || (unit.index === 0 && !unit.leadsLine))
+      .map((unit) => `${unit.text} #${unit.index} leads=${unit.leadsLine} shown=${unit.shown}`);
+    expect(strays, `metadata separators at ${width}`).toEqual([]);
+  }
   // The reset and the "Filters" toggle share a phone line: they must never overlap, in either locale, at
   // either phone width, expanded or collapsed.
   const assertFilterControlsDoNotOverlap = async (label: string) => {

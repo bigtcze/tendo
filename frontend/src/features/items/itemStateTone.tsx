@@ -32,14 +32,10 @@ export const itemStateLabelKey: Record<ItemState, MessageKey> = {
 export const itemStateTone: Record<ItemState, (typeof groupTone)[ItemGroup]> = {
   ...groupTone,
   done: {
-    dot: 'bg-done',
-    tile: 'bg-done-bg text-done',
     text: 'text-done',
     pill: 'border-done/30 bg-done-bg text-done',
   },
   archived: {
-    dot: 'bg-paused',
-    tile: 'bg-paused-bg text-paused',
     text: 'text-muted',
     pill: 'border-line bg-sand text-muted',
   },

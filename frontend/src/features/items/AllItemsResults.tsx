@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty-state';
@@ -22,7 +22,8 @@ const titleLink = 'relative z-10 flex min-h-11 max-w-full items-center rounded-l
   + '[overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent '
   + 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus';
 const addLink = `inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
-const subjectPill = 'inline-flex max-w-full items-center rounded-full bg-upcoming-bg px-2.5 py-0.5 text-meta font-semibold text-ink [overflow-wrap:anywhere]';
+// The subject reads as on Home: its type icon beside its name, no filled pill or separate tile column.
+const subjectClass = 'inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-ink [overflow-wrap:anywhere]';
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
 
@@ -51,7 +52,7 @@ export function outcomeText(view: ResultsView, context: Context, page: PageState
 }
 
 // Same wording as Home rows: only an open needs-attention item is "since" a date; every other state names a
-// plain attention date, so the words always agree with the tile and icon.
+// plain attention date, so the words always agree with the state icon.
 function attentionKey(item: Item): 'items.needsSince' | 'items.rowAttentionDate' {
   const open = item.workflowState === 'open' && !item.done && !item.archived;
   return open && item.attention === 'needs_attention' ? 'items.needsSince' : 'items.rowAttentionDate';
@@ -63,6 +64,17 @@ function responsibleText(item: Item, members: Member[], userId: string, t: Trans
   if (item.responsibleUserId === userId) return t('items.responsible.you');
   const login = members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
   return t('items.responsible.read', { name: login });
+}
+
+/**
+ * One fact with Home's decorative middle dot in a fixed 1rem box before it. Dot and fact wrap as one unit, and the
+ * metadata line's -1rem shift into a clipped parent hides whichever dot starts a line.
+ */
+function Parted({ children }: { children: ReactNode }) {
+  return <span data-item-meta-unit className="inline-flex min-w-0 max-w-full items-center">
+    <span aria-hidden="true" data-item-separator className="w-4 shrink-0 select-none text-center text-muted">·</span>
+    {children}
+  </span>;
 }
 
 function ItemRow({ item, subjectName, subjectType, members, userId, onOpenItem }: {
@@ -77,27 +89,35 @@ function ItemRow({ item, subjectName, subjectType, members, userId, onOpenItem }
   const status = attention && item.workflowState === 'open' && !item.done && !item.archived
     ? attention
     : [t(itemStateLabel(item)), attention].filter(Boolean).join(' · ');
-  return <li data-item-id={item.id} className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-3 px-4 pb-2 pt-[11px] xl:pb-0 xl:pt-2">
-    <span aria-hidden="true" data-subject-icon={subjectType ?? 'custom'}
-      className={`grid size-9 place-items-center rounded-xl ${tone.tile}`}>
-      <SubjectTypeIcon type={subjectType ?? 'custom'} />
-    </span>
-    <div className="min-w-0">
-      <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
-        className={titleLink}>{item.title}</NavLink>
-      <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta leading-snug">
-        <span data-subject-pill className={subjectPill}>{subjectName ?? t('items.subject.unknown')}</span>
-        <span data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
-          <ItemStateIcon state={state} className="size-4 shrink-0" />
-          <span className="[overflow-wrap:anywhere]">{status}</span>
-        </span>
+  const kind = subjectType ?? 'custom';
+  return <li data-item-id={item.id} className="px-4 pb-2 pt-[11px] xl:pb-0 xl:pt-2">
+    <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
+      className={titleLink}>{item.title}</NavLink>
+    {/* Every fact carries its own leading dot; the row shifts left by one dot box and clips it, so the dot that
+        would start any line (the first fact's, or one that wrapped) is hidden and none is left dangling. */}
+    <div className="overflow-hidden">
+      <div data-item-meta className="-ml-4 mt-0.5 flex flex-wrap items-center gap-y-1 text-meta leading-snug">
+        <Parted>
+          <span data-subject-pill className={subjectClass}>
+            <span aria-hidden="true" data-subject-icon={kind} className="inline-flex shrink-0 text-muted">
+              <SubjectTypeIcon type={kind} className="size-3.5" />
+            </span>
+            {subjectName ?? t('items.subject.unknown')}
+          </span>
+        </Parted>
+        <Parted>
+          <span data-item-state data-item-state-kind={state} className={`inline-flex min-w-0 items-center gap-1.5 font-semibold ${tone.text}`}>
+            <ItemStateIcon state={state} className="size-4 shrink-0" />
+            <span className="[overflow-wrap:anywhere]">{status}</span>
+          </span>
+        </Parted>
         {responsible
-          ? <span data-item-responsible className="text-muted [overflow-wrap:anywhere]">{responsible}</span>
+          ? <Parted><span data-item-responsible className="min-w-0 text-muted [overflow-wrap:anywhere]">{responsible}</span></Parted>
+          : null}
+        {item.recurrence
+          ? <Parted><span data-item-recurrence className="min-w-0 text-muted [overflow-wrap:anywhere]">{repeatSummary(t, item.recurrence, locale)}</span></Parted>
           : null}
       </div>
-      {item.recurrence
-        ? <p data-item-recurrence className="mt-0.5 text-meta text-muted">{repeatSummary(t, item.recurrence, locale)}</p>
-        : null}
     </div>
   </li>;
 }
