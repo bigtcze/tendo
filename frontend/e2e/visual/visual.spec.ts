@@ -193,6 +193,9 @@ async function openRevokeConfirmation(page: Page, locale: 'en' | 'cs', width: nu
   await pending.getByRole('button', { name: catalog['members.invitation.revoke'], exact: true }).click();
   const question = pending.getByText(catalog['members.invitation.revokeConfirm'], { exact: true });
   await expect(question).toBeVisible();
+  // Yes takes focus a task after the click, and that focus scrolls the row into view. Measure only once it has, so
+  // the text and the question are read from the same scroll position.
+  await expect(pending.getByRole('button', { name: catalog['members.invitation.yes'], exact: true })).toBeFocused();
   const after = await boxOf(text, `${label} invitation text`);
   expect(after.height, `${label}: revoke confirmation keeps the invitation text at its own height`)
     .toBeLessThanOrEqual(before.height + 1);
@@ -1250,7 +1253,11 @@ async function contentReach(page: Page) {
       range.selectNodeContents(text);
       for (const rect of range.getClientRects()) reach(rect);
     }
-    return { reach: Math.round(right - left), available: Math.round(available) };
+    // Where the page begins: its level-1 heading, the one element every page has at its leading edge. (Glyph boxes of
+    // wrapped metadata can sit a pixel left of the column, so the heading, not the leftmost text, marks the start.)
+    const heading = main.querySelector('h1');
+    const start = heading ? heading.getBoundingClientRect().left - left : Number.NaN;
+    return { start: Math.round(start), reach: Math.round(right - left), available: Math.round(available) };
   });
 }
 
@@ -1266,20 +1273,27 @@ test('Household pages share one content measure at 1920', async ({ browser }) =>
     ['People and things', '/people', async () => { await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible(); }],
     ['Members', '/members', async () => { await expect(page.getByRole('main').getByRole('list', { name: en['members.list.title'] })).toBeVisible(); }],
     ['Admin center', '/admin', async () => { await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible(); }],
+    ['Account', '/account', async () => { await expect(page.locator('#account-identity-heading')).toBeVisible(); }],
   ];
-  const reaches: Record<string, number> = {};
+  const spans: Record<string, { start: number; end: number }> = {};
+  const expected: Record<string, { start: number; end: number }> = {};
   for (const [name, path, settled] of pages) {
     await page.goto(path);
     await settled();
-    const { reach, available } = await contentReach(page);
-    reaches[name] = reach;
+    const { start, reach, available } = await contentReach(page);
     // The canvas is wider than the measure, so a page that fills its measure stops visibly short of main's edge.
     expect(available, `main content width at 1920 (${name})`).toBeGreaterThan(1152 + 100);
+    spans[name] = { start, end: reach };
+    // The measure sits in the middle of main, so the spare width is shared by both sides instead of piling up as one
+    // void on the right. Every household page starts at that one left edge and draws out to exactly the 72rem
+    // measure: none stretches across the canvas, none ends at its own cap. Account keeps its 48rem (768 px) form
+    // measure inside the centred column.
+    const inset = Math.round((available - 1152) / 2);
+    expected[name] = { start: inset, end: inset + (name === 'Account' ? 768 : 1152) };
   }
-  console.info(`visual-content-measure-1920 ${JSON.stringify(reaches)}`);
-  // Every page draws out to exactly that one 72rem measure: none stretches across the canvas, none ends at its own cap.
-  expect(reaches).toEqual(Object.fromEntries(pages.map(([name]) => [name, 1152])));
-  for (const [base, path] of [['wide-home', '/'], ['wide-people', '/people']] as const) {
+  console.info(`visual-content-measure-1920 ${JSON.stringify(spans)}`);
+  expect(spans).toEqual(expected);
+  for (const [base, path] of [['wide-home', '/'], ['wide-people', '/people'], ['wide-account', '/account']] as const) {
     await page.goto(path);
     await pages.find(([, candidate]) => candidate === path)![2]();
     await capture(page, `${base}-1920`, 1920, 1080, false);
