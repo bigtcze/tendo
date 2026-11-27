@@ -9,7 +9,7 @@ import type { Session } from './sessionApi';
 import { type StartResult } from './oidcApi';
 import { useLoginActions } from './useLoginActions';
 import { useOidcProviderStatus } from './useOidcProviderStatus';
-import { Heading } from '../../app/Heading';
+import { AUTH_TITLE_CLASS, Heading } from '../../app/Heading';
 
 const errorKeys: Record<'invalid' | 'rateLimited' | 'unavailable', MessageKey> = {
   invalid: 'login.error.invalid',
@@ -118,7 +118,7 @@ export function LoginScreen({ onSignedIn, notice, initialLogin, onSignInStart }:
 
   return (
     <section className="settle mx-auto w-full max-w-md lg:mt-10">
-      <Heading className="text-center text-h1 leading-8 font-semibold text-balance text-ink">{t('login.welcome')}</Heading>
+      <Heading className={AUTH_TITLE_CLASS}>{t('login.welcome')}</Heading>
       <div className="mt-8 w-full overflow-hidden rounded-2xl border border-line bg-raised">
         <LoginForm
           notice={notice}

@@ -1,4 +1,4 @@
-import { Heading } from '../../app/Heading';
+import { AUTH_TITLE_CLASS, Heading } from '../../app/Heading';
 import { Button, buttonLook } from '../../components/ui/button';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type MessageKey } from '../../i18n';
@@ -141,7 +141,7 @@ export function OidcContinueScreen({ onSignedIn, onCancelled, onExpired }: {
 
   return (
     <section className="settle mx-auto w-full max-w-md lg:mt-10">
-      <Heading className="text-center text-h1 leading-8 font-semibold text-balance text-ink">{title}</Heading>
+      <Heading className={AUTH_TITLE_CLASS}>{title}</Heading>
       {flow.load === 'loading' || flow.load === 'ready'
         ? <p className="mt-3 text-center text-base text-muted">{t('oidc.continue.intro')}</p>
         : null}
