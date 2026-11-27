@@ -98,8 +98,6 @@ export function ItemDetailActions(props: Props) {
     {props.editLoading ? <p role="status" className="mb-3 text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
     <div className="flex flex-wrap items-center gap-2">
       {live ? <LiveRow {...props} /> : null}
-      {/* Phones: Archive/Restore takes its own row at the band's start instead of floating alone at the right
-          edge of whatever row the wrapped actions left. From `sm` it sits at the end of the one-line band. */}
       <div className="mt-1 flex w-full flex-wrap items-center gap-2 sm:mt-0 sm:ml-auto sm:w-auto">{archive}</div>
     </div>
     {props.completionNotice ? <div className="mt-3"><CompletionNotice {...props} /></div> : null}

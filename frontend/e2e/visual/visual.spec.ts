@@ -378,7 +378,6 @@ async function assertDoneInWords(page: Page, locale: 'en' | 'cs', width: number)
   }
 }
 
-// The title target must be 44 px, win hit-testing at both edges, and start inside its group panel.
 // Item detail on a phone: Archive/Restore never floats alone at the right edge of a wrapped band. Below `sm` it
 // takes its own row at the band's left edge, at least 8 px below every other action, with a 44 px target.
 async function assertDetailArchiveRow(page: Page, locale: 'en' | 'cs', label: string) {
@@ -410,6 +409,8 @@ async function assertDetailArchiveRow(page: Page, locale: 'en' | 'cs', label: st
     expect(geometry.overflow, `no horizontal overflow at ${at}`).toBe(false);
   }
 }
+
+// The title target must be 44 px, win hit-testing at both edges, and start inside its group panel.
 async function assertTitleTargetGeometry(page: Page, width: number) {
   const row = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
   const link = row.getByRole('link', { name: 'Open item Replace the smoke alarm battery' });
@@ -818,7 +819,8 @@ test('Detail open, done and archived', async ({ browser }) => {
   const completion = await api(page, 'post', `${requiredFixture().apiRoot}/items/${item.id}/completions`, {}, { 'Idempotency-Key': crypto.randomUUID().replaceAll('-', ''), 'If-Match': etag ?? '' });
   expect(completion.status()).toBe(201);
   await page.reload();
-  await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: en['subjects.archive'], exact: true })).toBeVisible();
+  await expect(page.locator('main [data-action="detail-done"]')).toHaveCount(0);
   await assertDetailArchiveRow(page, 'en', 'detail-done-history');
   await captureScreen(page, 'detail-done-history', true);
   const archiveCurrent = await api(page, 'get', `${requiredFixture().apiRoot}/items/${item.id}`);
