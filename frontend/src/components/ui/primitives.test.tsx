@@ -52,9 +52,9 @@ describe('UI primitive behavior', () => {
     const ids = dialogs.map((dialog) => dialog.getAttribute('aria-labelledby'));
     expect(new Set(ids).size).toBe(2);
     expect(dialogs[0].className).toContain('w-full');
-    expect(dialogs[0].className).toContain('md:top-1/2');
-    expect(dialogs[0].className).toContain('md:mx-auto');
-    expect(dialogs[0].className).toContain('md:-translate-y-1/2');
+    // From md the sheet is centred by layout, never by a half-pixel transform (#459 add-cs-1440 flake).
+    expect(dialogs[0].className.split(' ')).toEqual(expect.arrayContaining(['md:inset-0', 'md:m-auto', 'md:h-fit']));
+    expect(dialogs[0].className).not.toMatch(/(^|\s)(md:)?-?translate-/);
     expect(dialogs[0].className).not.toContain('max-w-xl rounded-2xl');
     // Non-sheet dialogs win back the centring the UA reset loses to preflight's zero margin.
     expect(dialogs[1].className.split(' ')).toContain('m-auto');

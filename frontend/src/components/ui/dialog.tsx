@@ -81,8 +81,10 @@ export function Dialog({
   const sheetClasses = sheet
     ? [
       'fixed inset-x-0 bottom-0 top-0 m-0 h-dvh max-h-dvh w-full max-w-none rounded-none',
-      'md:inset-x-0 md:top-1/2 md:bottom-auto md:mx-auto md:my-0 md:-translate-y-1/2',
-      'md:h-auto md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:rounded-2xl',
+      // Centred by layout (inset 0, auto margins, fit-content height), never `translate(-50%)`: layout offsets are
+      // pixel-snapped at paint, a fractional transform is not, and it left the pinned header's edge between device rows.
+      'md:inset-0 md:m-auto',
+      'md:h-fit md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:rounded-2xl',
     ].join(' ')
     : '';
 
