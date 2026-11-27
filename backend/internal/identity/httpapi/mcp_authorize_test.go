@@ -540,3 +540,21 @@ func TestDecisionPerUserRateLimit(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
 }
+
+// TestDecisionWithoutBindingCookieNeverDecides: a signed-in browser that knows
+// the handle but lacks this consent's HttpOnly binding cookie gets the 404 and
+// the service is never asked to decide, so the handle alone cannot approve.
+func TestDecisionWithoutBindingCookieNeverDecides(t *testing.T) {
+	flow := &fakeMCPFlow{fakeMCPService: fakeMCPService{enabled: true}}
+	h := flowRouter(t, flow, signedIn(), mcpPublicURL)
+	for name, cookie := range map[string]string{
+		"no binding":        sessionCookieHeader,
+		"duplicate binding": sessionCookieHeader + "; " + bindingCookieName + "=" + testBinding + "; " + bindingCookieName + "=" + testBinding,
+	} {
+		headers := http.Header{"Content-Type": {"application/json"}, "Origin": {mcpPublicURL}, "Cookie": {cookie}}
+		w := mcpServe(h, http.MethodPost, decisionPath(), `{"decision":"approve"}`, headers, "192.0.2.90:1")
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "authorization_request_not_found") || flow.decideCalls != 0 {
+			t.Fatalf("%s: status=%d decideCalls=%d body=%s", name, w.Code, flow.decideCalls, w.Body)
+		}
+	}
+}

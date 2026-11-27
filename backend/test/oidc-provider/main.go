@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 type options struct {
@@ -108,11 +109,12 @@ func serveProvider(opts options, tlsEnabled bool) {
 		p.Server.URL = strings.TrimRight(opts.issuer, "/")
 	}
 	log.Printf("fake OIDC issuer=%s", p.Issuer())
-	mux := providerHandler(p)
+	server := &http.Server{Addr: opts.listen, Handler: providerHandler(p), ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	if tlsEnabled {
-		log.Fatal(http.ListenAndServeTLS(opts.listen, opts.tlsCert, opts.tlsKey, mux))
+		log.Fatal(server.ListenAndServeTLS(opts.tlsCert, opts.tlsKey))
 	}
-	log.Fatal(http.ListenAndServe(opts.listen, mux))
+	log.Fatal(server.ListenAndServe())
 }
 
 func providerHandler(p *testoidc.Provider) *http.ServeMux {

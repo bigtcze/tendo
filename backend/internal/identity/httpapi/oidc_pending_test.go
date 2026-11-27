@@ -410,3 +410,36 @@ func TestOIDCPendingDisabledDoesNotConsumeLimiter(t *testing.T) {
 		}
 	}
 }
+
+// On an https public URL the pending-account cookie is a __Host- cookie: Secure, HttpOnly, SameSite=Lax, Path=/,
+// no Domain. Clearing it on cancel uses the same name.
+func TestOIDCPendingCookiePolicyOnHTTPS(t *testing.T) {
+	const public = "https://tendo.test"
+	fake := &oidcHTTPFake{discardHandle: fakeToken, discardStatus: identity.OIDCPendingStatus{ExpiresAt: time.Now().Add(time.Minute), EmailVerified: true}}
+	sessions := &fakeSessionService{principal: identity.Principal{UserID: "jit-user", Login: "member-abcdefgh"}, expires: time.Now().Add(time.Hour)}
+	mux := oidcRouter(fake, public, sessions)
+
+	w := pendingRequest(t, mux, http.MethodPost, "/api/v1/auth/oidc/account/discard", "", map[string]string{"Origin": public}, &http.Cookie{Name: "__Host-tendo_session", Value: fakeToken})
+	if w.Code != 200 {
+		t.Fatalf("discard status=%d body=%s", w.Code, w.Body)
+	}
+	var pending *http.Cookie
+	for _, cookie := range w.Result().Cookies() {
+		if strings.Contains(cookie.Name, "tendo_oidc_pending") {
+			pending = cookie
+		}
+	}
+	if pending == nil || pending.Name != "__Host-tendo_oidc_pending" || pending.Value != fakeToken || !pending.Secure || !pending.HttpOnly ||
+		pending.SameSite != http.SameSiteLaxMode || pending.Path != "/" || pending.Domain != "" || pending.MaxAge != 600 {
+		t.Fatalf("pending cookie=%+v all=%+v", pending, w.Result().Cookies())
+	}
+
+	w = pendingRequest(t, mux, http.MethodDelete, "/api/v1/auth/oidc/pending", "", map[string]string{"Origin": public}, &http.Cookie{Name: "__Host-tendo_oidc_pending", Value: fakeToken})
+	if w.Code != 204 {
+		t.Fatalf("cancel status=%d body=%s", w.Code, w.Body)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "__Host-tendo_oidc_pending" || cookies[0].Value != "" || cookies[0].MaxAge >= 0 || !cookies[0].Secure {
+		t.Fatalf("cancel cookies=%+v", cookies)
+	}
+}

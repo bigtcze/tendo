@@ -52,10 +52,16 @@ linters:
       - path: _test\.go$
         linters: [errcheck]
         text: "Error return value of `[^`]*\\.Close` is not checked"
-      # gosec: tests and the test-only OIDC provider (internal/testoidc, test/oidc-provider, never linked into
-      # cmd/tendo) use fixed fixture credentials, math/rand for seeded property tests and plain httptest servers.
+      # gosec in tests and the test-only OIDC provider (internal/testoidc, test/oidc-provider, never linked into
+      # cmd/tendo): only the rule classes inherent to fixtures are accepted, namely fixed credentials (G101),
+      # unchecked cleanup (G104), plain httptest servers (G112), fixture integer conversions (G115), source-tree
+      # walks (G122), fixture cookies (G124), fixture and test-configured file reads (G304, G703), seeded
+      # math/rand (G404), fixture slicing (G602) and the fake identity provider's redirect to the client's
+      # redirect_uri (G710). Every other rule, such as TLS verification skips, SQL string formatting or servers
+      # without timeouts, still fails. Owner: each test's module.
       - path: (_test\.go$|^internal/testoidc/|^test/oidc-provider/)
         linters: [gosec]
+        text: '^G(101|104|112|115|122|124|304|404|602|703|710):'
       # Reviewed gosec exceptions in production code. Each names why the finding is not exploitable; matching is
       # exact (rule ID plus source line), so a new finding of the same kind elsewhere still fails the check.
       # G704: the container healthcheck dials its own readiness endpoint on loopback or the operator-configured
@@ -97,12 +103,14 @@ linters:
         source: '(int32\((limit|limit \+ 1|opts\.Limit|page\.Limit)\)|int32\([a-z]+(\.Recurrence(\.Value)?)\.Interval\.Value\))'
       # G124: cookies are always HttpOnly and SameSite=Lax; Secure follows TENDO_PUBLIC_URL (https in production,
       # plain http only for trusted local development), and on https the session and OIDC cookies use the __Host-
-      # prefix and the path-scoped MCP consent cookie uses __Secure-. gosec reports the multi-line literal, so this
-      # rule is file-scoped; the attributes are pinned by the cookie tests listed in
-      # docs/development/assurance-case.md#sessions-and-cookies. Owner: backend-identity.
+      # prefix and the path-scoped MCP consent cookie uses __Secure-. gosec cannot see that Secure is computed, so
+      # it flags each http.SetCookie literal; only those lines in these files are excluded. The attributes are
+      # pinned by the cookie tests listed in docs/development/assurance-case.md#sessions-and-cookies.
+      # Owner: backend-identity.
       - path: ^internal/identity/httpapi/(session|oidc|oidc_pending|mcp_authorize)\.go$
         linters: [gosec]
         text: G124
+        source: 'http\.SetCookie\(w, &http\.Cookie\{'
       # G101: names, not credentials: the OAuth token endpoint path and the public constant hashed at startup so
       # unknown-login sign-in costs the same as a wrong password. Owner: backend-identity.
       - path: ^internal/identity/(session\.go|httpapi/mcp_token_endpoint\.go)$

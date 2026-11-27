@@ -85,7 +85,7 @@ Enforcement: `internal/identity/httpapi/session.go`, `oidc.go`, `oidc_pending.go
 | Claim | Test | Layer |
 |---|---|---|
 | Session cookie attributes on https and http; token never in the body | `internal/identity/httpapi/session_test.go` `TestLoginCookiePolicyFollowsPublicURL` | unit |
-| OIDC flow and pending cookies | `internal/identity/httpapi/oidc_test.go` `TestOIDCStartCookiePolicy`; `internal/identity/httpapi/oidc_pending_test.go` `TestOIDCPendingCancelAndDiscard` | unit |
+| OIDC flow and pending-account cookies on https and http | `internal/identity/httpapi/oidc_test.go` `TestOIDCStartCookiePolicy`; `internal/identity/httpapi/oidc_pending_test.go` `TestOIDCPendingCookiePolicyOnHTTPS`, `TestOIDCPendingCancelAndDiscard` | unit |
 | MCP consent cookie | `internal/identity/httpapi/mcp_authorize_test.go` `TestAuthorizeSuccessSetsBindingCookieAndNeverReadsSession`, `TestAuthorizePlainHTTPUsesUnprefixedCookie` | unit |
 | Attributes survive the real proxies, with no `Domain` | `scripts/proxy_smoke_oidc.py` `assert_host_cookie_attrs` | smoke |
 | Only the digest is stored; sessions expire after 30 days | `internal/identity/session_test.go` `TestLoginStoresOnlyDigestAndExpiresInThirtyDays` | unit |
@@ -110,7 +110,7 @@ Enforcement: `internal/identity/oidc_stages.go` creates random state, browser bi
 | Claim | Test | Layer |
 |---|---|---|
 | Bad signature, wrong issuer, audience or `azp`, expiry, nonce mismatch, bad subject and disallowed algorithms are refused | `internal/identity/oidcprovider/provider_test.go` `TestProviderValidation`; `exchange_order_test.go` `TestExchangeValidationOrder` | unit |
-| PKCE S256 challenge, nonce and state are sent; the verifier is checked by the provider at exchange | `internal/identity/oidcprovider/provider_test.go` `TestProviderSuccessAndAuthorizationParameters` (the test provider in `internal/testoidc` refuses a wrong verifier) | unit |
+| PKCE S256 challenge, nonce and state are sent, and the verifier is sent at exchange | `internal/identity/oidcprovider/provider_test.go` `TestProviderSuccessAndAuthorizationParameters`; the test provider that checks the verifier is itself tested in `internal/testoidc/provider_test.go` | unit |
 | The callback is single use and strict | `internal/identity/oidc_test.go` `TestOIDCCallbackConsumeReplayCancelAndStrictParams` | unit |
 | Email trust is scoped to the issuer; one account per subject under concurrency | `internal/identity/postgres/oidc_jit_test.go` `TestOIDCJITEmailTrustIsIssuerScoped`, `TestOIDCJITConcurrentCallbacksSameSubjectCreateOneUser` | PG |
 | A provider outage does not affect local sign-in | `internal/identity/postgres/oidc_outage_test.go` `TestOIDCProviderOutageDoesNotAffectLocalLogin` | PG |
@@ -131,6 +131,11 @@ Enforcement: `internal/identity/mcp_authorize.go`, `mcp_token.go` and `mcp_polic
 
 The consent handle is a bearer secret for one pending consent. The browser keeps it in the address fragment, which is never sent to a server, and in `sessionStorage` only while the person finishes the consent (`frontend/src/features/mcp/connectEntry.ts`). It is also bound to the `HttpOnly` consent cookie, so the handle alone cannot approve a consent.
 
+| Claim | Test | Layer |
+|---|---|---|
+| Without this consent's binding cookie the request cannot be viewed or decided | `internal/identity/httpapi/mcp_authorize_test.go` `TestGetAuthorizationRequestRequiresSessionAndBinding`, `TestDecisionWithoutBindingCookieNeverDecides` | unit |
+| A wrong binding does not consume the pending request | `internal/identity/postgres/mcp_authorize_test.go` `TestAuthorizationRequestWrongBindingIsNotConsumed` | PG |
+
 ### Invitations and password-reset links
 
 Enforcement: invitation and reset tokens are stored as SHA-256 digests, are single use and expire; terminal rows keep no digest ([ADR 0007](../adr/0007-invitation-admission.md), [ADR 0024](../adr/0024-invitation-digest-retention.md), [ADR 0017](../adr/0017-password-reset-account-authority.md)).
@@ -144,14 +149,14 @@ Enforcement: invitation and reset tokens are stored as SHA-256 digests, are sing
 
 ### Secrets in logs
 
-Enforcement: the request log in `internal/platform/httpx` records route templates without query strings, replaces unsafe request IDs and logs faults with a fixed class. Errors that leave the database layer carry no connection details.
+Enforcement: the request log in `internal/platform/httpx` records route templates without query strings, replaces unsafe request IDs and logs faults with a fixed class. The serving-role check reports a fixed error without connection details.
 
 | Claim | Test | Layer |
 |---|---|---|
 | Query strings and unsafe request IDs are not logged | `internal/platform/httpx/server_test.go` `TestMiddlewareRequestIDAndSafeLogging`, `TestRecordFaultRaisesAccessLogToErrorWithFixedClass` | unit |
 | OIDC callback logs contain no code, state or cookie | `internal/identity/httpapi/oidc_test.go` `TestOIDCCallbackRequestLogOmitsSecrets` | unit |
 | MCP logs contain no code, token or verifier | `internal/identity/httpapi/mcp_authorize_log_test.go` `TestMCPRequestLogsCarryNoSecrets` | unit |
-| Database errors contain no URLs or role names | `internal/platform/database/serving_role_test.go` `TestValidateServingRoleAcceptsRuntimeAndRejectsMigrator` | PG |
+| The serving-role check error contains no URLs or role names | `internal/platform/database/serving_role_test.go` `TestValidateServingRoleAcceptsRuntimeAndRejectsMigrator` | PG |
 
 ### Reverse proxy trust
 
@@ -166,7 +171,7 @@ Enforcement: `internal/platform/httpx/origin.go` reads `Forwarded` or `X-Forward
 
 ### Database role and startup
 
-Enforcement: `cmd/tendo/startup.go` bootstraps the runtime role and migrates with the admin connection, then serves with the runtime role only after `internal/platform/database/serving_role.go` confirms it is not elevated ([ADR 0013](../adr/0013-app-startup-database-initialization.md)). SQL is written in sqlc query files and runs as parameterized statements; the only concatenated SQL is the bootstrap `GRANT`, whose identifiers are quoted with `pgx.Identifier.Sanitize`.
+Enforcement: `cmd/tendo/startup.go` bootstraps the runtime role and migrates with the admin connection, then serves with the runtime role only after `internal/platform/database/serving_role.go` confirms it is not elevated ([ADR 0013](../adr/0013-app-startup-database-initialization.md)). SQL is written in sqlc query files and runs as parameterized statements. Hand-written SQL is concatenated only with compile-time constants or with identifiers quoted by `pgx.Identifier.Sanitize` (the bootstrap `GRANT` statements).
 
 | Claim | Test | Layer |
 |---|---|---|
@@ -209,10 +214,11 @@ Every pull request and the local gate run these checks; a finding fails the buil
 
 - `golangci-lint` with `go vet`, `staticcheck`, `errcheck` and [gosec](https://github.com/securego/gosec) for security-oriented analysis of production Go code (`backend/.golangci.yml`);
 - ESLint and TypeScript strict type checking for the frontend;
-- `npm audit --audit-level=moderate` for the API tooling and the frontend;
-- Dependabot alerts and Renovate updates for dependencies ([dependencies](dependencies.md)).
+- `npm audit --audit-level=moderate` for the API tooling and the frontend.
 
-gosec does not check tests or the test-only OIDC provider (`internal/testoidc`, `test/oidc-provider`), which are never linked into `cmd/tendo`. Each accepted production finding is an exclusion rule in `backend/.golangci.yml` that names the gosec rule, the file and, where possible, the exact source line, with the reason it cannot be exploited and the owning module. `exclusions.warn-unused` reports a rule that no longer matches anything.
+Outside the build, Dependabot alerts and Renovate updates track vulnerable and outdated dependencies ([dependencies](dependencies.md)).
+
+In tests and the test-only OIDC provider (`internal/testoidc`, `test/oidc-provider`, never linked into `cmd/tendo`), only the gosec rules inherent to fixtures are accepted, such as fixed credentials and seeded `math/rand`; every other rule still fails. Each accepted production finding is an exclusion rule in `backend/.golangci.yml` that names the gosec rule, the file and, where possible, the exact source line, with the reason it cannot be exploited and the owning module. The configuration is the canonical list; the table below summarizes it. `exclusions.warn-unused` reports a rule that no longer matches anything.
 
 | Rule | Where | Why it is accepted |
 |---|---|---|
@@ -220,7 +226,7 @@ gosec does not check tests or the test-only OIDC provider (`internal/testoidc`, 
 | G705 (XSS) | `internal/platform/webui/webui.go` | Writes files embedded in the binary at build time, never request input |
 | G115 (integer conversion) | `internal/identity/postgres/oidc_jit.go` | Intended bit-for-bit reinterpretation of a SHA-256 prefix as a PostgreSQL advisory-lock key |
 | G115 | `internal/{item,subject,household}` create fingerprints | Length prefixes of fields from bodies capped far below 2^32 |
-| G115 | `internal/*/postgres` page limits and recurrence intervals | Services clamp limits to at most 100 and validate intervals to 1..999 before the repository |
+| G115 | `internal/*/postgres` page limits and recurrence intervals | Services validate or clamp limits to at most 100 (plus one look-ahead row) and validate intervals to 1..999 before the repository |
 | G115 | `internal/item/postgres/item_rows.go` | Anchor days are validated to 1..31 |
 | G124 (cookie attributes) | `internal/identity/httpapi` cookie writers | Cookies are `HttpOnly` and `SameSite=Lax`, `Secure` on https; see [sessions and cookies](#sessions-and-cookies) |
 | G101 (hardcoded credentials) | `internal/identity/session.go`, `httpapi/mcp_token_endpoint.go` | A public dummy-password constant used for timing equalization, and the token endpoint path |
@@ -234,3 +240,5 @@ These are not covered by an automated test today. None is a known vulnerability.
 - Bootstrap identifier quoting is not tested with an unusual database name.
 - No end-to-end browser test sends a cross-origin POST; the origin rules are covered by unit and proxy smoke tests.
 - No end-to-end test renders hostile text in item or subject names; rendering relies on JSX escaping and the CSP.
+- No lint rule forbids `dangerouslySetInnerHTML`, `innerHTML` or `eval` in frontend production code; their absence is checked only by review.
+- The page-limit conversion exclusion matches by pattern across the four PostgreSQL repository packages, and the bound it relies on is enforced by the services, not by the repositories.
