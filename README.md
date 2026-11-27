@@ -83,7 +83,7 @@ For contributors:
 
 - [Development and tests](docs/development/testing.md), [runtime](docs/development/runtime.md), [frontend](docs/development/frontend.md), [API](docs/development/api.md), and [release process](docs/development/release.md)
 
-Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
+Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues). Report security vulnerabilities privately as described in the [security policy](.github/SECURITY.md), never in a public issue. To contribute, read [contributing](CONTRIBUTING.md), the [code of conduct](CODE_OF_CONDUCT.md), and [governance](GOVERNANCE.md).
 
 ## Project status and license
 
