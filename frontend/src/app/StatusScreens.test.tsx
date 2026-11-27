@@ -45,7 +45,7 @@ describe('secondary status screens', () => {
     const heading = screen.getByRole('heading', { level: 1, name: title });
     const column = heading.parentElement!;
     expect(column).toHaveClass('mx-auto', 'w-full', 'max-w-md', 'text-center', 'text-balance');
-    // The sentence wraps prettily rather than balanced, so a short sentence is not split mid-phrase.
+    // The sentence wraps with text-pretty rather than being balanced, so its last line is never a single word.
     expect(heading.nextElementSibling).toHaveClass('text-pretty');
     const action = container.querySelector('[data-variant="primary"]')!;
     expect(action.parentElement).toHaveClass('flex', 'justify-center');
