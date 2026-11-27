@@ -379,6 +379,37 @@ async function assertDoneInWords(page: Page, locale: 'en' | 'cs', width: number)
 }
 
 // The title target must be 44 px, win hit-testing at both edges, and start inside its group panel.
+// Item detail on a phone: Archive/Restore never floats alone at the right edge of a wrapped band. Below `sm` it
+// takes its own row at the band's left edge, at least 8 px below every other action, with a 44 px target.
+async function assertDetailArchiveRow(page: Page, locale: 'en' | 'cs', label: string) {
+  const words = locale === 'cs' ? cs : en;
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const band = page.locator('main [data-item-actions]');
+    await expect(band).toBeVisible();
+    const geometry = await band.evaluate((node, names) => {
+      const box = node.getBoundingClientRect();
+      const buttons = [...node.querySelectorAll('button')].map((button) => ({
+        name: button.textContent?.trim() ?? '', rect: button.getBoundingClientRect(),
+      }));
+      const archive = buttons.find((button) => names.includes(button.name));
+      const others = buttons.filter((button) => button !== archive);
+      return {
+        found: archive !== undefined,
+        leftOffset: archive ? Math.abs(archive.rect.left - box.left) : Number.NaN,
+        gapBelowOthers: archive && others.length > 0 ? archive.rect.top - Math.max(...others.map((other) => other.rect.bottom)) : null,
+        heights: buttons.map((button) => Math.round(button.rect.height * 100) / 100),
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    }, [words['subjects.archive'], words['subjects.restore']]);
+    const at = `${label} ${locale} ${width}`;
+    expect(geometry.found, `Archive or Restore in the band at ${at}`).toBe(true);
+    expect(geometry.leftOffset, `Archive starts at the band's left edge at ${at}`).toBeLessThanOrEqual(1);
+    if (geometry.gapBelowOthers !== null) expect(geometry.gapBelowOthers, `Archive sits on its own row below the other actions at ${at}`).toBeGreaterThanOrEqual(8);
+    for (const height of geometry.heights) expect(height, `band target height at ${at}`).toBeGreaterThanOrEqual(44);
+    expect(geometry.overflow, `no horizontal overflow at ${at}`).toBe(false);
+  }
+}
 async function assertTitleTargetGeometry(page: Page, width: number) {
   const row = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
   const link = row.getByRole('link', { name: 'Open item Replace the smoke alarm battery' });
@@ -777,6 +808,7 @@ test('Detail open, done and archived', async ({ browser }) => {
   const item = requiredFixture().items[0];
   await page.goto(`/items/${item.id}`);
   await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible();
+  await assertDetailArchiveRow(page, 'en', 'detail-open');
   await captureScreen(page, 'detail-open', true);
   await darkScreen(browser, statePath, `/items/${item.id}`, 'detail');
   await page.goto(`/items/${item.id}`);
@@ -785,11 +817,17 @@ test('Detail open, done and archived', async ({ browser }) => {
   expect(etag).toBeTruthy();
   const completion = await api(page, 'post', `${requiredFixture().apiRoot}/items/${item.id}/completions`, {}, { 'Idempotency-Key': crypto.randomUUID().replaceAll('-', ''), 'If-Match': etag ?? '' });
   expect(completion.status()).toBe(201);
-  await page.reload(); await captureScreen(page, 'detail-done-history', true);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
+  await assertDetailArchiveRow(page, 'en', 'detail-done-history');
+  await captureScreen(page, 'detail-done-history', true);
   const archiveCurrent = await api(page, 'get', `${requiredFixture().apiRoot}/items/${item.id}`);
   const archived = await api(page, 'patch', `${requiredFixture().apiRoot}/items/${item.id}`, { archived: true }, { 'If-Match': archiveCurrent.headers()['etag'] ?? '' });
   expect(archived.status()).toBe(200);
-  await page.reload(); await captureScreen(page, 'detail-archived', true);
+  await page.reload();
+  await expect(page.getByRole('button', { name: en['subjects.restore'], exact: true })).toBeVisible();
+  await assertDetailArchiveRow(page, 'en', 'detail-archived');
+  await captureScreen(page, 'detail-archived', true);
   await context.close();
 });
 
@@ -1436,6 +1474,7 @@ test('Czech Home, add form and detail', async () => {
     // Cancel lives inside the form; the dialog's own close is a separate icon in the header, so no `.first()` is needed.
     await page.getByRole('dialog').getByRole('form').getByRole('button', { name: cs['items.cancel'], exact: true }).click();
     await page.goto(`/items/${requiredFixture().items[0].id}`);
+    await assertDetailArchiveRow(page, 'cs', 'detail-cs');
     await captureScreen(page, 'detail-cs', true);
     await context.close();
   } finally {
