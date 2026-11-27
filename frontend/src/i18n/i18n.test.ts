@@ -56,9 +56,9 @@ describe('locale catalogs', () => {
     const keys = ['onboarding.error.setupCodeEmpty', 'onboarding.error.setupCode'] as const;
     for (const key of keys) {
       expect(en[key], key).toMatch(/\bsetup code\b/i);
-      expect(cs[key], key).toMatch(/\bjednorázový kód\b/iu);
+      expect(cs[key], key).toMatch(/(?<!\p{L})jednorázový kód(?!\p{L})/iu);
     }
-    for (const [key, value] of Object.entries(cs)) expect(value, key).not.toMatch(/instalační kód/iu);
+    for (const [key, value] of Object.entries(cs)) expect(value, key).not.toMatch(/instalačn\p{L}*\s+kód/iu);
   });
 
   it('never blames the person’s connection for a failure Tendo cannot attribute to it', () => {
