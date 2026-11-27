@@ -36,7 +36,7 @@ export const cs: Record<MessageKey, string> = {
   'onboarding.owner.section': 'Vytvořte účet správce',
   'onboarding.owner.intro': 'Tímto uživatelským jménem a heslem se budete přihlašovat a spravovat domácnost.',
   'onboarding.setupCode': 'Jednorázový kód pro první nastavení',
-  'onboarding.setupCode.hint': 'Najdete ho v soukromém souboru .env na počítači, kde bylo Tendo nainstalováno. Nikomu ho neposílejte.',
+  'onboarding.setupCode.hint': 'Kód má ten, kdo Tendo zřídil; návod k instalaci Tenda ukazuje, kde ho najít. Zadávejte ho jen sem.',
   'onboarding.householdName': 'Název domácnosti',
   'onboarding.householdName.placeholder': 'Rodina Novákových',
   'onboarding.login': 'Uživatelské jméno',

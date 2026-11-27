@@ -41,6 +41,15 @@ describe('locale catalogs', () => {
     }
   });
 
+  it('never sends the person to server files or settings names', () => {
+    // The person setting up a household may not run the server; server file and variable names belong in the admin
+    // docs, never in the app (UX "Language": human wording only).
+    const serverInternals = /(?<![\w.])\.env\b|\bTENDO_[A-Z_]+|\benvironment variable|proměnn\p{L}* prostředí/iu;
+    for (const [key, value] of [...Object.entries(en), ...Object.entries(cs)]) {
+      expect(value, key).not.toMatch(serverInternals);
+    }
+  });
+
   it('never blames the person’s connection for a failure Tendo cannot attribute to it', () => {
     // A failed request is as often a server error (5xx) as a lost network, and the client cannot tell which, so
     // failure copy asks to try again instead of sending the person to check a connection that may be fine.
