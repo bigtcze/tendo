@@ -7,6 +7,12 @@ export function useScreenTransitions() {
   return useContext(ScreenTransitionContext);
 }
 
+/**
+ * The title of the centred sign-in family (login, reset link, OIDC continue, AI app consent). Balanced lines keep a
+ * wrapped title from leaving one word alone on its last line (#459).
+ */
+export const AUTH_TITLE_CLASS = 'text-center text-h1 leading-8 font-semibold text-balance text-ink';
+
 /** Screen heading (h1). After a screen change it receives focus so assistive tech lands on the new screen. */
 export function Heading({ className, children, headingRef }: {
   className?: string;

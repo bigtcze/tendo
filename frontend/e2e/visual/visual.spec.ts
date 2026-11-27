@@ -129,7 +129,49 @@ async function assertSignedOutBrandNamed(page: Page, label: string) {
     expect(geometry.right, `${label} wordmark inside the viewport at ${width}`).toBeLessThanOrEqual(width);
     expect(geometry.clipped, `${label} wordmark clipped at ${width}`).toBe(false);
     expect(geometry.hidden, `${label} wordmark hidden from assistive tech at ${width}`).toBe(false);
+    await assertHeadingLastLineNotAlone(page, `${label} at ${width}`);
   }
+}
+
+/**
+ * The title of a page whose bar holds only the brand never leaves one word alone on its last line (#459 minor
+ * finding: "Choose a new password" left "password" alone at 320). Words are whitespace-separated runs across the
+ * whole heading, so a word split over text nodes (a value in `bdi`) counts once, and each word is placed on the line
+ * where it starts, measured in the rendered page with Inter loaded, so the check follows the real font, width and
+ * language rather than a class name. A title that carries an app's own name (`bdi`, the consent pages) is checked
+ * as a measurement only and exempt from the rule: its words are the app's, and a three-word title such as
+ * "Connect Notes Assistant?" always leaves one word alone on one of its two lines at 320, so the app's own name
+ * decides which line that is.
+ */
+async function assertHeadingLastLineNotAlone(page: Page, label: string) {
+  await assertInterReady(page, label);
+  const lines = await page.getByRole('heading', { level: 1 }).evaluate((heading) => {
+    const tops: number[] = [];
+    let inWord = false;
+    const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent ?? '';
+      for (let index = 0; index < text.length; index += 1) {
+        const space = /\s/.test(text[index]);
+        if (!space && !inWord) {
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + 1);
+          const box = range.getClientRects()[0];
+          if (box) tops.push(Math.round(box.top));
+        }
+        inWord = !space;
+      }
+    }
+    const rows: number[] = [];
+    for (const top of tops) {
+      if (rows.length === 0 || Math.abs(top - rows[rows.length - 1]) > 2) rows.push(top);
+    }
+    const last = tops.filter((top) => Math.abs(top - rows[rows.length - 1]) <= 2).length;
+    return { words: tops.length, rows: rows.length, last, appName: heading.querySelector('bdi') !== null };
+  });
+  expect(lines.words, `${label}: words measured in the title`).toBeGreaterThan(0);
+  if (lines.rows > 1 && !lines.appName) expect(lines.last, `${label}: words on the title's last line`).toBeGreaterThan(1);
 }
 
 async function captureScreen(page: Page, base: string, fullPage = false) {
