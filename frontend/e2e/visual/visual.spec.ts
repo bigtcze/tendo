@@ -101,6 +101,37 @@ async function openCreate(page: Page) {
   await expect(dialog.getByLabel(en['install.create.name'], { exact: true })).toBeFocused();
   return dialog;
 }
+/**
+ * A bar with no household or account controls (signed out, setup, invitation, reset, consent) holds nothing but the
+ * brand, so it names the app at every width (#459 F20): the visible "Tendo" wordmark sits beside the tile, unclipped
+ * and inside the viewport, at the phone widths too. The caller restores its own viewport afterwards through capture().
+ */
+async function assertSignedOutBrandNamed(page: Page, label: string) {
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const banner = page.getByRole('banner');
+    const name = banner.getByText(en['app.name'], { exact: true });
+    await expect(name, `${label} wordmark at ${width}`).toHaveCount(1);
+    await expect(name, `${label} wordmark visible at ${width}`).toBeVisible();
+    const geometry = await name.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      // Clipping comes from an ancestor: any wrapper up to the bar that clips its overflow must contain the wordmark.
+      let clipped = false;
+      for (let el = node.parentElement; el && el.tagName !== 'BODY'; el = el.parentElement) {
+        const style = getComputedStyle(el);
+        const outer = el.getBoundingClientRect();
+        if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && (outer.left > box.left + 0.5 || outer.right < box.right - 0.5 || outer.top > box.top + 0.5 || outer.bottom < box.bottom - 0.5)) clipped = true;
+        if (el.tagName === 'HEADER') break;
+      }
+      return { width: box.width, right: box.right, clipped, hidden: node.closest('[aria-hidden="true"]') !== null };
+    });
+    expect(geometry.width, `${label} wordmark width at ${width}`).toBeGreaterThan(20);
+    expect(geometry.right, `${label} wordmark inside the viewport at ${width}`).toBeLessThanOrEqual(width);
+    expect(geometry.clipped, `${label} wordmark clipped at ${width}`).toBe(false);
+    expect(geometry.hidden, `${label} wordmark hidden from assistive tech at ${width}`).toBe(false);
+  }
+}
+
 async function captureScreen(page: Page, base: string, fullPage = false) {
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -402,6 +433,7 @@ test('onboarding and empty Home', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: en['onboarding.title'] })).toBeVisible();
   await expect(page.locator('#onboarding-timezone')).toHaveValue(TIME_ZONE);
+  await assertSignedOutBrandNamed(page, 'onboarding');
   for (const width of [320, 390, 768, 1440]) await capture(page, `onboarding-${width}`, width, width === 320 ? 640 : 900, true);
   await page.evaluate(() => { localStorage.setItem('tendo.theme', 'dark'); document.documentElement.dataset.theme = 'dark'; });
   for (const width of [390, 1440]) await capture(page, `onboarding-dark-${width}`, width, 900, false);
@@ -882,6 +914,7 @@ test('Members owner and non-owner', async ({ browser }) => {
   await expect(invitePage.getByLabel(en['invite.login'])).toBeVisible();
   await expect(invitePage.getByLabel(en['onboarding.password'])).toBeVisible();
   await expect(invitePage.getByRole('button', { name: en['invite.create'], exact: true })).toBeVisible();
+  await assertSignedOutBrandNamed(invitePage, 'invite-accept');
   await captureScreen(invitePage, 'invite-accept', true);
   await inviteContext.close();
   const memberContext = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
@@ -1313,6 +1346,7 @@ test('Not found signed in and signed out', async ({ browser }) => {
   await signedOutPage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   await signedOutPage.goto('/no-such-page');
   await expect(signedOutPage.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+  await assertSignedOutBrandNamed(signedOutPage, 'not-found-signed-out');
   await captureScreen(signedOutPage, 'not-found-signed-out');
   await signedOut.close();
 });
@@ -1327,6 +1361,7 @@ test('Signed-out connection error', async ({ browser }) => {
   }));
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: en['app.error.title'] })).toBeVisible();
+  await assertSignedOutBrandNamed(page, 'error-screen');
   await captureScreen(page, 'error-screen');
   await context.close();
 });
@@ -1334,7 +1369,10 @@ test('Signed-out connection error', async ({ browser }) => {
 test('Signed-out login and login error', async ({ browser }) => {
   const context = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
   const page = await context.newPage(); await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
-  await page.goto('/login'); await captureScreen(page, 'login', true);
+  await page.goto('/login');
+  await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+  await assertSignedOutBrandNamed(page, 'login');
+  await captureScreen(page, 'login', true);
   await page.getByLabel(en['onboarding.login'], { exact: true }).fill('unknown_visual_login');
   await page.getByLabel(en['login.password'], { exact: true }).fill('invalid-visual-password');
   await page.getByRole('button', { name: en['login.submit'], exact: true }).click();
@@ -1462,6 +1500,7 @@ test('Reset-password screen', async ({ browser }) => {
 
   const light = await openReset(visualResetLink);
   await expect(light.page.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+  await assertSignedOutBrandNamed(light.page, 'reset-password');
   await capture(light.page, 'reset-password-light-1440', 1440, 900, true);
   await capture(light.page, 'reset-password-light-390', 390, 900, true);
   await light.context.close();
@@ -1483,6 +1522,7 @@ test('Reset-password screen', async ({ browser }) => {
   await invalidPage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   await invalidPage.goto('/reset-password#not-a-real-token');
   await expect(invalidPage.getByRole('heading', { level: 1, name: en['reset.invalid.title'] })).toBeVisible();
+  await assertSignedOutBrandNamed(invalidPage, 'reset-password-invalid');
   await capture(invalidPage, 'reset-password-invalid-390', 390, 900, true);
   await invalid.close();
 });
@@ -1591,6 +1631,8 @@ test('MCP consent and Connected apps', async ({ browser }) => {
     await expect(allow(catalog)).toBeDisabled();
   };
   await settled(en);
+  // The consent page has only the brand in its bar, so it names the app at phone widths too.
+  await assertSignedOutBrandNamed(page, 'consent');
   await captureScreen(page, 'consent', true);
   await page.clock.runFor(1_000);
   await expect(allow(en)).toBeEnabled();
