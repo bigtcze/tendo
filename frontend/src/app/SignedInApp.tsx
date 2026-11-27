@@ -166,7 +166,7 @@ function renderHouseholdRecords(props: Props, householdId: string) {
       householdId={householdId}
       login={session.login}
       userId={session.userId}
-      onBack={navigation.goHome}
+      onAdd={navigation.openAddItem}
       onSignedOut={sessionActions.sessionEnded}
       onOpenItem={navigation.openItemFromAllItems}
       onArchivedViewChange={navigation.reportItemsView}
@@ -217,6 +217,8 @@ function renderRouteScreen(
     onOpenPeople={navigation.openPeople}
     onOpenAllItems={navigation.openAllItemsForStatus}
     onOpenItem={navigation.openItemFromHome}
+    addRequested={navigation.addItemRequested}
+    onAddRequestHandled={navigation.addItemHandled}
     homeNotice={props.homeNotice}
     onDismissNotice={props.onDismissNotice}
     onContinuePending={props.onContinuePending}

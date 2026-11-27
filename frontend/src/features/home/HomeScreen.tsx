@@ -27,6 +27,8 @@ export function HomeScreen({
   onOpenPeople,
   onOpenItem,
   onOpenAllItems,
+  addRequested,
+  onAddRequestHandled,
   homeNotice,
   onDismissNotice,
   onContinuePending,
@@ -36,6 +38,9 @@ export function HomeScreen({
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: import('../items/itemsApi').ItemGroup) => void;
+  /** Another screen's Add item: open the add form once Home is ready. */
+  addRequested?: boolean;
+  onAddRequestHandled?: () => void;
   homeNotice?: NoticeMessage | null;
   onDismissNotice?: () => void;
   onContinuePending?: () => void;
@@ -61,6 +66,8 @@ export function HomeScreen({
             onOpenPeople={onOpenPeople}
             onOpenItem={onOpenItem}
             onOpenAllItems={onOpenAllItems}
+            addRequested={addRequested}
+            onAddRequestHandled={onAddRequestHandled}
             onSignedOut={onSignedOut}
           />
         </section>

@@ -32,6 +32,8 @@ async function openAllItems(items: Item[] = [makeItem(1)]) {
   await waitFor(() => expect(screen.queryByRole('status', { name: 'Loading items…' })).not.toBeInTheDocument());
   return fake;
 }
+// Lets a Home that just became ready run its effects, so a form it would open is already in the DOM.
+async function settleEffects() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); }); }
 beforeEach(() => { window.history.replaceState(null, '', '/'); vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); });
 
@@ -502,6 +504,91 @@ describe('All items', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await userEvent.selectOptions(screen.getByLabelText('Repeat'), 'true');
     await waitFor(() => expect(new URLSearchParams(window.location.search).has('cursor')).toBe(false));
+  });
+
+  it('offers Add item on the title line; it opens the add form on Home once, never again from history', async () => {
+    await openAllItems([makeItem(1)]);
+    const heading = screen.getByRole('heading', { level: 1, name: 'All items' });
+    const add = screen.getByRole('button', { name: 'Add item' });
+    expect(add.closest('header')).toBe(heading.closest('header'));
+    await userEvent.click(add);
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(window.location.pathname + window.location.search).toBe('/');
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    expect(window.history.state).toBeNull();
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add item' })).toHaveFocus());
+
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
+    await screen.findByRole('heading', { level: 1, name: 'All items' });
+    await act(async () => { window.history.back(); });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    await screen.findByRole('button', { name: 'Add item' });
+    await settleEffects();
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
+  it('spends an Add item request when the user leaves Home before it was ready', async () => {
+    let held = false;
+    let release!: () => void;
+    const routes = itemRoutes(base, [makeItem(1)]);
+    const summary = routes[`GET ${base}/items/summary`];
+    installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items/summary`]: (request: RecordedRequest) => held
+      ? new Promise<Response>((resolve) => { release = () => resolve(summary(request)); }) : summary(request) });
+    window.history.replaceState(null, '', '/items');
+    app();
+    await screen.findByText('Item 1');
+    held = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
+    await screen.findByRole('heading', { level: 1, name: 'People and things' });
+    held = false;
+    await act(async () => release());
+    await userEvent.click(screen.getByRole('link', { name: 'Home' }));
+    await screen.findByRole('button', { name: 'Add item' });
+    await settleEffects();
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
+  it('never hands an Add item request to the next sign-in when the session ends while Home loads', async () => {
+    let expire = false;
+    const routes = itemRoutes(base, [makeItem(1)]);
+    const summary = routes[`GET ${base}/items/summary`];
+    installFakeServer({ ...bootRoutes, ...routes, 'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }), 'POST /api/v1/session': json(201, session()),
+      [`GET ${base}/items/summary`]: (request: RecordedRequest) => {
+        if (!expire) return summary(request);
+        expire = false;
+        return json(401, {});
+      } });
+    window.history.replaceState(null, '', '/items');
+    app();
+    await screen.findByText('Item 1');
+    expire = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
+    await userEvent.type(screen.getByLabelText('Password'), 'pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    await screen.findByRole('button', { name: 'Add item' });
+    await settleEffects();
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
+  it('leaves a create being recovered on Home as it is and opens no second form', async () => {
+    const body = { title: 'Recover me', subjectId: 's-1', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key: 'c'.repeat(32), body }));
+    try {
+      const fake = await openAllItems([makeItem(1)]);
+      await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+      const form = await screen.findByRole('form', { name: 'Add an item' });
+      expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+      await waitFor(() => expect(within(screen.getByRole('main')).queryAllByRole('form')).toHaveLength(1));
+      expect(document.querySelectorAll('dialog[open]')).toHaveLength(1);
+      expect(fake.requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+    } finally { sessionStorage.clear(); }
   });
 
   it('distinguishes household-empty and no-match states, and Clear resets filters', async () => {

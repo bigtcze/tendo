@@ -14,14 +14,12 @@ import type { PageState } from './allItemsPageState';
 import { countFor, countKey, cursorStack, hasFilters, type Context } from './allItemsUrl';
 import type { AllItemsActions } from './useAllItems';
 
-const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 // Same compact rhythm as a Home row: one text line in layout, a 44 px pointer target through compensated padding.
 // The focus outline is drawn inside the target box (-2px offset) so it never paints over the row divider, while
 // staying a real outline that focus-indicator tooling can measure.
 const titleLink = 'relative z-10 flex min-h-11 max-w-full items-center rounded-lg py-[11px] -my-[11px] '
   + '[overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent '
   + 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus';
-const addLink = `inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 // The subject reads as on Home: its type icon beside its name, no filled pill or separate tile column.
 const subjectClass = 'inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-ink [overflow-wrap:anywhere]';
 
@@ -142,15 +140,14 @@ function Pager({ context, nextCursor, goToCursor }: PagerProps) {
   </nav>;
 }
 
-export function AllItemsResults({ view, context, page, subjectNames, subjectTypes, members, userId, actions, resultRef, onBack, onOpenItem }: {
+export function AllItemsResults({ view, context, page, subjectNames, subjectTypes, members, userId, actions, resultRef, onOpenItem }: {
   view: ResultsView; context: Context; page: PageState; subjectNames: Map<string, string>; subjectTypes: Map<string, SubjectType>;
   members: Member[]; userId: string; actions: AllItemsActions;
-  resultRef: RefObject<HTMLElement | null>; onBack: () => void; onOpenItem: (itemId: string, returnTo: string) => void;
+  resultRef: RefObject<HTMLElement | null>; onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
-  if (view === 'none') return <EmptyState title={t('allItems.none')} action={
-    <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
-  } />;
+  // Add item sits on the title line above; the empty list points at it, like the empty Home.
+  if (view === 'none') return <EmptyState title={t('allItems.none')}>{t('home.empty.addHint')}</EmptyState>;
   if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')} action={
     // Secondary, like Retry under a failed load: its edge lines up with the message above, where a quiet button's
     // padded label would float inset with no visible edge.

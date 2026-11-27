@@ -6,17 +6,19 @@ import { LoadError } from '../../components/ui/load-error';
 import { LoadingLine } from '../../components/ui/loading-line';
 import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
+import { AddItemButton } from './AddItemButton';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
 import { AllItemsResults, outcomeText, resultsView } from './AllItemsResults';
 import { buildQuery } from './allItemsUrl';
 import { useAllItems } from './useAllItems';
 import { useAllItemsFacets } from './useAllItemsFacets';
 
-export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut, onOpenItem, onArchivedViewChange }: {
+export function AllItemsScreen({ householdId, login, userId, onAdd, onSignedOut, onOpenItem, onArchivedViewChange }: {
   householdId: string;
   login: string;
   userId: string;
-  onBack: () => void;
+  /** Add item: the form lives on Home, which opens it on arrival. */
+  onAdd: () => void;
   onSignedOut: () => void;
   onOpenItem: (itemId: string, returnTo: string) => void;
   onArchivedViewChange?: (archived: boolean) => void;
@@ -33,8 +35,10 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle min-w-0 space-y-6 max-sm:space-y-4">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
-      <header className="min-w-0">
-        <Heading className="text-h1 font-semibold text-ink">{t('allItems.title')}</Heading>
+      {/* The same compact band as Home: the screen name and its one primary action on the same line. */}
+      <header className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <Heading className="min-w-0 text-h1 font-semibold text-ink">{t('allItems.title')}</Heading>
+        <AddItemButton onClick={onAdd} />
       </header>
       <div className="min-w-0 rounded-2xl border border-line bg-raised p-4 sm:p-5">
         <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
@@ -50,7 +54,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
         {page.error ? <LoadError role={null} message={t('app.error.body')} retryLabel={t('app.error.retry')}
           onRetry={actions.retry} retryProps={{ 'data-all-items-retry': true }} /> : null}
         <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} subjectTypes={subjectTypes}
-          members={facets.members.values} userId={userId} actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
+          members={facets.members.values} userId={userId} actions={actions} resultRef={resultRef} onOpenItem={onOpenItem} />
       </div>
     </section>
   </Layout>;

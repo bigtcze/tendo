@@ -1,8 +1,7 @@
 import type { RefObject } from 'react';
 import { Heading } from '../../app/Heading';
-import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
-import { PlusIcon } from './HomeIcons';
+import { AddItemButton } from './AddItemButton';
 
 type HomeHeaderProps = {
   ready: boolean;
@@ -25,18 +24,13 @@ export function HomeHeader({ ready, adding, addRef, onAdd }: HomeHeaderProps) {
       </Heading>
       {ready ? (
         <div className={`shrink-0 ${adding ? 'invisible' : ''}`}>
-          <Button
-            ref={addRef}
+          <AddItemButton
+            buttonRef={addRef}
             data-action="completion-trigger"
-            type="button"
             aria-hidden={adding || undefined}
             tabIndex={adding ? -1 : undefined}
             onClick={onAdd}
-            className="min-h-11 gap-1.5 px-4"
-          >
-            <PlusIcon className="size-4" />
-            {t('items.add')}
-          </Button>
+          />
         </div>
       ) : null}
     </div>

@@ -251,10 +251,11 @@ describe('empty states', () => {
     expect(heading).toHaveClass('text-h2', 'text-ink');
     const section = heading.parentElement!;
     expectFlatSection(section);
-    // Nothing to explain yet: the section carries one way to start, on the action row under the title.
-    const action = heading.nextElementSibling as HTMLElement;
-    expect(action).toHaveClass('mt-4');
-    expect(action.querySelector('a')).toHaveAttribute('href', '/');
+    // The one way to start is Add item on the title line; the section points at it, like the empty Home.
+    expect(heading.nextElementSibling).toHaveClass('text-body', 'text-muted', 'max-w-prose');
+    expect(heading.nextElementSibling).toHaveTextContent(en['home.empty.addHint']);
+    expect(section.querySelector('a, button')).toBeNull();
+    expect(screen.getAllByRole('button', { name: en['items.add'] })).toHaveLength(1);
   });
 
   it('an All items search with no match is the same plain section', async () => {

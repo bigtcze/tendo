@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog } from '../../components/ui/dialog';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
@@ -28,8 +28,28 @@ type ItemsScreenProps = {
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: ItemGroup) => void;
+  /** Add item was chosen on another screen; the form opens once the overview is ready, then the request is spent. */
+  addRequested?: boolean;
+  onAddRequestHandled?: () => void;
   onSignedOut: () => void;
 };
+
+/**
+ * Opens the add form once for a request made elsewhere; the ref keeps a StrictMode re-run from opening it twice. A
+ * form already open (a create being recovered) is left as it is: the request is spent without reopening it. A first
+ * load that failed keeps the request until Retry succeeds, so the form still follows the user's choice.
+ */
+function useRequestedAdd({ requested, ready, adding, open, handled }: {
+  requested: boolean; ready: boolean; adding: boolean; open: () => Promise<void>; handled?: () => void;
+}) {
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (!requested || !ready || openedRef.current) return;
+    openedRef.current = true;
+    handled?.();
+    if (!adding) void open();
+  }, [requested, ready, adding, open, handled]);
+}
 
 /** Wires home data, subject labels, add-item and completion flows for the household home. */
 function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenProps, 'userId' | 'householdId' | 'onSignedOut'>) {
@@ -102,7 +122,7 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
 
 /** Household home: grouped item overview with add-item and completion/undo flows. */
 export function ItemsScreen(props: ItemsScreenProps) {
-  const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
+  const { userId, onOpenPeople, onOpenItem, onOpenAllItems, addRequested = false, onAddRequestHandled } = props;
   const screen = useItemsScreen(props);
   const {
     t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice,
@@ -113,6 +133,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const homeReady = home.itemsRequestComplete && (!home.error || !!home.summary);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
+  useRequestedAdd({ requested: addRequested, ready: homeReady, adding, open: add.openAddForm, handled: onAddRequestHandled });
 
   return <div data-home-screen className="min-w-0 space-y-6">
     <HomeHeader ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
