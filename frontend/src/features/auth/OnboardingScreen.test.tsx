@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, emptyHome, installFakeServer, json, session } from '../../test/fakeServer';
 import { itemRoutes } from '../../test/fakeItems';
+import { countDateTimeFormats } from '../../test/countDateTimeFormats';
 
 function renderApp() {
   return render(
@@ -73,6 +74,23 @@ describe('onboarding', () => {
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
     expect(screen.queryByText(/tenant|household id|switch/i)).not.toBeInTheDocument();
     expect(screen.queryByText(HOUSEHOLD_ID)).not.toBeInTheDocument();
+  });
+
+  it('typing in another field does not relabel every time zone', async () => {
+    installFakeServer(setupRequired);
+    renderApp();
+    const name = await screen.findByLabelText('Household name');
+    expect(screen.getByLabelText('Time zone').querySelectorAll('option').length).toBeGreaterThan(1);
+    // Page-wide: no date formatter of any kind may be built per keystroke, the zone labels being the one there was.
+    const counter = countDateTimeFormats();
+    try {
+      await userEvent.type(name, 'Novák');
+      expect(name).toHaveValue('Novák');
+      expect(counter.count).toBe(0);
+    } finally {
+      counter.restore();
+    }
+    expect(screen.getByText('Used for dates in your household: New York · Eastern Time')).toBeVisible();
   });
 
   it('falls back to UTC when the browser cannot tell the time zone', async () => {

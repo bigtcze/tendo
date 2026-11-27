@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { countDateTimeFormats } from '../../test/countDateTimeFormats';
 import { errorKey, errorTarget, firstEmptyField, formatTimezoneLabel, timezoneOptions } from './onboardingModel';
+
+let counter: ReturnType<typeof countDateTimeFormats> | undefined;
+afterEach(() => { counter?.restore(); counter = undefined; });
 
 describe('onboarding model', () => {
   it.each([
@@ -50,6 +54,17 @@ describe('onboarding model', () => {
   it('uses the Czech locale the component passes for both the option and hint labels', () => {
     // OnboardingScreen passes the i18n locale ('cs') unchanged to both the option and hint formatters.
     expect(formatTimezoneLabel('Europe/Prague', 'cs')).toBe('Prague · středoevropský čas');
+  });
+
+  it('builds a zone label’s formatter once per locale and zone, however often the list re-renders', () => {
+    counter = countDateTimeFormats();
+    const first = formatTimezoneLabel('Asia/Tokyo', 'en');
+    expect(counter.count).toBe(1);
+    expect(formatTimezoneLabel('Asia/Tokyo', 'en')).toBe(first);
+    expect(counter.count).toBe(1);
+    // A different locale is a different label and gets its own formatter.
+    expect(formatTimezoneLabel('Asia/Tokyo', 'cs')).toMatch(/^Tokyo · /);
+    expect(counter.count).toBe(2);
   });
 
   it('deduplicates and sorts supported zones while including UTC and the detected zone', () => {
