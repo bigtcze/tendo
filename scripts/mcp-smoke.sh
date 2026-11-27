@@ -109,9 +109,12 @@ for secret in filter(None, pathlib.Path(sys.argv[2]).read_text().splitlines()):
     if raw in lower: sys.exit('An MCP secret is stored as raw bytes in PostgreSQL')
 PY
 save_app_logs
+# shellcheck source=scripts/smoke-log-search.sh
+source "$root/scripts/smoke-log-search.sh"
+log_search_self_check
 while IFS= read -r secret; do
   [[ -z "$secret" ]] && continue
-  if grep -F -- "$secret" "$applogs" >/dev/null; then echo 'An MCP token, code, handle, verifier or cookie value appeared in app logs' >&2; exit 1; fi
+  if log_contains "$secret" "$applogs"; then echo 'An MCP token, code, handle, verifier or cookie value appeared in app logs' >&2; exit 1; fi
 done <"$secrets"
-if grep -E 'code=|#request=|code_verifier|refresh_token=' "$applogs" >/dev/null; then echo 'MCP OAuth parameter marker found in app logs' >&2; exit 1; fi
+if log_matches 'code=|#request=|code_verifier|refresh_token=' "$applogs"; then echo 'MCP OAuth parameter marker found in app logs' >&2; exit 1; fi
 printf 'MCP discovery, registration, consent, token, revocation, endpoint, kill-switch and log-privacy smoke passed.\n'
