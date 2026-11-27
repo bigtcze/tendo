@@ -81,10 +81,10 @@ export function Dialog({
   const sheetClasses = sheet
     ? [
       'fixed inset-x-0 bottom-0 top-0 m-0 h-dvh max-h-dvh w-full max-w-none rounded-none',
-      // Centred by layout (inset 0, auto margins, fit-content height), never `translate(-50%)`: layout offsets are
+      // Centred by layout (inset 0, auto margins, snapped fit-content height), never `translate(-50%)`: layout offsets are
       // pixel-snapped at paint, a fractional transform is not, and it left the pinned header's edge between device rows.
       'md:inset-0 md:m-auto',
-      'md:h-fit md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:rounded-2xl',
+      'md:h-fit-snapped md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:rounded-2xl',
     ].join(' ')
     : '';
 
@@ -114,10 +114,12 @@ export function Dialog({
         if (target?.isConnected) target.focus();
       }}
       className={cn(
+        // `h-fit-snapped` (index.css) keeps an uncapped centred dialog's top edge on a whole pixel on an even viewport
+        // height (#459 Add dialog flake).
         // Tailwind preflight zeroes every margin, which also removes the UA `margin: auto` that centres a
         // modal dialog. Non-sheet dialogs therefore centre themselves explicitly; sheet mode below replaces
         // this with `m-0` (and its own md positioning), and twMerge keeps that override.
-        'm-auto max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
+        'm-auto h-fit-snapped max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
         // Keyboard focus scrolled into view lands between the pinned header and a pinned DialogActions bar.
         'scroll-pt-24 scroll-pb-28 short:scroll-p-0',
         sheetClasses,

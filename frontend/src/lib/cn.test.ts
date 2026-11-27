@@ -39,6 +39,12 @@ describe('cn', () => {
     expect(cn('leading-6', 'text-meta')).toBe('text-meta');
     expect(cn('text-meta', 'leading-6')).toBe('text-meta leading-6');
   });
+
+  it('treats the h-fit-snapped utility as a height', () => {
+    expect(css).toMatch(/@utility h-fit-snapped\s*\{/);
+    expect(cn('h-dvh', 'md:h-fit-snapped', 'h-fit-snapped')).toBe('md:h-fit-snapped h-fit-snapped');
+    expect(cn('h-fit-snapped', 'h-dvh')).toBe('h-dvh');
+  });
 });
 
 describe('type scale', () => {

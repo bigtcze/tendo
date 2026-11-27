@@ -8,7 +8,10 @@ import { extendTailwindMerge } from 'tailwind-merge';
  */
 export const typeScaleTokens = ['display', 'h1', 'h2', 'row-title', 'body', 'meta', 'label', 'control', 'small', 'micro'] as const;
 
-const twMerge = extendTailwindMerge({ extend: { theme: { text: [...typeScaleTokens] } } });
+/** `h-fit-snapped` (an `@utility` in `src/index.css`) is a height, so it must replace and be replaced by other `h-*`. */
+const twMerge = extendTailwindMerge({
+  extend: { theme: { text: [...typeScaleTokens] }, classGroups: { h: [{ h: ['fit-snapped'] }] } },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
