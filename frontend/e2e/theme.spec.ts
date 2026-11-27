@@ -5,7 +5,7 @@ import { THEME_STORAGE_KEY } from '../src/theme/theme';
 import { auditContrast, collectContrastCandidates, contrastShortfalls } from './contrastAudit';
 import { effectiveThemeColor } from './themeColor';
 import { measureCapture } from './audit/metrics';
-import { measureTargets } from './targetSize';
+import { measureTargets, pressedBelow } from './targetSize';
 
 // Self-contained appearance proof for signed-out routes. It creates its own contexts and never touches journey.spec.ts
 // state. The Appearance control lives on the signed-in Account screen (journey.spec.ts drives it there), so here a
@@ -428,6 +428,11 @@ test.describe('shared target-size measurement', () => {
       li.small { height: 30px; }
       a.self { position: relative; }
       .transformed { transform: translateX(0); height: 22px; }
+      .translated { translate: 0 0; height: 22px; }
+      .margin::after { margin: 20px 0; }
+      .hidden-overlay::after { visibility: hidden; }
+      li.bordered { border: 4px solid; }
+      .box { width: 20px; height: 20px; padding: 0; margin: 0; }
       table { border-collapse: collapse; } td { height: 56px; padding: 0; }
       .switch { display: inline-block; width: 20px; height: 20px; }
       label { display: flex; min-height: 44px; align-items: center; }
@@ -439,19 +444,34 @@ test.describe('shared target-size measurement', () => {
       <li><a class="no-content" href="#e">Overlay without content</a></li>
       <li><a class="stretched click-through" href="#f">Click-through overlay</a></li>
       <li><div class="transformed"><a class="stretched" href="#g">Transformed wrapper</a></div></li>
+      <li><div class="translated"><a class="stretched" href="#j">Translated wrapper</a></div></li>
+      <li><a class="stretched margin" href="#k">Overlay inset by margin</a></li>
+      <li><a class="stretched hidden-overlay" href="#l">Hidden overlay</a></li>
+      <li class="bordered"><a class="stretched" href="#m">Bordered row</a></li>
     </ul>
     <table><tr><td><a class="stretched" href="#h">Static table cell</a></td></tr></table>
     <div class="row"><table><tr><td><a class="stretched" href="#i">Cell in a positioned row</a></td></tr></table></div>
     <label><button class="switch" role="switch" aria-checked="false" aria-label="Labelled switch"></button> Labelled switch</label>
+    <label><input class="box" type="checkbox" aria-label="Agree"> Agree to the <a href="#n">terms</a></label>
+    <label><input class="box" type="checkbox" aria-label="First control"><button class="box">y</button></label>
     <button style="width: 20px; height: 20px; padding: 0">x</button></body></html>`);
     const metrics = await measureCapture(page);
     expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual([
-      'Partial overlay', 'Small row', 'Self-positioned', 'Overlay without content', 'Click-through overlay', 'Transformed wrapper', 'Static table cell', 'x',
+      'Partial overlay', 'Small row', 'Self-positioned', 'Overlay without content', 'Click-through overlay', 'Transformed wrapper',
+      'Translated wrapper', 'Overlay inset by margin',
     ]);
-    expect(metrics.interactiveTargetsUnder44).toBe(8);
-    expect(metrics.interactiveTargetsUnder24).toBe(7);
+    expect(metrics.interactiveTargetsUnder44).toBe(12);
+    expect(metrics.interactiveTargetsUnder24).toBe(11);
+    // measureCapture reports the first eight in-viewport offenders; the predicate itself measures every control.
+    const all = await page.locator('a[href],button,input').evaluateAll(measureTargets);
+    expect(all.filter((target) => pressedBelow(target, 44)).map((target) => target.ariaLabel || target.text)).toEqual([
+      'Partial overlay', 'Small row', 'Self-positioned', 'Overlay without content', 'Click-through overlay', 'Transformed wrapper',
+      'Translated wrapper', 'Overlay inset by margin', 'Hidden overlay', 'Static table cell', 'terms', 'y', 'x',
+    ]);
     // The stretched rows that pass are measured by the box the overlay covers, not by the 22 px text line.
-    const pressed = await page.locator('a[href="#a"], a[href="#i"]').evaluateAll(measureTargets);
-    expect(pressed.map((target) => [Math.round(target.pressed.width), Math.round(target.pressed.height)])).toEqual([[300, 56], [300, 56]]);
+    // A bordered row is pressed in its padding box, which the overlay fills, not its border box. A checkbox is pressed
+    // in the label that controls it.
+    const pressed = await page.locator('a[href="#a"], a[href="#i"], a[href="#m"], input[aria-label="Agree"]').evaluateAll(measureTargets);
+    expect(pressed.map((target) => [Math.round(target.pressed.width), Math.round(target.pressed.height)])).toEqual([[300, 56], [300, 56], [300, 56], [390 - 16, 44]]);
   });
 });

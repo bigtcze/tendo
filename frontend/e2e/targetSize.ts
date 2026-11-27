@@ -19,46 +19,67 @@ export interface TargetMeasurement {
 
 /**
  * The single WCAG 2.5.8 target-size predicate for every browser check (journey targets, route audits, the opt-in UX
- * audit). Pass it to `locator.evaluateAll`; it is serialized into the page, so everything it uses is defined inside it.
+ * audit). Pass it to `locator.evaluateAll`; it is serialized into the page, so everything it uses is defined inside it
+ * (do not instrument or transpile it into code that calls module-level helpers).
  *
  * The pressed box of a control is, in order:
- * 1. its enclosing `<label>`, which forwards every press to a wrapped native control;
- * 2. for a stretched link, the box its `::after` really fills: a generated (`content` is not `none`), hit-testable
- *    (`pointer-events` is not `none`), absolutely positioned pseudo-element pinned to all four edges fills its
- *    containing block. That block is the nearest ancestor that establishes one for absolute boxes (a positioned box,
- *    or one with a transform, filter, perspective, paint/layout containment or a size container); `offsetParent` is not
- *    used, because it also returns static table cells and skips transformed wrappers. A link that establishes the
- *    block itself (it is positioned or transformed) is only covering itself, and a block that is the root covers the
- *    page rather than a row, so both fall back to the control's own box;
+ * 1. the `<label>` that wraps it and whose `control` it is: a press anywhere on that label activates it. Other
+ *    elements inside a label (a link, a second control) are measured by themselves;
+ * 2. for a stretched link, the box its `::after` really fills. The pseudo-element must be generated, hit-testable
+ *    (`pointer-events` and `visibility` allow presses), untransformed and unclipped, absolutely positioned and pinned
+ *    to all four edges of its containing block. That block is the nearest ancestor that establishes one for absolute
+ *    boxes (positioned, transformed through `transform`/`translate`/`rotate`/`scale`, filtered, contained, a size
+ *    container, ...); `offsetParent` is not used, because it also returns static table cells and skips transformed
+ *    wrappers. The overlay's used size must then equal that block's padding box (within 1 px), which catches margins,
+ *    explicit sizes and any containing-block trigger the list misses. A link that establishes the block itself, or a
+ *    block that is the page root, falls back to the control's own box;
  * 3. otherwise the control's own box.
  * Anything unrecognised falls back to the control's own box, so an unusual layout is reported, never waved through.
+ * The rule may under-count (a `::before` overlay, a negative inset, a sibling control painted over part of a row); it
+ * never over-counts.
  */
 export function measureTargets(elements: Element[]): TargetMeasurement[] {
+  const none = (value: string | undefined) => value === undefined || value === '' || value === 'none';
   const containsAbsolute = (style: CSSStyleDeclaration) => style.position !== 'static'
-    || style.transform !== 'none'
-    || style.filter !== 'none'
-    || style.perspective !== 'none'
-    || (style.backdropFilter ?? 'none') !== 'none'
+    || !none(style.transform) || !none(style.translate) || !none(style.rotate) || !none(style.scale)
+    || !none(style.filter) || !none(style.backdropFilter) || !none(style.perspective)
+    || !none(style.offsetPath) || style.transformStyle === 'preserve-3d' || style.contentVisibility === 'auto'
     || /\b(layout|paint|strict|content)\b/.test(style.contain)
-    || /\b(transform|filter|perspective)\b/.test(style.willChange)
-    || (style.containerType ?? 'normal') !== 'normal';
-  const stretchedArea = (element: Element): Element | null => {
+    || /\b(transform|translate|rotate|scale|filter|backdrop-filter|perspective|contain|offset-path)\b/.test(style.willChange)
+    || (style.containerType || 'normal') !== 'normal';
+  type Box = { x: number; y: number; width: number; height: number };
+  const stretchedArea = (element: Element): Box | null => {
     const overlay = getComputedStyle(element, '::after');
-    const generated = overlay.content !== 'none' && overlay.content !== 'normal' && overlay.display !== 'none';
+    const generated = !none(overlay.content) && overlay.content !== 'normal' && overlay.display !== 'none';
     const pinned = [overlay.top, overlay.right, overlay.bottom, overlay.left].every((side) => side === '0px');
-    if (!generated || overlay.position !== 'absolute' || overlay.pointerEvents === 'none' || !pinned) return null;
+    const pressable = overlay.pointerEvents !== 'none' && overlay.visibility === 'visible';
+    const untransformed = [overlay.transform, overlay.translate, overlay.rotate, overlay.scale, overlay.clipPath].every(none);
+    if (!generated || overlay.position !== 'absolute' || !pinned || !pressable || !untransformed) return null;
     if (containsAbsolute(getComputedStyle(element))) return null;
     for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
       if (ancestor === document.body || ancestor === document.documentElement) return null;
-      if (containsAbsolute(getComputedStyle(ancestor))) return ancestor;
+      if (!containsAbsolute(getComputedStyle(ancestor))) continue;
+      const width = Number.parseFloat(overlay.width);
+      const height = Number.parseFloat(overlay.height);
+      if (!(Math.abs(width - ancestor.clientWidth) <= 1 && Math.abs(height - ancestor.clientHeight) <= 1)) return null;
+      const block = ancestor.getBoundingClientRect();
+      return { x: block.x + ancestor.clientLeft, y: block.y + ancestor.clientTop, width, height };
     }
     return null;
   };
-  const pressedArea = (element: Element) => element.closest('label') ?? stretchedArea(element) ?? element;
+  const ownBox = (element: Element): Box => {
+    const box = element.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  };
+  const pressedArea = (element: Element): Box => {
+    const label = element.closest('label');
+    if (label && label.control === element) return ownBox(label);
+    return stretchedArea(element) ?? ownBox(element);
+  };
   return elements.map((element) => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
-    const pressed = pressedArea(element).getBoundingClientRect();
+    const pressed = pressedArea(element);
     return {
       tag: element.tagName,
       role: element.getAttribute('role'),
