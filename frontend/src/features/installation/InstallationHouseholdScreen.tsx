@@ -92,7 +92,7 @@ export function InstallationHouseholdScreen({
         {notice ? <Notice tone={notice.tone === 'success' ? 'success' : 'neutral'} role={null}>{t(notice.key, notice.params)}</Notice> : null}
       </div>
       <AdminSectionSwitcher current="households" />
-      <NavLink href="/admin/households" onNavigate={onBack} className={BACK_LINK}>{t('install.household.back')}</NavLink>
+      <NavLink href="/admin/households" onNavigate={onBack} {...BACK_LINK}>{t('install.household.back')}</NavLink>
       {list.state === 'loading' ? <ListSkeleton label={t('admin.loading')} /> : null}
       {list.state === 'error'
         ? <LoadError className="mt-8" message={t('install.error.accounts')} retryLabel={t('app.error.retry')} onRetry={list.retry} />

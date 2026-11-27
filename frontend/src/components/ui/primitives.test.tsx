@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState, type FormEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Button } from './button';
+import { Button, buttonLook } from './button';
 import { Dialog } from './dialog';
 import { Disclosure } from './disclosure';
 import { DoneControl } from './list-row';
@@ -130,6 +130,20 @@ describe('UI primitive behavior', () => {
     expect(button).toHaveAttribute('aria-busy', 'true');
     expect(button.className).toContain('focus-visible:outline-focus');
     expect(button).toHaveAttribute('type', 'button');
+  });
+  it('a link drawn as a button carries the same look and variant marker as the button', () => {
+    render(<>
+      <Button variant="secondary" size="small">Open</Button>
+      <a href="/x" {...buttonLook({ variant: 'secondary', size: 'small', className: 'mt-4' })}>Go</a>
+      <a href="/" {...buttonLook()}>Home</a>
+    </>);
+    const button = screen.getByRole('button', { name: 'Open' });
+    const link = screen.getByRole('link', { name: 'Go' });
+    expect(link).toHaveAttribute('data-variant', 'secondary');
+    expect(link.className.split(' ').filter((name) => name !== 'mt-4').sort()).toEqual(button.className.split(' ').sort());
+    expect(link).toHaveClass('mt-4');
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('data-variant', 'primary');
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveClass('bg-accent', 'text-on-accent', 'min-h-11');
   });
   it('disclosure wires expanded state and hides/shows its controlled content', () => {
     render(<Disclosure title="More details">Details</Disclosure>);

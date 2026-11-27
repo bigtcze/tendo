@@ -1,11 +1,9 @@
 import type { RefObject } from 'react';
+import { buttonLook } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
 
 /** The one quiet secondary action on an installation screen: back to the household list. */
-export const BACK_LINK = [
-  'mt-4 inline-flex min-h-11 items-center rounded-xl border border-control-border bg-raised px-5 text-control font-semibold text-ink',
-  'transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-].join(' ');
+export const BACK_LINK = buttonLook({ variant: 'secondary', className: 'mt-4' });
 
 /**
  * The installation grant is gone (or was never there). The server refused before any lookup, so nothing about a

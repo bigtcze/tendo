@@ -2,12 +2,8 @@ import { useContext } from 'react';
 import { useViewerRole } from '../../app/HouseholdData';
 import { HouseholdNavigationContext } from '../../app/HouseholdNavigation';
 import { NavLink } from '../../app/NavLink';
+import { buttonLook } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
-
-const LINK = [
-  'mt-4 inline-flex min-h-11 items-center rounded-xl border border-control-border bg-raised px-5 text-control font-semibold text-ink',
-  'transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-].join(' ');
 
 /**
  * Administrators reach the Admin center from Account at every width, since the phone bar keeps five fixed items.
@@ -30,7 +26,7 @@ export function AccountAdminLink({ instanceAdmin }: { instanceAdmin: boolean }) 
     <NavLink
       href={householdAdmin ? '/admin' : '/admin/households'}
       onNavigate={householdAdmin ? navigation.actions.admin : navigation.actions.adminHouseholds}
-      className={LINK}
+      {...buttonLook({ variant: 'secondary', className: 'mt-4' })}
     >
       {t(householdAdmin ? 'admin.account.link' : 'install.account.link')}
     </NavLink>

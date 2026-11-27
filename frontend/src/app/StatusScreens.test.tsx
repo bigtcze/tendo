@@ -16,13 +16,20 @@ describe('secondary status screens', () => {
     expect(heading).toBeVisible();
     // The shell names these screens with their heading alone: the panel opens on the heading itself.
     expect(heading.parentElement?.firstElementChild).toBe(heading);
-    expect(screen.getByRole('link', { name: en['app.notFound.home'] })).toHaveAttribute('href', '/');
+    const home = screen.getByRole('link', { name: en['app.notFound.home'] });
+    expect(home).toHaveAttribute('href', '/');
+    // The way out is drawn and marked as the screen's one primary action (#459 F22), like the reset dead end.
+    expect(home).toHaveAttribute('data-variant', 'primary');
     expect(document.title).toBe(`${en['app.notFound.title']} — Tendo`);
   });
 
   it('signed-out not found offers sign-in through the same primary control', () => {
-    renderInApp(<NotFoundScreen signedOut />);
-    expect(screen.getByRole('link', { name: en['app.notFound.signIn'] })).toHaveAttribute('href', '/login');
+    const { container } = renderInApp(<NotFoundScreen signedOut />);
+    const signIn = screen.getByRole('link', { name: en['app.notFound.signIn'] });
+    expect(signIn).toHaveAttribute('href', '/login');
+    expect(signIn).toHaveAttribute('data-variant', 'primary');
+    expect(signIn).toHaveClass('bg-accent', 'text-on-accent');
+    expect(container.querySelectorAll('[data-variant="primary"]')).toHaveLength(1);
   });
 
   it('error state is an alert-free page with a retry action and no V3 accent rule', async () => {

@@ -80,7 +80,7 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
         <span className="break-words">{accountLogin ? t('accountAiApps.titleFor', { login: accountLogin }) : t('accountAiApps.title')}</span>
       </Heading>
       <AdminSectionSwitcher current="accounts" />
-      <NavLink href={ADMIN_ACCOUNTS_PATH} onNavigate={onBack} className={BACK_LINK}>{t('accountAiApps.back')}</NavLink>
+      <NavLink href={ADMIN_ACCOUNTS_PATH} onNavigate={onBack} {...BACK_LINK}>{t('accountAiApps.back')}</NavLink>
       {state === 'forbidden' ? <InstallationOnlyAdmins t={t} headingRef={refusalHeadingRef} /> : null}
       {state === 'notFound' ? <AccountGone t={t} headingRef={refusalHeadingRef} /> : null}
       {state === 'forbidden' || state === 'notFound' ? null : <>

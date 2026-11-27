@@ -1,4 +1,4 @@
-import { Button } from '../components/ui/button';
+import { Button, buttonLook } from '../components/ui/button';
 import { LoadingLine } from '../components/ui/loading-line';
 import { useI18n } from '../i18n';
 import { Heading } from './Heading';
@@ -25,7 +25,7 @@ export function NotFoundScreen({ signedOut = false }: { signedOut?: boolean }) {
       <Heading className="text-h1 leading-8 font-semibold text-ink">{t('app.notFound.title')}</Heading>
       <p className="mt-3 max-w-prose text-body text-muted">{t('app.notFound.body')}</p>
       <div className="mt-6">
-        <a href={signedOut ? '/login' : '/'} onClick={signedOut ? (event) => { event.preventDefault(); window.history.replaceState(null, '', '/login'); window.dispatchEvent(new PopStateEvent('popstate')); } : undefined} className="inline-flex min-h-11 items-center rounded-xl bg-accent px-5 text-control font-semibold text-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
+        <a href={signedOut ? '/login' : '/'} onClick={signedOut ? (event) => { event.preventDefault(); window.history.replaceState(null, '', '/login'); window.dispatchEvent(new PopStateEvent('popstate')); } : undefined} {...buttonLook()}>
           {t(signedOut ? 'app.notFound.signIn' : 'app.notFound.home')}
         </a>
       </div>
