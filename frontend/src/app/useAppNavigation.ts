@@ -178,11 +178,15 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   // A deep link or reload of the archive opens with Archive (and phone More) current from the first render.
   const [archivedView, setArchivedView] = useState(() => route.kind === 'allItems' && isArchivedSearch(window.location.search));
   const [adminTargetName, setAdminTargetName] = useState<AdminTargetName | null>(null);
+  // A one-shot request from another screen to open Add item on Home. It is screen state, never history state, so Back
+  // or Forward to Home (and any other move) never reopens the form.
+  const [addItemRequested, setAddItemRequested] = useState(false);
   const userId = state.kind === 'signedIn' ? state.session.userId : null;
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
   const clearTransient = useCallback(() => {
     setOidcOutcome(null);
     clearHomeNotice();
+    setAddItemRequested(false);
   }, [clearHomeNotice, setOidcOutcome]);
   const actions = useNavigationActions({
     setRoute, transitionedRef, setAllItemsVisit, setItemOrigin, setArchivedView, clearTransient,
@@ -194,7 +198,13 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   const adminTargetNameFor = useCallback((targetId: string) => (
     adminTargetName?.userId === userId && adminTargetName.targetId === targetId ? adminTargetName.name : null
   ), [adminTargetName, userId]);
-  return { ...actions, itemOrigin, archivedView, adminTargetNameFor };
+  const { goHome } = actions;
+  /** Add item lives on Home: go there and ask it to open the form once it is ready. */
+  const openAddItem = useCallback(() => { goHome(); setAddItemRequested(true); }, [goHome]);
+  const addItemHandled = useCallback(() => setAddItemRequested(false), []);
+  // Leaving Home before it was ready spends the request too: it never opens the form on a later visit.
+  if (addItemRequested && route.kind !== 'home') setAddItemRequested(false);
+  return { ...actions, itemOrigin, archivedView, adminTargetNameFor, openAddItem, addItemRequested, addItemHandled };
 }
 
 /** A deep link has no history to read, so an item reached without one belongs to the All items list. */

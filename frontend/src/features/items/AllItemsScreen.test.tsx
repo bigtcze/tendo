@@ -504,6 +504,27 @@ describe('All items', () => {
     await waitFor(() => expect(new URLSearchParams(window.location.search).has('cursor')).toBe(false));
   });
 
+  it('offers Add item on the title line; it opens the add form on Home once, never again from history', async () => {
+    await openAllItems([makeItem(1)]);
+    const heading = screen.getByRole('heading', { level: 1, name: 'All items' });
+    const add = screen.getByRole('button', { name: 'Add item' });
+    expect(add.closest('header')).toBe(heading.closest('header'));
+    await userEvent.click(add);
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(window.location.pathname + window.location.search).toBe('/');
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    expect(window.history.state?.addItem).toBeUndefined();
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
+    await screen.findByRole('heading', { level: 1, name: 'All items' });
+    await act(async () => { window.history.back(); });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    await screen.findByRole('button', { name: 'Add item' });
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
   it('distinguishes household-empty and no-match states, and Clear resets filters', async () => {
     await openAllItems([]);
     expect(await screen.findByRole('heading', { name: 'There are no items in this household yet.'})).toBeInTheDocument();
