@@ -1,4 +1,5 @@
 import { defineConfig, type Project } from '@playwright/test';
+import { ENGLISH_BROWSER_ENV } from './e2e/visual/dateOrder';
 
 // Runs against a production-built Tendo with real PostgreSQL (see scripts/e2e-smoke.sh).
 const baseURL = process.env.E2E_BASE_URL;
@@ -11,8 +12,12 @@ const projects: Project[] = [
   { name: 'clock', testMatch: ['attention-clock.spec.ts'] },
   { name: 'readme-screenshot', testMatch: ['readme-screenshot.spec.ts'] },
   { name: 'ux-audit', testMatch: ['ux-audit.spec.ts'] },
-  { name: 'design-capture', testMatch: ['design-capture.spec.ts'] },
-  ...(process.env.TENDO_VISUAL_MODE ? [{ name: 'visual', testMatch: ['visual/**/*.spec.ts'], use: { browserName: 'chromium' as const } }] : []),
+  // Both assert native date fields, whose layout follows the browser's UI language rather than the page's.
+  { name: 'design-capture', testMatch: ['design-capture.spec.ts'], use: { launchOptions: { env: { ...process.env, ...ENGLISH_BROWSER_ENV } } } },
+  ...(process.env.TENDO_VISUAL_MODE ? [{
+    name: 'visual', testMatch: ['visual/**/*.spec.ts'],
+    use: { browserName: 'chromium' as const, launchOptions: { env: { ...process.env, ...ENGLISH_BROWSER_ENV } } },
+  }] : []),
   {
     name: 'screen-reader',
     testMatch: ['screen-reader.spec.ts'],

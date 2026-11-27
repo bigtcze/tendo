@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { assertDateOrderFollowsLanguage } from './dateOrder';
 
 /** Fonts must be ready before any pixel or geometry measurement that depends on line boxes. */
 export async function assertInterReady(page: Page, label = 'capture') {
@@ -98,6 +99,7 @@ export async function capture(page: Page, name: string, width: number, height = 
   await assertFieldsAtLeast16px(page, name);
   await assertSelectsUseAppChevron(page, name);
   await assertDialogsUntransformed(page, name);
+  await assertDateOrderFollowsLanguage(page, name);
   const started = performance.now();
   await expect(page).toHaveScreenshot(`${name}.png`, {
     animations: 'disabled', caret: 'hide', fullPage, mask,

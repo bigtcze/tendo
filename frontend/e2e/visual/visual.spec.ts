@@ -9,6 +9,7 @@ import { assertInterReady, capture } from './capture';
 import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, PASSWORD_RESET_DATES, pinHouseholdCreatedDates, pinInvitationDates, pinMcpGrantDates, pinMcpPolicyEventDates, pinMcpRequestExpiry, seed, type Fixture } from './fixtures';
 import { assertArchiveSettled, assertHistoryPage, openMoreSheet, seedPagedHistory } from './archiveHistory';
 import { openConsent, setOwnAiApps } from './consentStates';
+import { assertDateOrderFollowsLanguage, launchCzechBrowser } from './dateOrder';
 import { captureLargeDataset } from './largeData';
 import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
 
@@ -1342,17 +1343,24 @@ test('Signed-out login and login error', async ({ browser }) => {
   await context.close();
 });
 
-test('Czech Home, add form and detail', async ({ browser }) => {
-  const { context, page } = await authenticated(browser);
-  await page.goto('/'); await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await page.reload();
-  await captureScreen(page, 'home-cs', true);
-  await openAdd(page, cs['items.add']);
-  await captureScreen(page, 'add-cs', false);
-  // Cancel lives inside the form; the dialog's own close is a separate icon in the header, so no `.first()` is needed.
-  await page.getByRole('dialog').getByRole('form').getByRole('button', { name: cs['items.cancel'], exact: true }).click();
-  await page.goto(`/items/${requiredFixture().items[0].id}`);
-  await captureScreen(page, 'detail-cs', true);
-  await context.close();
+// A Czech person's browser lays out the native date field day-first; an English one would show mm/dd/yyyy here.
+test('Czech Home, add form and detail', async () => {
+  const czechBrowser = await launchCzechBrowser();
+  try {
+    const { context, page } = await authenticated(czechBrowser);
+    await page.goto('/'); await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await page.reload();
+    await captureScreen(page, 'home-cs', true);
+    await openAdd(page, cs['items.add']);
+    await captureScreen(page, 'add-cs', false);
+    expect(await assertDateOrderFollowsLanguage(page, 'add-cs'), 'Czech add form shows its date field').toBeGreaterThanOrEqual(1);
+    // Cancel lives inside the form; the dialog's own close is a separate icon in the header, so no `.first()` is needed.
+    await page.getByRole('dialog').getByRole('form').getByRole('button', { name: cs['items.cancel'], exact: true }).click();
+    await page.goto(`/items/${requiredFixture().items[0].id}`);
+    await captureScreen(page, 'detail-cs', true);
+    await context.close();
+  } finally {
+    await czechBrowser.close();
+  }
 });
 
 test('Home and All items retry errors', async ({ browser }) => {

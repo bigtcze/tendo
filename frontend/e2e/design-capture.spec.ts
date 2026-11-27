@@ -12,6 +12,7 @@ import {
   seedReferenceFixture,
 } from './referenceFixture';
 import { en } from '../src/i18n/en';
+import { assertDateOrderFollowsLanguage, launchCzechBrowser } from './visual/dateOrder';
 import { api, HOUSEHOLD, idempotencyKey, ownerPassword, pinInvitationDates, pinPasswordResetDates } from './visual/fixtures';
 
 function required(name: string): string {
@@ -84,25 +85,31 @@ async function onboard(page: Page) {
  * password) comes from the reference fixture's own invitation acceptance, so no extra invitation is created here.
  */
 async function signInMember(browser: Browser) {
+  const { context, page } = await signIn(browser, REFERENCE_MEMBER_LOGIN, MEMBER_PASSWORD);
+  return { context, member: page };
+}
+
+/** A real browser context of `browser` signed in through the login form; the Czech owner pages use it too. */
+async function signIn(browser: Browser, login: string, password: string) {
   const context = await browser.newContext(CONTEXT);
-  const member = await context.newPage();
-  await member.clock.install({ time: FIXED_NOW });
-  await member.goto('/login');
-  await member.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
-  await member.reload();
-  await expect(member.getByRole('form', { name: en['login.heading'] })).toBeVisible();
-  await member.getByLabel(en['login.login'], { exact: true }).fill(REFERENCE_MEMBER_LOGIN);
-  await member.getByLabel(en['login.password'], { exact: true }).fill(MEMBER_PASSWORD);
-  const signedIn = member.waitForResponse((response) => response.request().method() === 'POST'
+  const page = await context.newPage();
+  await page.clock.install({ time: FIXED_NOW });
+  await page.goto('/login');
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await page.reload();
+  await expect(page.getByRole('form', { name: en['login.heading'] })).toBeVisible();
+  await page.getByLabel(en['login.login'], { exact: true }).fill(login);
+  await page.getByLabel(en['login.password'], { exact: true }).fill(password);
+  const signedIn = page.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === '/api/v1/session');
-  await member.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  expect((await signedIn).status(), 'member sign-in').toBe(201);
+  await page.getByRole('button', { name: en['login.submit'], exact: true }).click();
+  expect((await signedIn).status(), `${login} sign-in`).toBe(201);
   // The login screen has a level-1 heading of its own, so only the signed-in shell proves the session exists.
-  await expect(member.getByRole('banner').getByRole('button', { name: en['header.menu'].replace('{login}', REFERENCE_MEMBER_LOGIN), exact: true })).toBeVisible();
-  const session = await api(member, 'get', '/api/v1/session');
-  expect(session.status(), 'member session').toBe(200);
-  expect((await session.json() as { login: string }).login, 'signed in as the reference member').toBe(REFERENCE_MEMBER_LOGIN);
-  return { context, member };
+  await expect(page.getByRole('banner').getByRole('button', { name: en['header.menu'].replace('{login}', login), exact: true })).toBeVisible();
+  const session = await api(page, 'get', '/api/v1/session');
+  expect(session.status(), `${login} session`).toBe(200);
+  expect((await session.json() as { login: string }).login, `signed in as ${login}`).toBe(login);
+  return { context, page };
 }
 
 async function createSubject(page: Page, apiRoot: string, name: string): Promise<string> {
@@ -250,6 +257,13 @@ test('capture every route and state across widths, languages and themes', async 
     apiRoot: identity.apiRoot,
     ownerPassword,
   });
+  // States with a native date field are photographed in Czech from a Czech browser, as a Czech person sees them.
+  const czechBrowser = await launchCzechBrowser();
+  const czechOwner = await signIn(czechBrowser, REFERENCE_OWNER_LOGIN, present(ownerPassword, 'E2E_OWNER_PASSWORD'));
+  const dated = { en: page, cs: czechOwner.page } as const;
+  const showsDateField = async (target: Page, state: string) => {
+    expect(await assertDateOrderFollowsLanguage(target, state), `${state} shows its date field`).toBeGreaterThanOrEqual(1);
+  };
 
   await shots.state(page, 'home-populated', async (target) => {
     await open(target, '/');
@@ -296,21 +310,24 @@ test('capture every route and state across widths, languages and themes', async 
     await expect(form).toBeVisible();
     return form;
   };
-  await shots.state(page, 'add-item', async (target, catalog) => {
+  await shots.state(dated, 'add-item', async (target, catalog) => {
     await openAdd(target, catalog);
+    await showsDateField(target, 'add-item');
   });
-  await shots.state(page, 'add-item-repeat', async (target, catalog) => {
+  await shots.state(dated, 'add-item-repeat', async (target, catalog) => {
     const form = await openAdd(target, catalog);
     await form.getByRole('switch', { name: catalog['items.repeat'], exact: true }).check();
     await expect(form.getByRole('spinbutton')).toBeVisible();
+    await showsDateField(target, 'add-item-repeat');
   });
 
   const editItem = present(reference.items[1], 'reference item 2');
-  await shots.state(page, 'edit-item', async (target, catalog) => {
+  await shots.state(dated, 'edit-item', async (target, catalog) => {
     await open(target, `/items/${editItem.id}`);
     await expect(target.getByRole('heading', { level: 1, name: editItem.title, exact: true })).toBeVisible();
     await target.getByRole('button', { name: catalog['itemDetail.edit.button'], exact: true }).click();
     await expect(target.getByRole('form', { name: catalog['itemDetail.edit.formLabel'] })).toBeVisible();
+    await showsDateField(target, 'edit-item');
   });
 
   await shots.state(page, 'people', async (target, catalog) => {
@@ -533,7 +550,7 @@ test('capture every route and state across widths, languages and themes', async 
   // A plausible household title, so the 1000+ item Home scale image does not gain a fixture-looking row.
   const conflictTitle = 'Book the heating service';
   const conflictItemId = await createItem(page, identity.apiRoot, conflictTitle, present(reference.subjects.get('Home'), "subject 'Home'"));
-  await shots.state(page, 'edit-conflict', async (target, catalog) => {
+  await shots.state(dated, 'edit-conflict', async (target, catalog) => {
     await open(target, `/items/${conflictItemId}`);
     await expect(target.getByRole('heading', { level: 1, name: conflictTitle, exact: true })).toBeVisible();
     await target.getByRole('button', { name: catalog['itemDetail.edit.button'], exact: true }).click();
@@ -549,7 +566,11 @@ test('capture every route and state across widths, languages and themes', async 
     await form.getByRole('button', { name: catalog['itemDetail.save'], exact: true }).click();
     await expect(target.getByText(catalog['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
     await expect(form).toBeVisible();
+    await showsDateField(target, 'edit-conflict');
   });
+  // Edit-conflict is the last state with a date field.
+  await czechOwner.context.close();
+  await czechBrowser.close();
 
   const archivedTitle = 'Design archived item';
   const archivedItemId = await createItem(page, identity.apiRoot, archivedTitle, present(reference.subjects.get('Home'), "subject 'Home'"));

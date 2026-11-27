@@ -5,6 +5,7 @@ import { cs } from '../../src/i18n/cs';
 import { en } from '../../src/i18n/en';
 import { THEME_STORAGE_KEY } from '../../src/theme/theme';
 import { assertInterReady } from '../visual/capture';
+import { assertDateOrderFollowsLanguage } from '../visual/dateOrder';
 import { measureDesign, type DesignMetrics } from './metrics';
 
 export type Catalog = Record<MessageKey, string>;
@@ -53,8 +54,12 @@ export class DesignCapture {
     this.dir = dir;
   }
 
+  /**
+   * `pages` is either one page for both languages or one page per language: a state with a native date field is
+   * photographed in Czech from a browser whose UI language is Czech, as a Czech person's would be (`dateOrder.ts`).
+   */
   async state(
-    page: Page,
+    pages: Page | Readonly<Record<Locale, Page>>,
     state: string,
     prepare: Prepare,
     options: { widths?: readonly number[]; fullPageAt?: readonly number[] } = {},
@@ -62,6 +67,7 @@ export class DesignCapture {
     const widths = options.widths ?? WIDTHS;
     const fullPageAt = options.fullPageAt ?? [];
     for (const locale of LOCALES) {
+      const page = 'goto' in pages ? pages : pages[locale];
       for (const theme of THEMES) {
         if (!page.url().startsWith('http')) await page.goto('/');
         await page.evaluate((preferences) => {
@@ -90,6 +96,7 @@ export class DesignCapture {
     });
     await page.mouse.move(0, 0);
     await assertInterReady(page, name);
+    await assertDateOrderFollowsLanguage(page, name);
     // Measure only after the faces are ready, and never from a mid-reflow frame: a phone bottom bar or a wrapping
     // toolbar can be photographed one frame before its final row is laid out, which used to record 4x56 targets.
     const metrics = await this.settledMetrics(page, name);
