@@ -1,4 +1,8 @@
 import { expect, type Page } from '@playwright/test';
+import { measureTargets, pressedBelow } from '../targetSize';
+
+/** The UX audit also counts custom widgets that take focus through tabindex, not only native controls. */
+const AUDIT_TARGET_SELECTOR = 'a,button,input,select,textarea,[role="button"],[tabindex]:not([tabindex="-1"])';
 
 export interface CaptureMetrics {
   smallestVisibleFontPx: number | null;
@@ -11,7 +15,7 @@ export interface CaptureMetrics {
 }
 
 export async function measureCapture(page: Page, firstResultSelector?: string): Promise<CaptureMetrics> {
-  const visual = await page.evaluate(() => {
+  const layout = await page.evaluate(() => {
     const visible = (element: Element): element is HTMLElement => {
       const node = element as HTMLElement;
       const rect = node.getBoundingClientRect();
@@ -24,38 +28,26 @@ export async function measureCapture(page: Page, firstResultSelector?: string): 
       [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
     const textNodes = [...document.querySelectorAll<HTMLElement>('body *')].filter(visible).filter(hasOwnText);
     const fontSizes = textNodes.map(element => Number.parseFloat(getComputedStyle(element).fontSize)).filter(Number.isFinite);
-    const interactiveSelector = 'a,button,input,select,textarea,[role="button"],[tabindex]:not([tabindex="-1"])';
-    const interactive = [...document.querySelectorAll<HTMLElement>(interactiveSelector)].filter(visible);
-    // The box a reader actually presses. A stretched link (Home rows) pins an absolutely positioned `::after` to all
-    // four edges of its positioned row, so a press anywhere on the row opens it: the row, not the 22 px text line, is
-    // the target. A partial overlay (a dot, a corner badge) is not pinned on every side and changes nothing. This is
-    // the same rule as the required journey n21 target-size predicate. A link that is positioned itself is the overlay's
-    // containing block, so the overlay covers only the link and the link is measured.
-    const pressedArea = (element: HTMLElement) => {
-      const overlay = getComputedStyle(element, '::after');
-      const pinned = getComputedStyle(element).position === 'static' && overlay.position === 'absolute' && [overlay.top, overlay.right, overlay.bottom, overlay.left].every(side => side === '0px');
-      const covering = pinned ? element.offsetParent : null;
-      return covering && covering !== document.body ? covering : element;
-    };
-    const offenders = interactive.map(element => {
-      const rect = pressedArea(element).getBoundingClientRect();
-      const label = element.getAttribute('aria-label') || element.innerText || element.getAttribute('placeholder') || '';
-      return {
-        role: element.getAttribute('role') || element.tagName.toLowerCase(),
-        name: label.trim().replace(/\s+/g, ' ').slice(0, 80),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      };
-    }).filter(item => item.width < 44 || item.height < 44);
-    return {
-      smallestVisibleFontPx: fontSizes.length ? Math.min(...fontSizes) : null,
-      interactiveTargetsUnder44: offenders.length,
-      interactiveTargetsUnder24: offenders.filter(item => item.width < 24 || item.height < 24).length,
-      targetOffenders: offenders.slice(0, 8),
-      domElements: document.getElementsByTagName('*').length,
-      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    };
+    return { fontSizes, domElements: document.getElementsByTagName('*').length, horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
   });
+  // The pressed box comes from the shared target-size predicate (targetSize.ts), the same rule as the required
+  // journey checks: a stretched row link is measured by its row, every other control by its label or itself.
+  const interactive = (await page.locator(AUDIT_TARGET_SELECTOR).evaluateAll(measureTargets)).filter((target) => target.rendered && target.inViewport);
+  const shortfalls = interactive.filter((target) => pressedBelow(target, 44));
+  const offenders = shortfalls.map((target) => ({
+    role: target.role || target.tag.toLowerCase(),
+    name: (target.ariaLabel || target.innerText || target.placeholder || '').trim().replace(/\s+/g, ' ').slice(0, 80),
+    width: Math.round(target.pressed.width),
+    height: Math.round(target.pressed.height),
+  }));
+  const visual = {
+    smallestVisibleFontPx: layout.fontSizes.length ? Math.min(...layout.fontSizes) : null,
+    interactiveTargetsUnder44: offenders.length,
+    interactiveTargetsUnder24: shortfalls.filter((target) => pressedBelow(target, 24)).length,
+    targetOffenders: offenders.slice(0, 8),
+    domElements: layout.domElements,
+    horizontalOverflow: layout.horizontalOverflow,
+  };
   let tabStopsToFirstResult: number | null = null;
   if (firstResultSelector) {
     // blur() keeps Chromium's sequential focus starting point at the last focused element; clicking an inert

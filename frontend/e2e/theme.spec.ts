@@ -5,6 +5,7 @@ import { THEME_STORAGE_KEY } from '../src/theme/theme';
 import { auditContrast, collectContrastCandidates, contrastShortfalls } from './contrastAudit';
 import { effectiveThemeColor } from './themeColor';
 import { measureCapture } from './audit/metrics';
+import { measureTargets } from './targetSize';
 
 // Self-contained appearance proof for signed-out routes. It creates its own contexts and never touches journey.spec.ts
 // state. The Appearance control lives on the signed-in Account screen (journey.spec.ts drives it there), so here a
@@ -411,26 +412,46 @@ test.describe('self-hosted Inter Variable', () => {
   });
 });
 
-// Not an appearance proof: this pins the opt-in UX audit's target-size measurement (e2e/audit/metrics.ts) in the gate,
-// which runs this file in the `e2e` project. Static markup only; no server state.
-test.describe('audit target-size measurement', () => {
-  test('counts a stretched row link by its row, and a partial overlay, small row, self-positioned link or bare small control by itself', async ({ page }) => {
+// Not an appearance proof: this pins the shared target-size predicate (e2e/targetSize.ts) in the gate, which runs this
+// file in the `e2e` project. The required journey checks and the opt-in UX audit (e2e/audit/metrics.ts) both measure
+// through it. Static markup only; no server state.
+test.describe('shared target-size measurement', () => {
+  test('counts a stretched row link by the box its overlay really fills, and anything else by itself', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.setContent(`<html><head><style>
-      li { position: relative; height: 56px; width: 300px; list-style: none; }
+      li, .row { position: relative; height: 56px; width: 300px; list-style: none; }
       a { display: inline-block; height: 22px; }
       .stretched::after { content: ''; position: absolute; inset: 0; }
       .partial::after { content: ''; position: absolute; top: 0; right: 0; width: 8px; height: 8px; }
+      .no-content::after { content: none; position: absolute; inset: 0; }
+      .click-through::after { pointer-events: none; }
       li.small { height: 30px; }
       a.self { position: relative; }
+      .transformed { transform: translateX(0); height: 22px; }
+      table { border-collapse: collapse; } td { height: 56px; padding: 0; }
+      .switch { display: inline-block; width: 20px; height: 20px; }
+      label { display: flex; min-height: 44px; align-items: center; }
     </style></head><body><ul>
       <li><a class="stretched" href="#a">Stretched row</a></li>
       <li><a class="partial" href="#b">Partial overlay</a></li>
       <li class="small"><a class="stretched" href="#c">Small row</a></li>
       <li><a class="stretched self" href="#d">Self-positioned</a></li>
-    </ul><button style="width: 20px; height: 20px; padding: 0">x</button></body></html>`);
+      <li><a class="no-content" href="#e">Overlay without content</a></li>
+      <li><a class="stretched click-through" href="#f">Click-through overlay</a></li>
+      <li><div class="transformed"><a class="stretched" href="#g">Transformed wrapper</a></div></li>
+    </ul>
+    <table><tr><td><a class="stretched" href="#h">Static table cell</a></td></tr></table>
+    <div class="row"><table><tr><td><a class="stretched" href="#i">Cell in a positioned row</a></td></tr></table></div>
+    <label><button class="switch" role="switch" aria-checked="false" aria-label="Labelled switch"></button> Labelled switch</label>
+    <button style="width: 20px; height: 20px; padding: 0">x</button></body></html>`);
     const metrics = await measureCapture(page);
-    expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual(['Partial overlay', 'Small row', 'Self-positioned', 'x']);
-    expect(metrics.interactiveTargetsUnder44).toBe(4);
+    expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual([
+      'Partial overlay', 'Small row', 'Self-positioned', 'Overlay without content', 'Click-through overlay', 'Transformed wrapper', 'Static table cell', 'x',
+    ]);
+    expect(metrics.interactiveTargetsUnder44).toBe(8);
+    expect(metrics.interactiveTargetsUnder24).toBe(7);
+    // The stretched rows that pass are measured by the box the overlay covers, not by the 22 px text line.
+    const pressed = await page.locator('a[href="#a"], a[href="#i"]').evaluateAll(measureTargets);
+    expect(pressed.map((target) => [Math.round(target.pressed.width), Math.round(target.pressed.height)])).toEqual([[300, 56], [300, 56]]);
   });
 });
