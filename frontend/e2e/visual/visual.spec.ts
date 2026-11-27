@@ -1578,14 +1578,14 @@ test('Archive and paged item history', async ({ browser }) => {
     await page.reload();
     const firstPage = await assertHistoryPage(page, 'en', 1);
     await capture(page, `history-page-1-${width}`, width, 900, true);
-    await firstPage.older.click();
+    await firstPage.next.click();
     await assertHistoryPage(page, 'en', 2);
     await capture(page, `history-page-2-${width}`, width, 900, true);
   }
   await page.setViewportSize({ width: 390, height: 900 });
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
   await page.reload();
-  await (await assertHistoryPage(page, 'cs', 1)).older.click();
+  await (await assertHistoryPage(page, 'cs', 1)).next.click();
   await assertHistoryPage(page, 'cs', 2);
   await capture(page, 'history-cs-page-2-390', 390, 900, true);
   await page.evaluate(() => { localStorage.setItem('tendo.locale', 'en'); localStorage.setItem('tendo.theme', 'dark'); });

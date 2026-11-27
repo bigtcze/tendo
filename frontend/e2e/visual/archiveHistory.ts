@@ -49,12 +49,13 @@ export async function assertHistoryPage(page: Page, locale: Locale, pageNumber: 
     new RegExp(`^${escapeRegExp(catalog['itemDetail.historyDone'].replace('{date}', display(value)))}`)));
   const pages = section.getByRole('navigation', { name: catalog['itemDetail.historyPages'] });
   await expect(pages.getByRole('status')).toHaveText(catalog['itemDetail.historyPage'].replace('{page}', String(pageNumber)));
-  const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') =>
+  const button = (key: 'itemDetail.historyNextPage' | 'itemDetail.historyPrevious' | 'itemDetail.historyFirst') =>
     pages.getByRole('button', { name: catalog[key], exact: true });
-  await expect(button('itemDetail.historyOlder')).toHaveCount(pageNumber === 1 ? 1 : 0);
-  await expect(button('itemDetail.historyNewer')).toHaveCount(pageNumber === 1 ? 0 : 1);
-  await expect(button('itemDetail.historyLatest')).toHaveCount(pageNumber === 1 ? 0 : 1);
-  return { older: button('itemDetail.historyOlder') };
+  // 25 receipts: page 1 can only go forward, page 2 (the last) only back; First page appears from page 3 only.
+  await expect(button('itemDetail.historyNextPage')).toBeEnabled({ enabled: pageNumber === 1 });
+  await expect(button('itemDetail.historyPrevious')).toBeEnabled({ enabled: pageNumber === 2 });
+  await expect(button('itemDetail.historyFirst')).toHaveCount(0);
+  return { next: button('itemDetail.historyNextPage') };
 }
 
 /** Archive is All items filtered to archived: the stated filter, the complete archived range and only archived rows. */

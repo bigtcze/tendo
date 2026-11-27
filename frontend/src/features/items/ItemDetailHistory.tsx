@@ -18,8 +18,10 @@ function HistoryRow({ completion, t, locale }: { completion: Completion; t: Tran
 }
 
 /**
- * Paged history controls. The list is newest first, so Newer/Older are the Previous/Next of this list, and the
- * current page is stated as text inside the navigation.
+ * Paged history controls (UX "History": Previous and Next with an accessible current page). The list is newest
+ * first, so Next page goes to earlier completions. Previous page and Next page are always shown and go disabled at
+ * the first and last page, so each boundary stays visible; from page 3 on, First page returns to the newest page in
+ * one step (on page 2 Previous page already does that). The current page is stated last, below the controls.
  *
  * The navigation stays mounted while a page loads, including the load back to a lone first page from the last
  * one: moving the cursor stack happens on click, before the request,
@@ -29,16 +31,20 @@ function HistoryRow({ completion, t, locale }: { completion: Completion; t: Tran
  */
 function HistoryPaging({ history, t }: { history: ItemDetailHistoryState; t: Translate }) {
   if (history.state === 'error') return null;
-  const hasNewer = history.cursors.length > 1;
-  if (!history.nextCursor && !hasNewer && !history.paging) return null;
+  const page = history.cursors.length;
+  if (!history.nextCursor && page === 1 && !history.paging) return null;
   const loading = history.state === 'loading';
-  return <nav aria-label={t('itemDetail.historyPages')} className="mt-3 flex flex-wrap items-center gap-2">
-    {hasNewer ? <Button type="button" variant="quiet" disabled={loading} onClick={history.newer}>{t('itemDetail.historyNewer')}</Button> : null}
-    <p role="status" className="px-1 text-small text-muted">
-      {t('itemDetail.historyPage', { page: String(history.cursors.length) })}
+  // Same layout as the other list pagers (CursorPager): backward controls left, Next page right, and the current page
+  // on its own line below, so long Czech labels never strand one control on a row of its own at phone widths.
+  return <nav aria-label={t('itemDetail.historyPages')} className="mt-3 flex flex-wrap items-center justify-between gap-2">
+    <div className="flex flex-wrap gap-2">
+      {page > 2 ? <Button type="button" variant="quiet" disabled={loading} onClick={history.first}>{t('itemDetail.historyFirst')}</Button> : null}
+      <Button type="button" variant="quiet" disabled={loading || page === 1} onClick={history.previous}>{t('itemDetail.historyPrevious')}</Button>
+    </div>
+    <Button type="button" variant="quiet" disabled={loading || !history.nextCursor} onClick={history.next}>{t('itemDetail.historyNextPage')}</Button>
+    <p role="status" className="w-full text-center text-small text-muted">
+      {t('itemDetail.historyPage', { page: String(page) })}
     </p>
-    {history.nextCursor ? <Button type="button" variant="quiet" disabled={loading} onClick={history.older}>{t('itemDetail.historyOlder')}</Button> : null}
-    {hasNewer ? <Button type="button" variant="quiet" disabled={loading} onClick={history.latest}>{t('itemDetail.historyLatest')}</Button> : null}
   </nav>;
 }
 

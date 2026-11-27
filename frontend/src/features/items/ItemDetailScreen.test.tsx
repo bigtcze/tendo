@@ -549,48 +549,53 @@ describe('item details', () => {
     expect(first.query.get('limit')).toBe('20'); expect(first.query.get('order')).toBe('newest'); expect(first.query.has('cursor')).toBe(false);
     expect((await historyList()).getAllByRole('listitem')[0]).toHaveTextContent('Done Dec 28, 2025');
     expect(currentPage()).toHaveTextContent('Page 1');
-    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
-    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(main.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
 
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
     expect((await historyList()).getAllByRole('listitem')).toHaveLength(20);
     expect(main.queryByText('Done Dec 28, 2025')).not.toBeInTheDocument();
     expect(currentPage()).toHaveTextContent('Page 2');
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+    expect(main.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
 
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     const oldest = await main.findByText('Done Jan 1, 2020 · Undone');
     expect(oldest).toHaveTextContent('Undone');
     expect(oldest.closest('li')).not.toHaveClass(/opacity-/);
     expect((await historyList()).getAllByRole('listitem')).toHaveLength(1);
-    expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Next page' })).toBeDisabled();
     expect(currentPage()).toHaveTextContent('Page 3');
+    // Order inside the navigation: First page, Previous page, Next page, then the current page.
+    expect([...main.getByRole('navigation', { name: 'History pages' }).querySelectorAll('button, [role="status"]')].map((node) => node.textContent))
+      .toEqual(['First page', 'Previous page', 'Next page', 'Page 3']);
 
-    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    await userEvent.click(main.getByRole('button', { name: 'Previous page' }));
     expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
     expect(currentPage()).toHaveTextContent('Page 2');
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle']);
 
-    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    await userEvent.click(main.getByRole('button', { name: 'Previous page' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null]);
     expect(currentPage()).toHaveTextContent('Page 1');
-    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
-    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(main.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
 
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
-    await userEvent.click(await main.findByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await userEvent.click(await main.findByRole('button', { name: 'Next page' }));
     await main.findByText('Done Jan 1, 2020 · Undone');
-    await userEvent.click(main.getByRole('button', { name: 'Latest' }));
+    await userEvent.click(main.getByRole('button', { name: 'First page' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null, 'c-middle', 'c-older', null]);
     expect(currentPage()).toHaveTextContent('Page 1');
-    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
-    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
-    expect(main.getByRole('button', { name: 'Older' })).toBeVisible();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(main.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Next page' })).toBeVisible();
     expect(main.queryByText('secret-user')).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '20' && request.query.get('order') === 'newest')).toBe(true);
   });
@@ -602,7 +607,7 @@ describe('item details', () => {
     await screen.findByRole('heading', { name: 'Renew passport' });
     const main = within(screen.getByRole('main'));
     await main.findByText('Done Apr 2, 2025');
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     const elsewhere = screen.getByRole('button', { name: 'Edit' });
     elsewhere.focus();
     await act(async () => release(json(200, { items: [completion('older', '2024-03-01')], nextCursor: null })));
@@ -624,7 +629,7 @@ describe('item details', () => {
     await screen.findByRole('heading', { name: 'Renew passport' });
     const main = within(screen.getByRole('main'));
     await main.findByText('Done Apr 2, 2025');
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     const notice = await screen.findByText('That changed just now. Here is the latest.');
     await waitFor(() => expect(notice).toHaveFocus());
@@ -646,7 +651,7 @@ describe('item details', () => {
     await screen.findByRole('heading', { name: 'Renew passport' });
     const main = within(screen.getByRole('main'));
     await main.findByText('Done Apr 2, 2025');
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(2));
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(3));
@@ -655,7 +660,7 @@ describe('item details', () => {
     await act(async () => release(json(200, { items: [completion('stale', '2020-01-01')], nextCursor: null })));
     expect(main.queryByText('Done Jan 1, 2020')).not.toBeInTheDocument();
     expect(main.getByText('Done Apr 2, 2025')).toBeVisible();
-    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
   });
 
   it('retries the current history page and announces loading; an empty older page stays navigable', async () => {
@@ -670,7 +675,7 @@ describe('item details', () => {
     await screen.findByRole('heading', { name: 'Renew passport' });
     const main = within(screen.getByRole('main'));
     await main.findByText('Done Apr 2, 2025');
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     expect(await main.findByText('History could not be loaded.')).toBeVisible();
     await userEvent.click(main.getByRole('button', { name: 'Try again' }));
     // Loading is announced as its own status; the paging navigation keeps stating the page being loaded.
@@ -679,8 +684,9 @@ describe('item details', () => {
     expect(await main.findByText('Nothing completed yet.')).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'))).toEqual([null, 'older-cursor', 'older-cursor']);
     expect(within(main.getByRole('navigation', { name: 'History pages' })).getByRole('status')).toHaveTextContent('Page 2');
-    expect(main.getByRole('button', { name: 'Newer' })).toBeVisible();
-    expect(main.getByRole('button', { name: 'Latest' })).toBeVisible();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+    // On page 2 Previous page already is the first page, so no separate First page control repeats it.
+    expect(main.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
   });
 
   it('keeps the history paging navigation mounted with the new page announced while a page loads', async () => {
@@ -695,20 +701,20 @@ describe('item details', () => {
     const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
     expect(pages().getByRole('status')).toHaveTextContent('Page 1');
 
-    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     // The cursor stack moves before the request, so the live region announces the new page right away; the
     // navigation itself must still be there, otherwise that status node would be created with its text already in it.
     expect(release).toBeDefined();
     expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
     expect(pages().getByRole('status')).toHaveTextContent('Page 2');
-    for (const name of ['Newer', 'Older', 'Latest']) expect(main.getByRole('button', { name })).toBeDisabled();
+    for (const name of ['Previous page', 'Next page']) expect(main.getByRole('button', { name })).toBeDisabled();
 
     await act(async () => release(json(200, { items: [completion('older', '2024-03-01')], nextCursor: null })));
     expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
     expect(pages().getByRole('status')).toHaveTextContent('Page 2');
-    expect(main.getByRole('button', { name: 'Newer' })).toBeEnabled();
-    expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+    expect(main.getByRole('button', { name: 'Next page' })).toBeDisabled();
   });
 
   it('keeps announcing the page while returning from the last page to the first one', async () => {
@@ -724,26 +730,27 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await screen.findByRole('heading', { name: 'Renew passport' });
     const main = within(screen.getByRole('main'));
-    await userEvent.click(await main.findByRole('button', { name: 'Older' }));
+    await userEvent.click(await main.findByRole('button', { name: 'Next page' }));
     expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
     const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
     expect(pages().getByRole('status')).toHaveTextContent('Page 2');
 
     // The last page has no next cursor and going back empties the stack: the navigation must still stay mounted,
     // so the existing status node changes to "Page 1" and is announced.
-    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    await userEvent.click(main.getByRole('button', { name: 'Previous page' }));
     expect(release).toBeDefined();
     expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
     expect(pages().getByRole('status')).toHaveTextContent('Page 1');
-    // Back on page 1 there is no Newer, and Older waits for the fresh first-page cursor.
-    expect(pages().queryAllByRole('button')).toHaveLength(0);
+    // Back on page 1 Previous page marks the boundary, and Next page waits for the fresh first-page cursor.
+    expect(pages().getAllByRole('button').map((button) => [button.textContent, (button as HTMLButtonElement).disabled]))
+      .toEqual([['Previous page', true], ['Next page', true]]);
 
     await act(async () => release!(json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' })));
     expect(await main.findByText('Done Apr 2, 2025')).toBeVisible();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
     expect(pages().getByRole('status')).toHaveTextContent('Page 1');
-    expect(main.getByRole('button', { name: 'Older' })).toBeEnabled();
-    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Next page' })).toBeEnabled();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
   });
 
   it('renders Czech history navigation labels', async () => {
@@ -753,10 +760,10 @@ describe('item details', () => {
     await screen.findByRole('heading', { name: 'Renew passport' });
     const main = within(screen.getByRole('main'));
     expect(await main.findByRole('heading', { name: 'Historie' })).toBeVisible();
-    await userEvent.click(await main.findByRole('button', { name: 'Starší' }));
-    expect(await main.findByRole('button', { name: 'Novější' })).toBeVisible();
-    expect(main.getByRole('button', { name: 'Nejnovější' })).toBeVisible();
-    expect(main.queryByRole('button', { name: 'Starší' })).not.toBeInTheDocument();
+    await userEvent.click(await main.findByRole('button', { name: 'Další stránka' }));
+    expect(await main.findByRole('button', { name: 'Předchozí stránka' })).toBeEnabled();
+    expect(main.queryByRole('button', { name: 'První stránka' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Další stránka' })).toBeDisabled();
     expect(within(main.getByRole('navigation', { name: 'Stránky historie' })).getByRole('status')).toHaveTextContent('Strana 2');
   });
 

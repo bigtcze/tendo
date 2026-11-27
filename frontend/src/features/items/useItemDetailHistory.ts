@@ -12,7 +12,7 @@ type Options = {
   liveToken: () => number;
 };
 
-/** Item history as replacement pages of 20, newest first, with a cursor stack for Older / Newer / Latest. */
+/** Item history as replacement pages of 20, newest first, with a cursor stack for Previous / Next / First page. */
 export function useItemDetailHistory({ headingRef, sectionRef, householdId, itemId, onSignedOut, current, liveToken }: Options) {
   const [history, setHistory] = useState<Completion[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -54,19 +54,20 @@ export function useItemDetailHistory({ headingRef, sectionRef, householdId, item
     setPaging(true);
     showPage(cursor);
   }
-  function older() {
+  /** Next page: the next 20 earlier completions. */
+  function next() {
     if (!nextCursor || state === 'loading') return;
     const cursor = nextCursor;
     setCursors((stack) => [...stack, cursor]);
     changePage(cursor);
   }
-  function newer() {
+  function previous() {
     if (cursors.length <= 1 || state === 'loading') return;
-    const next = cursors.slice(0, -1);
-    setCursors(next);
-    changePage(next[next.length - 1] ?? null);
+    const stack = cursors.slice(0, -1);
+    setCursors(stack);
+    changePage(stack[stack.length - 1] ?? null);
   }
-  function latest() {
+  function first() {
     if (cursors.length <= 1 || state === 'loading') return;
     setCursors([null]);
     changePage(null);
@@ -75,7 +76,7 @@ export function useItemDetailHistory({ headingRef, sectionRef, householdId, item
     showPage(cursors.at(-1) ?? null);
   }
 
-  return { history, state, cursors, nextCursor, paging, load, reset, older, newer, latest, retry };
+  return { history, state, cursors, nextCursor, paging, load, reset, next, previous, first, retry };
 }
 
 export type ItemDetailHistoryState = ReturnType<typeof useItemDetailHistory>;

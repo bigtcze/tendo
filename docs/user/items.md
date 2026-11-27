@@ -38,7 +38,7 @@ If someone else changed the item while you were editing, Tendo shows the latest 
 
 ## History
 
-The history lists completions from newest to oldest, 20 at a time. Choose **Older** to see earlier completions, **Newer** to go back, and **Latest** to return to the most recent ones. The number of the page you are on is shown with these controls, so you always know where you are. All completions stay reachable, however long the history is. An undone completion remains visible and is marked as undone.
+The history lists completions from newest to oldest, 20 at a time. Choose **Next page** to see earlier completions and **Previous page** to go back; on the first page **Previous page** is unavailable, and on the last page **Next page** is. From the third page on, **First page** returns to the most recent completions. The number of the page you are on is shown below these controls, so you always know where you are. All completions stay reachable, however long the history is. An undone completion remains visible and is marked as undone.
 
 ## Archive
 
