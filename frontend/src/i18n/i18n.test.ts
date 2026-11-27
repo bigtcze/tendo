@@ -44,7 +44,7 @@ describe('locale catalogs', () => {
   it('never sends the person to server files or settings names', () => {
     // The person setting up a household may not run the server; server file and variable names belong in the admin
     // docs, never in the app (UX "Language": human wording only).
-    const serverInternals = /(^|[\s(])\.env\b|\bTENDO_[A-Z_]+|\benvironment variable|proměnn\w* prostředí/i;
+    const serverInternals = /(?<![\w.])\.env\b|\bTENDO_[A-Z_]+|\benvironment variable|proměnn\p{L}* prostředí/iu;
     for (const [key, value] of [...Object.entries(en), ...Object.entries(cs)]) {
       expect(value, key).not.toMatch(serverInternals);
     }
