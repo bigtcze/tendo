@@ -439,7 +439,7 @@ func TestOIDCPendingCookiePolicyOnHTTPS(t *testing.T) {
 		t.Fatalf("cancel status=%d body=%s", w.Code, w.Body)
 	}
 	cookies := w.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "__Host-tendo_oidc_pending" || cookies[0].Value != "" || cookies[0].MaxAge >= 0 || !cookies[0].Secure {
+	if len(cookies) != 1 || cookies[0].Name != "__Host-tendo_oidc_pending" || cookies[0].Value != "" || cookies[0].MaxAge >= 0 || !cookies[0].Secure || cookies[0].Path != "/" {
 		t.Fatalf("cancel cookies=%+v", cookies)
 	}
 }

@@ -57,8 +57,8 @@ linters:
       # unchecked cleanup (G104), plain httptest servers (G112), fixture integer conversions (G115), source-tree
       # walks (G122), fixture cookies (G124), fixture and test-configured file reads (G304, G703), seeded
       # math/rand (G404), fixture slicing (G602) and the fake identity provider's redirect to the client's
-      # redirect_uri (G710). Every other rule, such as TLS verification skips, SQL string formatting or servers
-      # without timeouts, still fails. Owner: each test's module.
+      # redirect_uri (G710). Every other rule, such as TLS verification skips, SQL string formatting or bare
+      # http.ListenAndServe without timeouts (G114), still fails. Owner: each test's module.
       - path: (_test\.go$|^internal/testoidc/|^test/oidc-provider/)
         linters: [gosec]
         text: '^G(101|104|112|115|122|124|304|404|602|703|710):'
