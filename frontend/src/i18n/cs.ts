@@ -47,11 +47,11 @@ export const cs: Record<MessageKey, string> = {
   'onboarding.timezone.hint': 'Použije se pro data v domácnosti: {timezone}',
   'onboarding.submit': 'Vytvořit domácnost',
   'onboarding.submitting': 'Vytvářím…',
-  'onboarding.error.setupCodeEmpty': 'Zadejte instalační kód.',
+  'onboarding.error.setupCodeEmpty': 'Zadejte jednorázový kód.',
   'onboarding.error.householdNameEmpty': 'Zadejte název domácnosti.',
   'onboarding.error.loginEmpty': 'Zvolte si uživatelské jméno.',
   'onboarding.error.passwordEmpty': 'Zvolte si heslo.',
-  'onboarding.error.setupCode': 'Instalační kód není správný. Zkontrolujte ho a zkuste to znovu.',
+  'onboarding.error.setupCode': 'Jednorázový kód není správný. Zkontrolujte ho a zkuste to znovu.',
   'onboarding.error.login':
     'Toto uživatelské jméno nelze použít. Zvolte alespoň 3 znaky: malá písmena, číslice, tečku, podtržítko nebo pomlčku.',
   'onboarding.error.password': 'Heslo musí mít 15 až 128 znaků.',
