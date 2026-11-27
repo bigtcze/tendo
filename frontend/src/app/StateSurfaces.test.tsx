@@ -298,7 +298,8 @@ describe('status screens', () => {
   it('signed-out not found keeps the top-aligned column and its sign-in action', () => {
     renderInApp(<NotFoundScreen signedOut />);
     const column = screen.getByRole('heading', { level: 1 }).parentElement!;
-    expect(column).toHaveClass('settle', 'mx-auto', 'w-full', 'max-w-2xl', 'lg:mt-10');
+    // The sign-in family's narrow centred column (#459 review), still top-aligned.
+    expect(column).toHaveClass('settle', 'mx-auto', 'w-full', 'max-w-md', 'text-center', 'lg:mt-10');
     expect(column).not.toHaveClass('min-h-[55vh]');
     expect(screen.getByRole('link', { name: en['app.notFound.signIn'] })).toHaveAttribute('href', '/login');
   });
