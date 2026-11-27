@@ -81,6 +81,7 @@ describe('onboarding', () => {
     renderApp();
     const name = await screen.findByLabelText('Household name');
     expect(screen.getByLabelText('Time zone').querySelectorAll('option').length).toBeGreaterThan(1);
+    // Page-wide: no date formatter of any kind may be built per keystroke, the zone labels being the one there was.
     const counter = countDateTimeFormats();
     try {
       await userEvent.type(name, 'Novák');

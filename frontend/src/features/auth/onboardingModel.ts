@@ -53,7 +53,8 @@ export function firstEmptyField(
 /**
  * Labels of the fixed platform zone list, per locale. The time-zone field relabels every option on each render of its
  * form, and building an `Intl.DateTimeFormat` per zone on every keystroke elsewhere in the form costs tens of
- * milliseconds; the set is bounded by the supported zones times the two app locales.
+ * milliseconds. Callers pass only zones offered by `timezoneOptions` (or the detected zone), so the set is bounded by
+ * the supported zones times the two app locales.
  */
 const timezoneLabels = new Map<string, string>();
 

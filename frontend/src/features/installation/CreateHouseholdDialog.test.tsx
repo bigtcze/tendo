@@ -122,6 +122,7 @@ describe('installation household creation', () => {
     const { dialog } = await openDialog();
     await waitFor(() => expect(nameField(dialog)).toHaveFocus());
     expect(zoneField(dialog).options.length).toBeGreaterThan(1);
+    // Page-wide: no date formatter of any kind may be built per keystroke, the zone labels being the one there was.
     const counter = countDateTimeFormats();
     try {
       await userEvent.type(nameField(dialog), 'Chata');
