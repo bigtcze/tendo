@@ -84,7 +84,8 @@ function ArchiveControl({ item, busy, stale, t, onArchive, onRestore }: Pick<Pro
 
 /**
  * One flat action band on the page: Edit, the obvious Done and the workflow options, with the small quiet
- * Archive/Restore at its end instead of a card of its own. The outcome of a completion sits under the band.
+ * Archive/Restore at its end instead of a card of its own (on its own row at the start on phones). The outcome of a
+ * completion sits under the band.
  */
 export function ItemDetailActions(props: Props) {
   const { item, busy, t } = props;
@@ -97,7 +98,7 @@ export function ItemDetailActions(props: Props) {
     {props.editLoading ? <p role="status" className="mb-3 text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
     <div className="flex flex-wrap items-center gap-2">
       {live ? <LiveRow {...props} /> : null}
-      <div className="ml-auto flex flex-wrap items-center gap-2">{archive}</div>
+      <div className="mt-1 flex w-full flex-wrap items-center gap-2 sm:mt-0 sm:ml-auto sm:w-auto">{archive}</div>
     </div>
     {props.completionNotice ? <div className="mt-3"><CompletionNotice {...props} /></div> : null}
   </div>;
