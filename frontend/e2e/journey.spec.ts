@@ -13,6 +13,7 @@ import { measureMotion, waitForSettledAnimations } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
 import { effectiveThemeColor } from './themeColor';
+import { measureTargets, pressedBelow, TARGET_SELECTOR } from './targetSize';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -3826,33 +3827,11 @@ test.describe('Tendo production journey', () => {
     // Targets are compared with a 1/64 px tolerance: Chrome lays out in 1/64 px units, so a 24 px
     // min-height can measure 23.99998 px at some vertical offsets.
     const checkTargets = async (label: string) => {
-      const small = await page.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((elements) => {
-        /**
-         * The box a reader actually presses. A stretched link puts an absolutely positioned `::after` over the row,
-         * so its presses land anywhere in the box that pseudo-element fills: the row, not the text line, is the
-         * target. Only a pseudo-element pinned to all four edges fills a whole box; any other absolute one (a dot, a
-         * corner badge) covers part of it and never widens the pressed area. Everything else is pressed in its own
-         * box (or its label's, for a wrapped native input).
-         */
-        const stretchedArea = (element: Element) => {
-          const overlay = getComputedStyle(element, '::after');
-          if (overlay.position !== 'absolute' || !(element instanceof HTMLElement)) return null;
-          const fills = [overlay.top, overlay.right, overlay.bottom, overlay.left].every((side) => side === '0px');
-          const covering = fills ? element.offsetParent : null;
-          return covering && covering !== document.body ? covering : null;
-        };
-        const pressedArea = (element: Element) => element.closest('label') ?? stretchedArea(element) ?? element;
-        const measure = (element: Element) => {
-          const box = pressedArea(element).getBoundingClientRect();
-          return { width: box.width, height: box.height };
-        };
-        return elements.filter((element) => {
-          if (element.matches('.sr-only') && !element.matches(':focus')) return false; // revealed only while focused
-          const box = element.getBoundingClientRect();
-          const hitBox = measure(element);
-          return box.width > 0 && box.height > 0 && (hitBox.width < 24 - 1 / 64 || hitBox.height < 24 - 1 / 64);
-        }).map((element) => ({ tag: element.tagName, name: element.getAttribute('aria-label') || element.textContent?.trim() || element.getAttribute('type'), ...measure(element) })).map(({ width, height, ...rest }) => ({ ...rest, width: Math.round(width), height: Math.round(height) }));
-      });
+      // The shared WCAG 2.5.8 predicate (targetSize.ts): a control is pressed in its label, its stretched row or itself.
+      // Controls revealed only while focused (.sr-only skip links) are excluded until they take focus.
+      const small = (await page.locator(TARGET_SELECTOR).evaluateAll(measureTargets))
+        .filter((target) => (!target.srOnly || target.focused) && target.box.width > 0 && target.box.height > 0 && pressedBelow(target, 24))
+        .map((target) => ({ tag: target.tag, name: target.ariaLabel || target.text || target.type, width: Math.round(target.pressed.width), height: Math.round(target.pressed.height) }));
       await test.info().attach(`targets-${label}.json`, { body: JSON.stringify(small, null, 2), contentType: 'application/json' });
       expect(small, `${label} interactive targets >=24 CSS px`).toEqual([]);
     };
@@ -5175,31 +5154,12 @@ test.describe('Tendo production journey', () => {
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
     const contrastEvidence: ContrastAuditRow[] = [];
     const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
-    // WCAG 2.5.8 target-size predicate, shared by every route, dark, empty and signed-out check so the
-    // rule cannot diverge between them. A control's hit area is its enclosing <label> when it has one (the
-    // real click target), otherwise the row a full-bleed stretched ::after covers, otherwise the element
-    // itself. Visually hidden (.sr-only) controls are excluded; no other exemption applies.
-    const targetSizeShortfalls = (target: Page) => target.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => {
-      /**
-       * The box a reader actually presses. A stretched link puts an absolutely positioned `::after` over its row, so
-       * presses land anywhere in the box that pseudo-element fills: the row, not the text line, is its target. Only a
-       * pseudo-element pinned to all four edges fills a whole box; a partial overlay (a dot, a corner badge) does not.
-       */
-      const stretchedArea = (node: Element) => {
-        const overlay = getComputedStyle(node, '::after');
-        if (overlay.position !== 'absolute' || !(node instanceof HTMLElement)) return null;
-        const pinned = [overlay.top, overlay.right, overlay.bottom, overlay.left].every((side) => side === '0px');
-        const covering = pinned ? node.offsetParent : null;
-        return covering && covering !== document.body ? covering : null;
-      };
-      const pressedArea = (node: Element) => node.closest('label') ?? stretchedArea(node) ?? node;
-      return nodes.filter((node) => {
-        if (node.matches('.sr-only')) return false;
-        const rect = node.getBoundingClientRect();
-        const hit = pressedArea(node).getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
-      }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim() || node.getAttribute('type'), outerHTML: node.outerHTML, rect: pressedArea(node).getBoundingClientRect().toJSON() }));
-    });
+    // WCAG 2.5.8 target-size check for every route, dark, empty and signed-out state, through the one predicate the
+    // journey targets and the UX audit also use (targetSize.ts). Visually hidden (.sr-only) controls are excluded; no
+    // other exemption applies.
+    const targetSizeShortfalls = async (target: Page) => (await target.locator(TARGET_SELECTOR).evaluateAll(measureTargets))
+      .filter((node) => !node.srOnly && node.box.width > 0 && node.box.height > 0 && pressedBelow(node, 24))
+      .map((node) => ({ name: node.ariaLabel || node.text || node.type, outerHTML: node.outerHTML, rect: node.pressed }));
     const measureContrast = async (target: Page, route: string, expectBoundary = false): Promise<ContrastAuditRow[]> => {
       const rows = await auditContrast(target, route);
       const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);
