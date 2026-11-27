@@ -50,7 +50,24 @@ export function firstEmptyField(
   return null;
 }
 
+/**
+ * Labels of the fixed platform zone list, per locale. The time-zone field relabels every option on each render of its
+ * form, and building an `Intl.DateTimeFormat` per zone on every keystroke elsewhere in the form costs tens of
+ * milliseconds; the set is bounded by the supported zones times the two app locales.
+ */
+const timezoneLabels = new Map<string, string>();
+
 export function formatTimezoneLabel(timeZone: string, locale: string): string {
+  const key = `${locale}\u0000${timeZone}`;
+  let label = timezoneLabels.get(key);
+  if (label === undefined) {
+    label = buildTimezoneLabel(timeZone, locale);
+    timezoneLabels.set(key, label);
+  }
+  return label;
+}
+
+function buildTimezoneLabel(timeZone: string, locale: string): string {
   const place = timeZone.split('/').at(-1)?.replaceAll('_', ' ') ?? timeZone;
   const city = place.replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase(locale));
   try {

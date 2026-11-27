@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, instanceAdminSession, installFakeServer, json, session } from '../../test/fakeServer';
 import { itemRoutes } from '../../test/fakeItems';
+import { countDateTimeFormats } from '../../test/countDateTimeFormats';
 import type { components } from '../../../../api/generated/api';
 
 type AdminHousehold = components['schemas']['AdminHousehold'];
@@ -114,6 +115,21 @@ describe('installation household creation', () => {
     // The reader searches when they are ready to: opening the dialog asks the directory nothing.
     expect(directoryAsks(fake)).toHaveLength(0);
     expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
+  });
+
+  it('typing the name does not relabel every time zone', async () => {
+    renderAt({});
+    const { dialog } = await openDialog();
+    await waitFor(() => expect(nameField(dialog)).toHaveFocus());
+    expect(zoneField(dialog).options.length).toBeGreaterThan(1);
+    const counter = countDateTimeFormats();
+    try {
+      await userEvent.type(nameField(dialog), 'Chata');
+      expect(nameField(dialog)).toHaveValue('Chata');
+      expect(counter.count).toBe(0);
+    } finally {
+      counter.restore();
+    }
   });
 
   it('creates the household with someone else as first admin, says so and opens it', async () => {
