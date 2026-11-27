@@ -22,17 +22,22 @@ There are no other roles today. A regular contributor may be offered review or w
 
 ## Continuity
 
-The project must be able to keep going if the maintainer cannot continue: create and close issues, accept changes, and publish releases within a week.
+OpenSSF Best Practices asks that a project can keep going within a week if any one person cannot continue: create and close issues, accept changes, and publish releases. This section describes Tendo's actual status against that goal. It is not met today.
 
-What a successor needs:
+**Current status:**
 
-- control of the repository and the `ghcr.io/bigtcze/tendo` package. Both belong to the personal account `bigtcze`, and GitHub does not let a collaborator administer a personal repository. The arrangement that meets the one-week goal is moving the repository and image to a GitHub organization with a second owner; the image name then changes, so a release must update `compose.yaml`. A [GitHub account successor](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/maintaining-ownership-continuity-of-your-personal-accounts-repositories) is only a last resort: it applies only after the maintainer's death, takes at least 7 to 21 days through GitHub Support, lets the successor archive or transfer public repositories but not sign in, and does not move the published image. Releases are built and published by GitHub Actions from this repository, so no separate publishing key is held outside GitHub;
-- access to the mailbox **info@veselarodina.cz** and to the `veselarodina.cz` domain that hosts it;
-- the right to continue the project under the [Apache License 2.0](LICENSE), which anyone already has; a fork can continue from any published release.
+- Tendo has one maintainer, and the bus factor is 1. No second person has administrator access to the repository, the `ghcr.io/bigtcze/tendo` image or the security mailbox **info@veselarodina.cz**.
+- The repository and the image belong to the personal GitHub account `bigtcze`. GitHub does not let a collaborator administer a repository owned by a personal account.
+- Releases are built and published by GitHub Actions from this repository, so no separate publishing key exists outside GitHub.
+- The AI coding agents run on the maintainer's own machine with the maintainer's credentials. They are not a continuity arrangement: they keep running only as long as that machine and those credentials work.
+- A conduct report about the maintainer goes to the same address, because there is no independent second contact.
 
-The AI coding agents run on the maintainer's own machine with the maintainer's credentials. They are not part of the continuity plan: a successor does not need them, and they keep running only as long as that machine and those credentials work.
+**If the maintainer becomes unavailable:**
 
-**Current status:** Tendo has one maintainer, and no second person holds these accesses today. The arrangement above is therefore not yet in place. Until it is, if the maintainer is unavailable, self-hosters keep running their installed release, which needs no outside service, and anyone may fork the project under its license. Open maintainer task: move the repository and image to an organization with a second owner (and, as a fallback, name a GitHub account successor), and give that person emergency access to the mailbox. Until then the bus factor is 1. A conduct report about the maintainer also goes to the same address, because there is no independent second contact yet.
+- Self-hosters keep running their installed release, which needs no outside service. Published images stay available for as long as the `bigtcze` account exists.
+- Anyone may fork the project from any published release under the [Apache License 2.0](LICENSE) and publish their own image. Self-hosters would then point `compose.yaml` at that image.
+
+**Options that would close the gap:** a second owner through a GitHub organization, or a [GitHub account successor](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/maintaining-ownership-continuity-of-your-personal-accounts-repositories), which applies only after the account holder's death, goes through GitHub Support, and covers repositories but not the published image. Whether to use either option is the maintainer's decision; neither is a project requirement.
 
 ## Roadmap to the end of 2027
 
@@ -40,7 +45,7 @@ Planned:
 
 - Release Tendo 5.0: membership in several households and switching between them, an installation administrator, local password change and an administrator password reset command, invitation clean-up, a configurable host IP for Tendo's published port (local-only by default), and per-user, OAuth-protected access for AI apps through MCP. The open release issues are listed under the [`release` label](https://github.com/bigtcze/tendo/issues?q=is%3Aissue+is%3Aopen+label%3Arelease).
 - Keep dependencies and the toolchain current, and publish security and maintenance patch releases.
-- Work towards the OpenSSF Best Practices badge and the OpenSSF Security Baseline, including a written assurance case, signed release artifacts and measured test coverage.
+- Meet as many OpenSSF Best Practices (passing and silver) and Security Baseline level 1 criteria as the project can on its own, including a written assurance case, signed release artifacts and measured test coverage.
 
 Possible later directions, not scheduled for the next year: the [post-V1 direction](.autonomous/ROADMAP.md), such as document upload with AI that extracts and suggests items for a person to review, or optionally creating a calendar event from an item. Each needs its own approved release.
 
