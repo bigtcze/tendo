@@ -5,7 +5,7 @@ runs:
   steps:
     # mise-action runs `mise install --locked` because mise.lock exists: every Go, Node.js, sqlc and golangci-lint
     # archive must match its recorded SHA-256, exactly as scripts/dev-exec.sh does locally.
-    - uses: jdx/mise-action@v5.2.10
+    - uses: jdx/mise-action@v5.3.0
       with:
         version: v2026.11.0
         sha256: 71eb4f1b66b8bd69eb44cedcf0b22205859ea1ae2b2f557e48b35656079a94a9
