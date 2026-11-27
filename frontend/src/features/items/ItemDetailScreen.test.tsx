@@ -753,6 +753,45 @@ describe('item details', () => {
     expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
   });
 
+  it('keeps announcing the page while First page returns from page 3 to page 1', async () => {
+    let release: ((response: Response) => void) | undefined;
+    let firstPageReads = 0;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
+      const cursor = request.query.get('cursor');
+      if (cursor === 'c2') return json(200, { items: [completion('middle', '2024-06-01')], nextCursor: 'c3' });
+      if (cursor === 'c3') return json(200, { items: [completion('oldest', '2023-06-01')], nextCursor: null });
+      firstPageReads += 1;
+      return firstPageReads === 1
+        ? json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'c2' })
+        : new Promise<Response>((resolve) => { release = resolve; });
+    } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Next page' }));
+    await main.findByText('Done Jun 1, 2024');
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await main.findByText('Done Jun 1, 2023');
+    const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
+    const status = pages().getByRole('status');
+    expect(status).toHaveTextContent('Page 3');
+
+    // While the first page loads, the same status node states "Page 1", First page is gone and both bounds wait.
+    await userEvent.click(main.getByRole('button', { name: 'First page' }));
+    expect(release).toBeDefined();
+    expect(pages().getByRole('status')).toBe(status);
+    expect(status).toHaveTextContent('Page 1');
+    expect(pages().getAllByRole('button').map((button) => [button.textContent, (button as HTMLButtonElement).disabled]))
+      .toEqual([['Previous page', true], ['Next page', true]]);
+
+    await act(async () => release!(json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'c2' })));
+    expect(await main.findByText('Done Apr 2, 2025')).toBeVisible();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(status).toHaveTextContent('Page 1');
+    expect(main.getByRole('button', { name: 'Next page' })).toBeEnabled();
+    expect(main.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+  });
+
   it('renders Czech history navigation labels', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.has('cursor') ? json(200, { items: [completion('c-old', '2024-03-01')], nextCursor: null }) : json(200, { items: [completion('c-new', '2025-04-02')], nextCursor: 'older' }) }));

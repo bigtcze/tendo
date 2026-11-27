@@ -1569,7 +1569,8 @@ test('Archive and paged item history', async ({ browser }) => {
   await capture(page, 'archive-cs-390', 390, 900, false);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
 
-  // History: 25 receipts make a full first page of 20 and a second page of 5, stated in the History pages navigation.
+  // History: 45 receipts make two full pages of 20 and a third page of 5, stated in the History pages navigation.
+  // Page 3 is the only one with all three controls (First, Previous, Next page) and is captured where they wrap.
   const item = await seedPagedHistory(page, requiredFixture());
   await page.goto(`/items/${item.id}`);
   await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible();
@@ -1579,15 +1580,23 @@ test('Archive and paged item history', async ({ browser }) => {
     const firstPage = await assertHistoryPage(page, 'en', 1);
     await capture(page, `history-page-1-${width}`, width, 900, true);
     await firstPage.next.click();
-    await assertHistoryPage(page, 'en', 2);
+    const secondPage = await assertHistoryPage(page, 'en', 2);
     await capture(page, `history-page-2-${width}`, width, 900, true);
+    if (width !== 390) continue;
+    await secondPage.next.click();
+    await assertHistoryPage(page, 'en', 3);
+    await capture(page, 'history-page-3-390', 390, 900, true);
   }
   await page.setViewportSize({ width: 390, height: 900 });
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
   await page.reload();
   await (await assertHistoryPage(page, 'cs', 1)).next.click();
-  await assertHistoryPage(page, 'cs', 2);
+  const czechSecond = await assertHistoryPage(page, 'cs', 2);
   await capture(page, 'history-cs-page-2-390', 390, 900, true);
+  await czechSecond.next.click();
+  await assertHistoryPage(page, 'cs', 3);
+  await capture(page, 'history-cs-page-3-390', 390, 900, true);
+  await capture(page, 'history-cs-page-3-320', 320, 900, true);
   await page.evaluate(() => { localStorage.setItem('tendo.locale', 'en'); localStorage.setItem('tendo.theme', 'dark'); });
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');

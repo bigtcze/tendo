@@ -35,13 +35,14 @@ function HistoryPaging({ history, t }: { history: ItemDetailHistoryState; t: Tra
   if (!history.nextCursor && page === 1 && !history.paging) return null;
   const loading = history.state === 'loading';
   // Same layout as the other list pagers (CursorPager): backward controls left, Next page right, and the current page
-  // on its own line below, so long Czech labels never strand one control on a row of its own at phone widths.
+  // on its own line below. When narrow widths or long Czech labels wrap Next page onto its own row, ml-auto keeps it
+  // on the right, so the forward direction never reads as one more backward control.
   return <nav aria-label={t('itemDetail.historyPages')} className="mt-3 flex flex-wrap items-center justify-between gap-2">
     <div className="flex flex-wrap gap-2">
-      {page > 2 ? <Button type="button" variant="quiet" disabled={loading} onClick={history.first}>{t('itemDetail.historyFirst')}</Button> : null}
-      <Button type="button" variant="quiet" disabled={loading || page === 1} onClick={history.previous}>{t('itemDetail.historyPrevious')}</Button>
+      {page > 2 ? <Button type="button" variant="quiet" disabled={loading} onClick={history.first}>{t('itemDetail.historyFirstPage')}</Button> : null}
+      <Button type="button" variant="quiet" disabled={loading || page === 1} onClick={history.previous}>{t('itemDetail.historyPreviousPage')}</Button>
     </div>
-    <Button type="button" variant="quiet" disabled={loading || !history.nextCursor} onClick={history.next}>{t('itemDetail.historyNextPage')}</Button>
+    <Button type="button" variant="quiet" className="ml-auto" disabled={loading || !history.nextCursor} onClick={history.next}>{t('itemDetail.historyNextPage')}</Button>
     <p role="status" className="w-full text-center text-small text-muted">
       {t('itemDetail.historyPage', { page: String(page) })}
     </p>
