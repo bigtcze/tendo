@@ -7,10 +7,14 @@ type Locale = 'en' | 'cs';
 const catalogFor = (locale: Locale) => (locale === 'cs' ? cs : en);
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** One history page holds 20 receipts (UX.md "History"); 25 gives a full first page and a short second one. */
+/**
+ * One history page holds 20 receipts (UX.md "History"); 45 give two full pages and a short third one, so the first
+ * page, a middle page and the last page (the only one with First page) all render.
+ */
 const HISTORY_PAGE = 20;
-const HISTORY_RECEIPTS = 25;
-const FIRST_DAY = Date.UTC(2026, 3, 20); // 2026-04-20; the 25th receipt lands on the fixed visual date 2026-05-14.
+const HISTORY_RECEIPTS = 45;
+const HISTORY_PAGES = Math.ceil(HISTORY_RECEIPTS / HISTORY_PAGE);
+const FIRST_DAY = Date.UTC(2026, 2, 31); // 2026-03-31; the 45th receipt lands on the fixed visual date 2026-05-14.
 const historyDates = () => Array.from({ length: HISTORY_RECEIPTS },
   (_, index) => new Date(FIRST_DAY + index * 86_400_000).toISOString().slice(0, 10));
 
@@ -38,7 +42,7 @@ export async function seedPagedHistory(page: Page, fixture: Fixture): Promise<Vi
 }
 
 /** The settled history page: exactly its receipts, newest first, and the page it states in its own navigation. */
-export async function assertHistoryPage(page: Page, locale: Locale, pageNumber: 1 | 2) {
+export async function assertHistoryPage(page: Page, locale: Locale, pageNumber: 1 | 2 | 3) {
   const catalog = catalogFor(locale);
   const section = page.getByRole('main').getByRole('heading', { level: 2, name: catalog['itemDetail.history'], exact: true })
     .locator('xpath=ancestor::section[1]');
@@ -49,12 +53,13 @@ export async function assertHistoryPage(page: Page, locale: Locale, pageNumber: 
     new RegExp(`^${escapeRegExp(catalog['itemDetail.historyDone'].replace('{date}', display(value)))}`)));
   const pages = section.getByRole('navigation', { name: catalog['itemDetail.historyPages'] });
   await expect(pages.getByRole('status')).toHaveText(catalog['itemDetail.historyPage'].replace('{page}', String(pageNumber)));
-  const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') =>
+  const button = (key: 'itemDetail.historyNextPage' | 'itemDetail.historyPreviousPage' | 'itemDetail.historyFirstPage') =>
     pages.getByRole('button', { name: catalog[key], exact: true });
-  await expect(button('itemDetail.historyOlder')).toHaveCount(pageNumber === 1 ? 1 : 0);
-  await expect(button('itemDetail.historyNewer')).toHaveCount(pageNumber === 1 ? 0 : 1);
-  await expect(button('itemDetail.historyLatest')).toHaveCount(pageNumber === 1 ? 0 : 1);
-  return { older: button('itemDetail.historyOlder') };
+  // Previous page and Next page are always there and disabled at their boundary; First page appears from page 3 only.
+  await expect(button('itemDetail.historyNextPage')).toBeEnabled({ enabled: pageNumber < HISTORY_PAGES });
+  await expect(button('itemDetail.historyPreviousPage')).toBeEnabled({ enabled: pageNumber > 1 });
+  await expect(button('itemDetail.historyFirstPage')).toHaveCount(pageNumber > 2 ? 1 : 0);
+  return { next: button('itemDetail.historyNextPage') };
 }
 
 /** Archive is All items filtered to archived: the stated filter, the complete archived range and only archived rows. */
