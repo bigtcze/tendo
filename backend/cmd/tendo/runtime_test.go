@@ -205,6 +205,15 @@ func TestRuntimeServerWriteBudgetCoversReadAndServiceBudgets(t *testing.T) {
 	}
 }
 
+// Slow-header (Slowloris) and oversized-header clients are cut off by the server, not by the proxy alone.
+func TestRuntimeServerBoundsHeadersAndIdleConnections(t *testing.T) {
+	server := newRuntimeServer(":0", http.NotFoundHandler(), 5*time.Second)
+	if server.ReadHeaderTimeout != 5*time.Second || server.IdleTimeout != 60*time.Second || server.MaxHeaderBytes != 16<<10 {
+		t.Fatalf("read header timeout=%s idle timeout=%s max header bytes=%d",
+			server.ReadHeaderTimeout, server.IdleTimeout, server.MaxHeaderBytes)
+	}
+}
+
 func TestServeDrainsReadinessAndBoundsPoolClose(t *testing.T) {
 	pool := &blockingPool{pingStarted: make(chan struct{}), pingRelease: make(chan struct{}), closeStarted: make(chan struct{}), closeRelease: make(chan struct{})}
 	t.Cleanup(func() {

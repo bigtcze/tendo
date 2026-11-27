@@ -81,7 +81,7 @@ For whoever runs Tendo:
 
 For contributors:
 
-- [Development and tests](docs/development/testing.md), [runtime](docs/development/runtime.md), [frontend](docs/development/frontend.md), [API](docs/development/api.md), and [release process](docs/development/release.md)
+- [Development and tests](docs/development/testing.md), [runtime](docs/development/runtime.md), [frontend](docs/development/frontend.md), [API](docs/development/api.md), [release process](docs/development/release.md), and the [security assurance case](docs/development/assurance-case.md)
 
 Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues). Report security vulnerabilities privately as described in the [security policy](.github/SECURITY.md), never in a public issue. To contribute, read [contributing](CONTRIBUTING.md), the [code of conduct](CODE_OF_CONDUCT.md), and [governance](GOVERNANCE.md).
 

@@ -11,6 +11,9 @@ linters:
     - gocognit
     - funlen
     - revive
+    # Security-oriented static analysis (docs/development/assurance-case.md). Production findings are fixed or
+    # listed below as exact, reviewed exclusions; tests and test-only OIDC fixtures are excluded as a whole.
+    - gosec
   settings:
     govet:
       # Every go vet analyzer plus the extra x/tools passes; fieldalignment and shadow are style-only noise here.
@@ -49,3 +52,60 @@ linters:
       - path: _test\.go$
         linters: [errcheck]
         text: "Error return value of `[^`]*\\.Close` is not checked"
+      # gosec: tests and the test-only OIDC provider (internal/testoidc, test/oidc-provider, never linked into
+      # cmd/tendo) use fixed fixture credentials, math/rand for seeded property tests and plain httptest servers.
+      - path: (_test\.go$|^internal/testoidc/|^test/oidc-provider/)
+        linters: [gosec]
+      # Reviewed gosec exceptions in production code. Each names why the finding is not exploitable; matching is
+      # exact (rule ID plus source line), so a new finding of the same kind elsewhere still fails the check.
+      # G704: the container healthcheck dials its own readiness endpoint on loopback or the operator-configured
+      # TENDO_LISTEN_ADDR; no request input reaches the URL. Owner: backend-platform.
+      - path: ^cmd/tendo/startup\.go$
+        linters: [gosec]
+        text: G704
+        source: 'client\.Get\("http://" \+ net\.JoinHostPort\(probeHost, port\) \+ "/health/ready"\)'
+      # G705: the bytes written are files embedded in the binary at build time (the frontend build), never request
+      # input; HTML responses carry the strict Content-Security-Policy set above. Owner: backend-platform.
+      - path: ^internal/platform/webui/webui\.go$
+        linters: [gosec]
+        text: G705
+        source: '_, _ = w\.Write\(data\)'
+      # G115: an intentional bit-for-bit reinterpretation of the first 8 SHA-256 bytes as PostgreSQL's signed
+      # bigint advisory-lock key; wrapping is the intended result. Owner: backend-identity.
+      - path: ^internal/identity/postgres/oidc_jit\.go$
+        linters: [gosec]
+        text: G115
+        source: 'return int64\(binary\.BigEndian\.Uint64\(sum\[:8\]\)\)'
+      # G115: idempotency fingerprints length-prefix fields read from bodies capped at 64 KiB (items) and 4 KiB
+      # (subjects, households), far below 2^32. The encoding is persisted for replay comparison and must not change.
+      # Owner: backend-items, backend-subjects, backend-household.
+      - path: ^internal/(item|subject|household)/(create|admin_create)\.go$
+        linters: [gosec]
+        text: G115
+        source: 'binary\.BigEndian\.PutUint32\(size\[:\], uint32\(len\('
+      # G115: anchor days are validated to 1..31 by schedule.NewCycle before they reach the repository.
+      # Owner: backend-items.
+      - path: ^internal/item/postgres/item_rows\.go$
+        linters: [gosec]
+        text: G115
+        source: 'return pgtype\.Int2\{Int16: int16\(\*v\), Valid: true\}'
+      # G115: page limits are validated or clamped to at most 100 (plus one look-ahead row) by the owning service
+      # before any repository call, and recurrence intervals to 1..999 by item.validatePolicy. Owner: each module.
+      - path: ^internal/(household|identity|item|subject)/postgres/
+        linters: [gosec]
+        text: G115
+        source: '(int32\((limit|limit \+ 1|opts\.Limit|page\.Limit)\)|int32\([a-z]+(\.Recurrence(\.Value)?)\.Interval\.Value\))'
+      # G124: cookies are always HttpOnly and SameSite=Lax; Secure follows TENDO_PUBLIC_URL (https in production,
+      # plain http only for trusted local development), and on https the session and OIDC cookies use the __Host-
+      # prefix and the path-scoped MCP consent cookie uses __Secure-. gosec reports the multi-line literal, so this
+      # rule is file-scoped; the attributes are pinned by the cookie tests listed in
+      # docs/development/assurance-case.md#sessions-and-cookies. Owner: backend-identity.
+      - path: ^internal/identity/httpapi/(session|oidc|oidc_pending|mcp_authorize)\.go$
+        linters: [gosec]
+        text: G124
+      # G101: names, not credentials: the OAuth token endpoint path and the public constant hashed at startup so
+      # unknown-login sign-in costs the same as a wrong password. Owner: backend-identity.
+      - path: ^internal/identity/(session\.go|httpapi/mcp_token_endpoint\.go)$
+        linters: [gosec]
+        text: G101
+        source: '(DummyPassword +=|mcpTokenPath +=)'
