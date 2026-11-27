@@ -4,7 +4,7 @@ import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { NavLink } from '../../app/NavLink';
 import { adminAccountAiAppsPath } from '../../app/routes';
-import { Button, buttonVariants } from '../../components/ui/button';
+import { Button, buttonLook } from '../../components/ui/button';
 import { CursorPager } from '../../components/ui/cursor-pager';
 import { Input } from '../../components/ui/input';
 import { ListSkeleton } from '../../components/ui/list-skeleton';
@@ -257,7 +257,7 @@ function AccountRow({ account, self, busy, onDelete, onOpenAiApps, t }: {
     <div className="flex flex-wrap gap-2">
       <NavLink href={adminAccountAiAppsPath(account.userId)} onNavigate={() => onOpenAiApps(account.userId, account.login)}
         aria-label={t('accountAiApps.openLabel', { login: account.login })}
-        className={buttonVariants({ variant: 'secondary', size: 'small' })}>
+        {...buttonLook({ variant: 'secondary', size: 'small' })}>
         {t('accountAiApps.open')}
       </NavLink>
       {self ? null : <Button

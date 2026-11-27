@@ -1,7 +1,7 @@
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { LOGIN_PATH } from '../../app/routes';
-import { Button, buttonVariants } from '../../components/ui/button';
+import { Button, buttonLook } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n } from '../../i18n';
@@ -18,7 +18,7 @@ function InvalidLink({ signedIn }: { signedIn: boolean }) {
     <Heading className="text-center text-h1 leading-8 font-semibold text-ink">{t('reset.invalid.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.invalid.body')}</p>
     <div className="mt-8 flex justify-center">
-      <a href={signedIn ? '/' : LOGIN_PATH} data-variant="primary" className={buttonVariants({ variant: 'primary' })}>
+      <a href={signedIn ? '/' : LOGIN_PATH} {...buttonLook()}>
         {t(signedIn ? 'reset.invalid.home' : 'reset.invalid.signIn')}
       </a>
     </div>

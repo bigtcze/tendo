@@ -1,5 +1,5 @@
 import { Heading } from '../../app/Heading';
-import { Button, buttonVariants } from '../../components/ui/button';
+import { Button, buttonLook } from '../../components/ui/button';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type MessageKey } from '../../i18n';
 import { OidcContinueLinkForm } from './OidcContinueLinkForm';
@@ -37,7 +37,7 @@ function AlreadySignedInPanel() {
   return (
     <div className="space-y-4 p-5 sm:p-7">
       <Notice>{t('oidc.continue.alreadySignedIn')}</Notice>
-      <a href="/" className={buttonVariants({ variant: 'secondary' })}>{t('oidc.continue.reload')}</a>
+      <a href="/" {...buttonLook({ variant: 'secondary' })}>{t('oidc.continue.reload')}</a>
     </div>
   );
 }
