@@ -15,6 +15,7 @@ stage "Go formatting" bash -c 'set -euo pipefail; files=$(gofmt -l $(find backen
 stage "Go lint (go vet, staticcheck, gosec, structure)" bash -c 'cd backend && golangci-lint run ./...'
 stage "Go unit tests with race detector" bash -c 'set -euo pipefail; cd backend; packages=$(go list ./... | grep -v -e "/internal/identity/postgres$" -e "/internal/household/postgres$" -e "/internal/subject/postgres$" -e "/internal/item/postgres$"); [[ -n "$packages" ]]; go test -race $packages'
 stage "PostgreSQL integration tests" bash scripts/setup-integration.sh
+stage "Go statement coverage" bash scripts/go-coverage.sh
 stage "sqlc generated output" bash scripts/check-sqlc.sh
 stage "Go build" bash -c 'cd backend && go build ./...'
 stage "API checks" bash -c 'cd api && npm ci && npm audit --audit-level=moderate && npm run check'

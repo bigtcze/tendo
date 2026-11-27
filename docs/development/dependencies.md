@@ -55,6 +55,7 @@ The table mirrors `backend/go.mod` (rows re-synchronized on 2026-11-20 when the 
 | `api`: `ajv` / `ajv-formats` / `yaml` | 8.20.0 / 3.0.1 / 2.9.1 | |
 | `frontend`: `@playwright/test` | 1.64.1 | Browser revision installed via `npx --no-install playwright install chromium` |
 | `frontend`: `vite` / `vitest` | 8.3.4 / 5.0.5 | |
+| `frontend`: `@vitest/coverage-v8` | 5.1.1 | MIT; test-only, must match the `vitest` version exactly (peer dependency; Renovate's `config:recommended` monorepo grouping updates them in one PR); measures statement coverage in `npm run check` |
 | `frontend`: `react` / `react-dom` | 19.3.0 | |
 | `frontend`: `@fontsource-variable/inter` | 5.3.0 | Self-hosted Inter Variable (SIL OFL 1.1); bundled `woff2` under `/assets/` and `/fonts/INTER-OFL-LICENSE.txt`, no CDN; see [V4 design system](../design/v4-design-system.md) |
 | `frontend`: `typescript` | 6.0.3 | Held; see below |
