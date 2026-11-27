@@ -20,18 +20,18 @@ A pull request is merged only when all of these hold:
    - Project conventions for readability, boundaries and size are in [.autonomous/CODE_QUALITY.md](.autonomous/CODE_QUALITY.md); module boundaries are in [.autonomous/ARCHITECTURE.md](.autonomous/ARCHITECTURE.md).
 4. **Contracts stay in step.** API changes update `api/openapi.yaml` and the generated code ([API conventions](docs/development/api.md)). Database changes are forward-only migrations with an upgrade test. Configuration changes update `.env.example`, `compose.yaml` and the [configuration reference](docs/admin/configuration.md). Behavior changes update the user or admin guide that describes them ([release rules](docs/development/release.md#compatibility-rules-for-every-change)).
 5. **Security rules hold.** Authorization is checked on the server for every request; household data never leaks across households; no secrets, tokens or personal data in code, logs, fixtures or screenshots; no telemetry. See [.autonomous/SECURITY.md](.autonomous/SECURITY.md).
-6. **Checks pass.** The complete local gate passes, the `required` GitHub check is green on the latest commit, the branch is current with `main`, and review conversations are resolved.
-7. **Review.** Every change is reviewed by someone other than its author before merge.
+6. **Checks pass.** The `required` GitHub check is green on the latest commit, the branch is current with `main`, and review conversations are resolved. Run the complete local gate before you open the pull request when you can.
+7. **Review.** The maintainer reviews contributor pull requests. Changes written by the AI coding agent are reviewed by a separate review session that did not write them, and the verdict is recorded on the pull request. A short allowlist of low-risk Renovate dependency updates merges automatically once every required check passes ([Renovate maintenance](docs/development/dependencies.md#renovate-maintenance)). GitHub does not require an approving review; this is a project rule, not a repository setting.
 
 ## Set up and run the checks
 
-The [development and tests guide](docs/development/testing.md) sets up the pinned toolchain (Go, Node.js and sqlc through [mise](https://mise.jdx.dev), checksum-verified) and a disposable PostgreSQL 18 test service. Then run the complete gate:
+The [development and tests guide](docs/development/testing.md) describes the pinned toolchain (Go, Node.js and sqlc through [mise](https://mise.jdx.dev), checksum-verified) and the dedicated PostgreSQL 18 test service you need to provide. Then run the complete gate:
 
 ```sh
 bash scripts/dev-exec.sh -- bash scripts/verify-local.sh
 ```
 
-For a quicker loop while you work, run only the relevant check, for example `bash scripts/dev-exec.sh -- bash -c 'cd backend && go test ./internal/item/...'` or `npm --prefix frontend run -s test -- src/path/to/file.test.tsx`. The [runtime](docs/development/runtime.md) and [frontend](docs/development/frontend.md) guides show how to run Tendo locally.
+For a quicker loop, run only the relevant check ([targeted checks](docs/development/testing.md#targeted-checks-and-complete-pre-pr-gate)) through `bash scripts/dev-exec.sh -- …`. The [runtime](docs/development/runtime.md) and [frontend](docs/development/frontend.md) guides show how to run Tendo locally.
 
 ## Pull request description
 

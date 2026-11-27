@@ -6,15 +6,15 @@ Tendo is a small open-source project led by a single maintainer. This page says 
 
 | Role | Held by | Responsibilities |
 | --- | --- | --- |
-| Maintainer | [@bigtcze](https://github.com/bigtcze) (only maintainer and repository administrator) | Sets product direction and scope; accepts or declines changes; reviews or arranges review of every pull request; cuts releases; handles security reports under the [security policy](.github/SECURITY.md); enforces the [code of conduct](CODE_OF_CONDUCT.md); manages repository settings, branch protection, the `ghcr.io/bigtcze/tendo` package and the security contact address. |
+| Maintainer | [@bigtcze](https://github.com/bigtcze) (only maintainer and repository administrator) | Sets product direction and scope; accepts or declines changes; reviews or arranges review of pull requests (except allowlisted automatic dependency updates); cuts releases; handles security reports under the [security policy](.github/SECURITY.md); enforces the [code of conduct](CODE_OF_CONDUCT.md); manages repository settings, branch protection, the `ghcr.io/bigtcze/tendo` package and the security contact address. |
 | Contributor | Anyone who opens an issue or pull request | Follows [contributing](CONTRIBUTING.md) and the code of conduct. Contributors have no write access; their changes are merged by the maintainer. |
-| Automated contributors | [Renovate](https://docs.renovatebot.com/) (dependency updates) and an AI coding agent run by the maintainer | Open branches and pull requests only. They work under rules the maintainer sets in [AGENTS.md](AGENTS.md) and `.autonomous/`, and pass the same protected review and checks as any contribution. The maintainer remains accountable for everything they merge. |
+| Automated contributors | [Renovate](https://docs.renovatebot.com/) (dependency updates) and an AI coding agent run by the maintainer | Renovate opens dependency pull requests and merges a short allowlist of low-risk updates itself after all required checks pass. The AI coding agent acts through the maintainer's GitHub account: it opens and merges pull requests, comments on and labels issues, and tags releases, always through the same branch protection and required checks. Its rules are in [AGENTS.md](AGENTS.md) and `.autonomous/`; it cannot change the locked product, security or testing rules without the maintainer's explicit approval. The maintainer is accountable for everything they merge or release. |
 
 There are no other roles today. A regular contributor may be offered review or write access by the maintainer; any such change is announced by updating this table.
 
 ## How decisions are made
 
-- **Everyday changes** are proposed as pull requests and decided on review. A change is accepted when it meets the [contribution requirements](CONTRIBUTING.md#requirements-for-an-acceptable-contribution), has been reviewed by someone other than its author, and the protected `main` branch's required checks pass.
+- **Everyday changes** are proposed as pull requests and decided on review. A change is accepted when it meets the [contribution requirements](CONTRIBUTING.md#requirements-for-an-acceptable-contribution), has been reviewed as described in [contributing](CONTRIBUTING.md#requirements-for-an-acceptable-contribution), and the protected `main` branch's required checks pass.
 - **Product scope** is decided by the maintainer. The permanent product, security, architecture and testing rules live in `.autonomous/` (start with the [charter](.autonomous/CHARTER.md)); they change only through a pull request the maintainer explicitly approves. Larger work for a release is planned as GitHub issues.
 - **Disagreement** is discussed in the issue or pull request. The maintainer makes the final decision and explains it.
 - **Security** decisions follow the [security policy](.github/SECURITY.md).
@@ -26,20 +26,22 @@ The project must be able to keep going if the maintainer cannot continue: create
 
 What a successor needs:
 
-- administrator access to the `bigtcze/tendo` GitHub repository, which also controls branch protection, GitHub Actions, the security advisories and the `ghcr.io/bigtcze/tendo` container package (releases are built and published by GitHub Actions from this repository, so no separate signing or publishing key is held outside GitHub);
-- access to the security contact mailbox **info@veselarodina.cz**;
+- control of the repository and the `ghcr.io/bigtcze/tendo` package. Both belong to the personal account `bigtcze`, and GitHub does not let a collaborator administer a personal repository. Continuity therefore needs either a [GitHub account successor](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/maintaining-ownership-continuity-of-your-personal-accounts-repositories) or a move of the repository and package to an organization with a second owner. Releases are built and published by GitHub Actions from this repository, so no separate publishing key is held outside GitHub;
+- access to the mailbox **info@veselarodina.cz** and to the `veselarodina.cz` domain that hosts it;
 - the right to continue the project under the [Apache License 2.0](LICENSE), which anyone already has; a fork can continue from any published release.
 
-**Current status:** Tendo has one maintainer, and no second person holds these accesses today. The arrangement above is therefore not yet in place. Until it is, if the maintainer is unavailable, self-hosters keep running their installed release, which needs no outside service, and anyone may fork the project under its license. Setting up a trusted second person with emergency access is an open maintainer task.
+The AI coding agent runs on the maintainer's own machine with the maintainer's credentials. It stops if the maintainer is unavailable, and a successor does not need it.
 
-## Roadmap for the next year
+**Current status:** Tendo has one maintainer, and no second person holds these accesses today. The arrangement above is therefore not yet in place. Until it is, if the maintainer is unavailable, self-hosters keep running their installed release, which needs no outside service, and anyone may fork the project under its license. Open maintainer task: name a successor (or move to an organization with a second owner) and give them emergency access to the mailbox. Until then the bus factor is 1. A conduct report about the maintainer also goes to the same address, because there is no independent second contact yet.
+
+## Roadmap to the end of 2027
 
 Planned:
 
-- Release Tendo 5.0: membership in several households and switching between them, an installation administrator, local password change and an administrator password reset command, invitation clean-up, a configurable listening address, and per-user, OAuth-protected access for AI apps through MCP. The open release issues are listed under the [`release` label](https://github.com/bigtcze/tendo/issues?q=is%3Aissue+is%3Aopen+label%3Arelease).
+- Release Tendo 5.0: membership in several households and switching between them, an installation administrator, local password change and an administrator password reset command, invitation clean-up, a configurable host IP for Tendo's published port (local-only by default), and per-user, OAuth-protected access for AI apps through MCP. The open release issues are listed under the [`release` label](https://github.com/bigtcze/tendo/issues?q=is%3Aissue+is%3Aopen+label%3Arelease).
 - Keep dependencies and the toolchain current, and publish security and maintenance patch releases.
 - Work towards the OpenSSF Best Practices badge and the OpenSSF Security Baseline, including a written assurance case, signed release artifacts and measured test coverage.
 
-Possible later directions, not commitments: the extensions described in the [post-V1 direction](.autonomous/ROADMAP.md), such as document upload, optional calendar links or an AI assistant that only suggests. Each needs its own approved release.
+Possible later directions, not scheduled for the next year: the [post-V1 direction](.autonomous/ROADMAP.md), such as document upload with AI that extracts and suggests items for a person to review, or optionally creating a calendar event from an item. Each needs its own approved release.
 
-Not planned: everything in the charter's [non-goals](.autonomous/CHARTER.md#non-goals) and the product's [excluded list](.autonomous/PRODUCT.md#explicitly-deferred-or-excluded), including notifications or reminders delivered by Tendo, telemetry or analytics, a native mobile app, calendar replacement, and features that require an outside service for basic use.
+Not planned: the charter's [non-goals](.autonomous/CHARTER.md#non-goals), such as a notification delivery system, a native mobile app, calendar replacement or an autonomous household agent; telemetry or analytics; and anything that needs an outside service for basic use.
