@@ -91,7 +91,7 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
       <SkipLink target={mainRef} />
       <header className={HEADER}>
         <div className={HEADER_GROUP}>
-          {/* Signed out the bar carries only the brand, so the name fits at every width. */}
+          {/* A bar with no household or account controls carries only the brand, so the name fits at every width. */}
           <BrandMark named={shell === 'centered' && !actions} />
           {/* The switch paints only once the household is known. A default that today's caller cannot reach cannot
               occur: `user_default_membership_fk` keeps `default_household_id` pointing at one of their own

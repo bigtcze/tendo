@@ -1,5 +1,7 @@
 import { useI18n } from '../i18n';
 
+const WORDMARK = 'text-xl font-semibold tracking-tight text-ink';
+
 /**
  * Brand tile and wordmark. In a household bar the wordmark is hidden below `sm`, where the bar must fit the brand, the
  * household selector and the account controls at 320 px; a screen-reader-only name keeps the brand announced there
@@ -19,10 +21,10 @@ export function BrandMark({ named = false }: { named?: boolean }) {
         </svg>
       </span>
       {named ? (
-        <span className="text-xl font-semibold tracking-tight text-ink">{t('app.name')}</span>
+        <span className={WORDMARK}>{t('app.name')}</span>
       ) : (
         <>
-          <span aria-hidden="true" className="hidden text-xl font-semibold tracking-tight text-ink sm:inline">{t('app.name')}</span>
+          <span aria-hidden="true" className={`hidden sm:inline ${WORDMARK}`}>{t('app.name')}</span>
           <span className="sr-only sm:hidden">{t('app.name')}</span>
         </>
       )}

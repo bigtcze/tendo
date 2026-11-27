@@ -102,12 +102,12 @@ async function openCreate(page: Page) {
   return dialog;
 }
 /**
- * A signed-out bar holds nothing but the brand, so it names the app at every width (#459 F20): the visible "Tendo"
- * wordmark sits beside the tile, unclipped and inside the viewport, at the phone widths too. The bar is measured at
- * each width in `widths`; the caller restores its own viewport afterwards through capture().
+ * A bar with no household or account controls (signed out, setup, invitation, reset, consent) holds nothing but the
+ * brand, so it names the app at every width (#459 F20): the visible "Tendo" wordmark sits beside the tile, unclipped
+ * and inside the viewport, at the phone widths too. The caller restores its own viewport afterwards through capture().
  */
-async function assertSignedOutBrandNamed(page: Page, label: string, widths: readonly number[] = [320, 390, 1440]) {
-  for (const width of widths) {
+async function assertSignedOutBrandNamed(page: Page, label: string) {
+  for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     const banner = page.getByRole('banner');
     const name = banner.getByText(en['app.name'], { exact: true });
@@ -115,7 +115,15 @@ async function assertSignedOutBrandNamed(page: Page, label: string, widths: read
     await expect(name, `${label} wordmark visible at ${width}`).toBeVisible();
     const geometry = await name.evaluate((node) => {
       const box = node.getBoundingClientRect();
-      return { width: box.width, right: box.right, clipped: node.scrollWidth > node.clientWidth, hidden: node.closest('[aria-hidden="true"]') !== null };
+      // Clipping comes from an ancestor: any wrapper up to the bar that clips its overflow must contain the wordmark.
+      let clipped = false;
+      for (let el = node.parentElement; el && el.tagName !== 'BODY'; el = el.parentElement) {
+        const style = getComputedStyle(el);
+        const outer = el.getBoundingClientRect();
+        if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && (outer.left > box.left + 0.5 || outer.right < box.right - 0.5 || outer.top > box.top + 0.5 || outer.bottom < box.bottom - 0.5)) clipped = true;
+        if (el.tagName === 'HEADER') break;
+      }
+      return { width: box.width, right: box.right, clipped, hidden: node.closest('[aria-hidden="true"]') !== null };
     });
     expect(geometry.width, `${label} wordmark width at ${width}`).toBeGreaterThan(20);
     expect(geometry.right, `${label} wordmark inside the viewport at ${width}`).toBeLessThanOrEqual(width);
@@ -1624,7 +1632,7 @@ test('MCP consent and Connected apps', async ({ browser }) => {
   };
   await settled(en);
   // The consent page has only the brand in its bar, so it names the app at phone widths too.
-  await assertSignedOutBrandNamed(page, 'consent', [320, 390]);
+  await assertSignedOutBrandNamed(page, 'consent');
   await captureScreen(page, 'consent', true);
   await page.clock.runFor(1_000);
   await expect(allow(en)).toBeEnabled();
