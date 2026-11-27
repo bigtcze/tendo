@@ -13,7 +13,7 @@ import { AdminSectionSwitcher } from '../admin/AdminSectionSwitcher';
 import type { AccountAiApps } from './aiAppsApi';
 import { ChoiceOption, OutcomeHosts } from './AiAppsFields';
 import { AccountConnectedApps } from './AccountConnectedApps';
-import { BACK_LINK, InstallationOnlyAdmins } from './InstallationStates';
+import { BACK_LINK_LOOK, InstallationOnlyAdmins } from './InstallationStates';
 import {
   accessWord, useAccountAiApps, type AccountAiAppsState, type AccountMaximum, type AccountSwitch,
 } from './useAccountAiApps';
@@ -80,7 +80,7 @@ export function InstallationAccountAiAppsScreen({ userId, accountLogin, login, o
         <span className="break-words">{accountLogin ? t('accountAiApps.titleFor', { login: accountLogin }) : t('accountAiApps.title')}</span>
       </Heading>
       <AdminSectionSwitcher current="accounts" />
-      <NavLink href={ADMIN_ACCOUNTS_PATH} onNavigate={onBack} {...BACK_LINK}>{t('accountAiApps.back')}</NavLink>
+      <NavLink href={ADMIN_ACCOUNTS_PATH} onNavigate={onBack} {...BACK_LINK_LOOK}>{t('accountAiApps.back')}</NavLink>
       {state === 'forbidden' ? <InstallationOnlyAdmins t={t} headingRef={refusalHeadingRef} /> : null}
       {state === 'notFound' ? <AccountGone t={t} headingRef={refusalHeadingRef} /> : null}
       {state === 'forbidden' || state === 'notFound' ? null : <>

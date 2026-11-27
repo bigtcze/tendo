@@ -20,6 +20,7 @@ describe('secondary status screens', () => {
     expect(home).toHaveAttribute('href', '/');
     // The way out is drawn and marked as the screen's one primary action (#459 F22), like the reset dead end.
     expect(home).toHaveAttribute('data-variant', 'primary');
+    expect(home).toHaveClass('bg-accent', 'text-on-accent');
     expect(document.title).toBe(`${en['app.notFound.title']} — Tendo`);
   });
 

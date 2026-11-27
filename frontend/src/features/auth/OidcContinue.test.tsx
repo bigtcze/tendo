@@ -225,7 +225,9 @@ describe('OIDC continue interstitial', () => {
     installFakeServer({ ...signedOut, ...provider, 'GET /api/v1/auth/oidc/pending': problem(409, 'already_signed_in') });
     renderApp();
     expect(await screen.findByText(en['oidc.continue.alreadySignedIn'], { exact: true })).toBeVisible();
-    expect(screen.getByRole('link', { name: en['oidc.continue.reload'] })).toHaveAttribute('href', '/');
+    const reload = screen.getByRole('link', { name: en['oidc.continue.reload'] });
+    expect(reload).toHaveAttribute('href', '/');
+    expect(reload).toHaveAttribute('data-variant', 'secondary');
   });
 
   it('renders the Czech interstitial', async () => {

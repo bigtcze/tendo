@@ -17,11 +17,15 @@ function sources(directory: string): string[] {
   });
 }
 
-/** Class strings carrying the button's own size signature: the 44 px height with the 20 px button inset. */
+/**
+ * Class strings carrying the button's own signature: the 44 px height with the 20 px button inset, or the primary
+ * fill's hover tone (a peer-state variant such as the switch's `peer-checked:peer-hover:` does not match).
+ */
 function copiedButtonClasses(text: string): string[] {
   return [...text.matchAll(/(['"`])((?:(?!\1)[^\n])*)\1/g)]
     .map((match) => match[2])
-    .filter((classes) => /(^|\s)min-h-11(\s|$)/.test(classes) && /(^|\s)px-5(\s|$)/.test(classes));
+    .filter((classes) => (/(^|\s)min-h-11(\s|$)/.test(classes) && /(^|\s)px-5(\s|$)/.test(classes))
+      || /(^|\s)hover:bg-accent-strong(\s|$)/.test(classes));
 }
 
 describe('button look usage', () => {
@@ -30,7 +34,7 @@ describe('button look usage', () => {
     // Guard against a vacuous pass: the scan reaches the primitive, and the primitive's base matches the signature.
     expect(files).toContain(shared);
     expect(files.length).toBeGreaterThan(50);
-    expect(copiedButtonClasses(readFileSync(shared, 'utf8'))).toHaveLength(1);
+    expect(copiedButtonClasses(readFileSync(shared, 'utf8'))).toHaveLength(2);
     const copies = files.filter((file) => file !== shared && copiedButtonClasses(readFileSync(file, 'utf8')).length > 0)
       .map((file) => path.relative(srcRoot, file));
     expect(copies).toEqual([]);

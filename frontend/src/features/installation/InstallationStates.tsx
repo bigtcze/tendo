@@ -2,8 +2,8 @@ import type { RefObject } from 'react';
 import { buttonLook } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
 
-/** The one quiet secondary action on an installation screen: back to the household list. */
-export const BACK_LINK = buttonLook({ variant: 'secondary', className: 'mt-4' });
+/** The look of an installation screen's one secondary action, the way back to its list (spread onto a NavLink). */
+export const BACK_LINK_LOOK = buttonLook({ variant: 'secondary', className: 'mt-4' });
 
 /**
  * The installation grant is gone (or was never there). The server refused before any lookup, so nothing about a
