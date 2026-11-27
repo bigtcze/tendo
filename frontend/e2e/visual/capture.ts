@@ -61,6 +61,28 @@ export async function assertSelectsUseAppChevron(page: Page, label: string) {
   }
 }
 
+/**
+ * An open dialog is positioned by layout, never by a transform. Layout offsets are pixel-snapped at paint; a
+ * fractional transform is not, so `translateY(-50%)` on a dialog of odd height left its pinned header's edge
+ * straddling a device-pixel row. We attribute the intermittent 1 px row of dots under the Add dialog's header in
+ * `add-cs-1440` (#459) to Chromium keeping a stale raster of that row. This runs before the screenshot disables
+ * animations, so a transform-based open animation on a dialog fails here too, by design.
+ */
+export async function assertDialogsUntransformed(page: Page, label: string) {
+  const dialogs = await page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((dialog) => {
+    // Tailwind v4 translate utilities set the individual `translate` property, which `transform` does not report.
+    const style = getComputedStyle(dialog);
+    return {
+      name: dialog.querySelector('h2')?.textContent ?? '', transform: style.transform, translate: style.translate,
+      rotate: style.rotate, scale: style.scale,
+    };
+  }));
+  for (const dialog of dialogs) {
+    expect(dialog, `dialog ${dialog.name} is positioned without a transform in ${label}`)
+      .toMatchObject({ transform: 'none', translate: 'none', rotate: 'none', scale: 'none' });
+  }
+}
+
 export async function capture(page: Page, name: string, width: number, height = 900, fullPage = false, mask: Locator[] = []) {
   await page.setViewportSize({ width, height });
   expect(await page.evaluate(() => window.innerWidth), `viewport for ${name}`).toBe(width);
@@ -70,6 +92,7 @@ export async function capture(page: Page, name: string, width: number, height = 
   await assertInterReady(page, name);
   await assertFieldsAtLeast16px(page, name);
   await assertSelectsUseAppChevron(page, name);
+  await assertDialogsUntransformed(page, name);
   const started = performance.now();
   await expect(page).toHaveScreenshot(`${name}.png`, {
     animations: 'disabled', caret: 'hide', fullPage, mask,
