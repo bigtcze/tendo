@@ -26,7 +26,7 @@ OpenSSF Best Practices asks that a project can keep going within a week if any o
 
 **Current status:**
 
-- Tendo has one maintainer, and the bus factor is 1. No second person has administrator access to the repository, the `ghcr.io/bigtcze/tendo` image or the security mailbox **info@veselarodina.cz**.
+- Tendo has one maintainer, and the bus factor is 1. No second person has administrator access to the repository or the `ghcr.io/bigtcze/tendo` image, and only the maintainer is known to have access to the security mailbox **info@veselarodina.cz**.
 - The repository and the image belong to the personal GitHub account `bigtcze`. GitHub does not let a collaborator administer a repository owned by a personal account.
 - Releases are built and published by GitHub Actions from this repository, so no separate publishing key exists outside GitHub.
 - The AI coding agents run on the maintainer's own machine with the maintainer's credentials. They are not a continuity arrangement: they keep running only as long as that machine and those credentials work.
@@ -35,9 +35,9 @@ OpenSSF Best Practices asks that a project can keep going within a week if any o
 **If the maintainer becomes unavailable:**
 
 - Self-hosters keep running their installed release, which needs no outside service. Published images stay available for as long as the `bigtcze` account exists.
-- Anyone may fork the project from any published release under the [Apache License 2.0](LICENSE) and publish their own image. Self-hosters would then point `compose.yaml` at that image.
+- Anyone may fork the project from any published release under the [Apache License 2.0](LICENSE) and publish their own image. Self-hosters would then switch to that image with a Compose override file or the fork's own `compose.yaml`.
 
-**Options that would close the gap:** a second owner through a GitHub organization, or a [GitHub account successor](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/maintaining-ownership-continuity-of-your-personal-accounts-repositories), which applies only after the account holder's death, goes through GitHub Support, and covers repositories but not the published image. Whether to use either option is the maintainer's decision; neither is a project requirement.
+**Options that would close the gap:** giving a trusted second person write access to the repository and access to the `ghcr.io/bigtcze/tendo` package, which is enough to handle issues, accept changes and push release tags but not to change repository settings; a second owner through a GitHub organization; or a [GitHub account successor](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/maintaining-ownership-continuity-of-your-personal-accounts-repositories), which applies only after the account holder's death, goes through GitHub Support, and covers repositories but not the published image. Whether to use any of them is the maintainer's decision; none is a project requirement.
 
 ## Roadmap to the end of 2027
 
