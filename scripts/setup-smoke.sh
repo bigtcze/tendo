@@ -1232,6 +1232,8 @@ poll_status /health/ready 200
 container=$("${compose[@]}" ps -q app)
 [[ $(docker inspect --format '{{.Config.User}}' "$container") == 65532:65532 ]]
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container") == true ]]
+[[ $(docker inspect --format '{{json .HostConfig.CapDrop}}' "$container") == '["ALL"]' ]]
+[[ $(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "$container") == '["no-new-privileges:true"]' ]]
 [[ $(docker inspect --format '{{json .NetworkSettings.Ports}}' "$("${compose[@]}" ps -q postgres)") == *'null'* ]]
 
 "${compose[@]}" stop app >/dev/null

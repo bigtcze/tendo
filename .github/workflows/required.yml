@@ -32,7 +32,7 @@ jobs:
             printf 'Go files need formatting:\n%s\n' "$files"
             exit 1
           fi
-      - name: Go lint (go vet, staticcheck, structure)
+      - name: Go lint (go vet, staticcheck, gosec, structure)
         working-directory: backend
         run: golangci-lint run ./...
       - name: Go unit tests with race detector
