@@ -417,7 +417,7 @@ test.describe('self-hosted Inter Variable', () => {
 // through it. Static markup only; no server state.
 test.describe('shared target-size measurement', () => {
   test('counts a stretched row link by the box its overlay really fills, and anything else by itself', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 390, height: 1600 });
     await page.setContent(`<html><head><style>
       li, .row { position: relative; height: 56px; width: 300px; list-style: none; }
       a { display: inline-block; height: 22px; }
@@ -433,6 +433,12 @@ test.describe('shared target-size measurement', () => {
       .hidden-overlay::after { visibility: hidden; }
       li.bordered { border: 4px solid; }
       .box { width: 20px; height: 20px; padding: 0; margin: 0; }
+      .under::after { z-index: -1; }
+      .clipped { clip-path: inset(0); }
+      .masked { mask-image: linear-gradient(black, black); height: 22px; }
+      .contents { display: contents; position: relative; }
+      li.scrolled { overflow-y: scroll; }
+      li.scrolled .spacer { height: 200px; }
       table { border-collapse: collapse; } td { height: 56px; padding: 0; }
       .switch { display: inline-block; width: 20px; height: 20px; }
       label { display: flex; min-height: 44px; align-items: center; }
@@ -448,6 +454,11 @@ test.describe('shared target-size measurement', () => {
       <li><a class="stretched margin" href="#k">Overlay inset by margin</a></li>
       <li><a class="stretched hidden-overlay" href="#l">Hidden overlay</a></li>
       <li class="bordered"><a class="stretched" href="#m">Bordered row</a></li>
+      <li><a class="stretched under" href="#o">Overlay under the row</a></li>
+      <li><a class="stretched clipped" href="#p">Clipped link</a></li>
+      <li><div class="masked"><a class="stretched" href="#q">Masked wrapper</a></div></li>
+      <li class="scrolled"><a class="stretched" href="#r">Scrolled row</a><div class="spacer"></div></li>
+      <li><span class="contents"><a class="stretched" href="#s">Row through a contents wrapper</a></span></li>
     </ul>
     <table><tr><td><a class="stretched" href="#h">Static table cell</a></td></tr></table>
     <div class="row"><table><tr><td><a class="stretched" href="#i">Cell in a positioned row</a></td></tr></table></div>
@@ -455,23 +466,25 @@ test.describe('shared target-size measurement', () => {
     <label><input class="box" type="checkbox" aria-label="Agree"> Agree to the <a href="#n">terms</a></label>
     <label><input class="box" type="checkbox" aria-label="First control"><button class="box">y</button></label>
     <button style="width: 20px; height: 20px; padding: 0">x</button></body></html>`);
+    await page.locator('li.scrolled').evaluate((row) => { row.scrollTop = 40; });
     const metrics = await measureCapture(page);
     expect(metrics.targetOffenders.map((offender) => offender.name)).toEqual([
       'Partial overlay', 'Small row', 'Self-positioned', 'Overlay without content', 'Click-through overlay', 'Transformed wrapper',
       'Translated wrapper', 'Overlay inset by margin',
     ]);
-    expect(metrics.interactiveTargetsUnder44).toBe(12);
-    expect(metrics.interactiveTargetsUnder24).toBe(11);
+    expect(metrics.interactiveTargetsUnder44).toBe(17);
+    expect(metrics.interactiveTargetsUnder24).toBe(16);
     // measureCapture reports the first eight in-viewport offenders; the predicate itself measures every control.
     const all = await page.locator('a[href],button,input').evaluateAll(measureTargets);
     expect(all.filter((target) => pressedBelow(target, 44)).map((target) => target.ariaLabel || target.text)).toEqual([
       'Partial overlay', 'Small row', 'Self-positioned', 'Overlay without content', 'Click-through overlay', 'Transformed wrapper',
-      'Translated wrapper', 'Overlay inset by margin', 'Hidden overlay', 'Static table cell', 'terms', 'y', 'x',
+      'Translated wrapper', 'Overlay inset by margin', 'Hidden overlay', 'Overlay under the row', 'Clipped link', 'Masked wrapper',
+      'Scrolled row', 'Static table cell', 'terms', 'y', 'x',
     ]);
     // The stretched rows that pass are measured by the box the overlay covers, not by the 22 px text line.
-    // A bordered row is pressed in its padding box, which the overlay fills, not its border box. A checkbox is pressed
-    // in the label that controls it.
-    const pressed = await page.locator('a[href="#a"], a[href="#i"], a[href="#m"], input[aria-label="Agree"]').evaluateAll(measureTargets);
-    expect(pressed.map((target) => [Math.round(target.pressed.width), Math.round(target.pressed.height)])).toEqual([[300, 56], [300, 56], [300, 56], [390 - 16, 44]]);
+    // A bordered row is pressed in its padding box, which the overlay fills, not its border box; a display: contents
+    // wrapper is skipped to the real row. A checkbox is pressed in the label that controls it.
+    const pressed = await page.locator('a[href="#a"], a[href="#i"], a[href="#m"], a[href="#s"], input[aria-label="Agree"]').evaluateAll(measureTargets);
+    expect(pressed.map((target) => [Math.round(target.pressed.width), Math.round(target.pressed.height)])).toEqual([[300, 56], [300, 56], [300, 56], [300, 56], [390 - 16, 44]]);
   });
 });

@@ -35,8 +35,11 @@ export interface TargetMeasurement {
  *    block that is the page root, falls back to the control's own box;
  * 3. otherwise the control's own box.
  * Anything unrecognised falls back to the control's own box, so an unusual layout is reported, never waved through.
- * The rule may under-count (a `::before` overlay, a negative inset, a sibling control painted over part of a row); it
- * never over-counts.
+ * The overlay must also paint above its row (no negative `z-index`), and neither the link nor any wrapper up to the
+ * row may clip or mask it or be scrolled; `display: contents` wrappers create no box and are skipped.
+ * The rule may under-count (a `::before` overlay, a negative inset). Its one known over-count is a sibling painted
+ * over part of the row (Home's Done button): that cannot be measured statically for rows below the fold, so such
+ * siblings must leave at least the minimum target around them by design.
  */
 export function measureTargets(elements: Element[]): TargetMeasurement[] {
   const none = (value: string | undefined) => value === undefined || value === '' || value === 'none';
@@ -55,10 +58,17 @@ export function measureTargets(elements: Element[]): TargetMeasurement[] {
     const pressable = overlay.pointerEvents !== 'none' && overlay.visibility === 'visible';
     const untransformed = [overlay.transform, overlay.translate, overlay.rotate, overlay.scale, overlay.clipPath].every(none);
     if (!generated || overlay.position !== 'absolute' || !pinned || !pressable || !untransformed) return null;
-    if (containsAbsolute(getComputedStyle(element))) return null;
+    if (overlay.zIndex.startsWith('-')) return null;
+    const clips = (style: CSSStyleDeclaration) => !none(style.clipPath) || !none(style.maskImage) || !none(style.webkitMaskImage);
+    const own = getComputedStyle(element);
+    if (containsAbsolute(own) || clips(own)) return null;
     for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
       if (ancestor === document.body || ancestor === document.documentElement) return null;
-      if (!containsAbsolute(getComputedStyle(ancestor))) continue;
+      const style = getComputedStyle(ancestor);
+      if (style.display === 'contents') continue;
+      if (clips(style)) return null;
+      if (!containsAbsolute(style)) continue;
+      if (ancestor.scrollTop !== 0 || ancestor.scrollLeft !== 0) return null;
       const width = Number.parseFloat(overlay.width);
       const height = Number.parseFloat(overlay.height);
       if (!(Math.abs(width - ancestor.clientWidth) <= 1 && Math.abs(height - ancestor.clientHeight) <= 1)) return null;
