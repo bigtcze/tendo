@@ -1,33 +1,26 @@
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { LOGIN_PATH } from '../../app/routes';
-import { Button } from '../../components/ui/button';
+import { Button, buttonVariants } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n } from '../../i18n';
 import { resetFailureKey } from './passwordResetModel';
 import { usePasswordResetRedeem } from './usePasswordResetRedeem';
 
-function ReturnLink({ href, label }: { href: string; label: string }) {
-  return <a
-    href={href}
-    className="inline-flex min-h-11 items-center rounded-xl px-3 text-small font-semibold text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-  >
-    {label}
-  </a>;
-}
-
-/** The expired/invalid link state keeps the same auth shell rhythm as the form: title, sentence, panel. */
+/**
+ * The expired/invalid link state keeps the auth shell rhythm (centred title and sentence) and, like the not-found
+ * state, ends in the screen's one way out drawn as its primary action. There is no form, so no panel is drawn.
+ */
 function InvalidLink({ signedIn }: { signedIn: boolean }) {
   const { t } = useI18n();
   return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
     <Heading className="text-center text-h1 leading-8 font-semibold text-ink">{t('reset.invalid.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.invalid.body')}</p>
-    <div className="mt-8 flex w-full justify-center rounded-2xl border border-line bg-raised p-5 sm:p-7">
-      <ReturnLink
-        href={signedIn ? '/' : LOGIN_PATH}
-        label={t(signedIn ? 'reset.invalid.home' : 'reset.invalid.signIn')}
-      />
+    <div className="mt-8 flex justify-center">
+      <a href={signedIn ? '/' : LOGIN_PATH} data-variant="primary" className={buttonVariants({ variant: 'primary' })}>
+        {t(signedIn ? 'reset.invalid.home' : 'reset.invalid.signIn')}
+      </a>
     </div>
   </section></Layout>;
 }

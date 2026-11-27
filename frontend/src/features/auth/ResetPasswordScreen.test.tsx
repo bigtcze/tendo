@@ -193,7 +193,14 @@ describe('reset-password screen', () => {
     open(path);
     expect(await screen.findByRole('heading', { level: 1, name: 'This reset link can’t be used' })).toBeVisible();
     expect(screen.getByText('This reset link is no longer valid. Ask a household administrator for a new one.')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Go to sign-in' })).toHaveAttribute('href', '/login');
+    const signIn = screen.getByRole('link', { name: 'Go to sign-in' });
+    expect(signIn).toHaveAttribute('href', '/login');
+    // The way out is the screen's one primary action, drawn like the not-found sign-in, not a quiet link in an
+    // otherwise empty panel.
+    expect(signIn).toHaveAttribute('data-variant', 'primary');
+    expect(signIn).toHaveClass('bg-accent', 'text-on-accent');
+    expect(screen.getByRole('main').querySelectorAll('[data-variant="primary"]')).toHaveLength(1);
+    expect(signIn.parentElement).not.toHaveClass('border');
     expect(screen.queryByRole('button', { name: 'Save new password' })).not.toBeInTheDocument();
     expect(fake.requests.some((request) => `${request.method} ${request.path}` === resetPath)).toBe(false);
   });
