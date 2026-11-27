@@ -129,7 +129,36 @@ async function assertSignedOutBrandNamed(page: Page, label: string) {
     expect(geometry.right, `${label} wordmark inside the viewport at ${width}`).toBeLessThanOrEqual(width);
     expect(geometry.clipped, `${label} wordmark clipped at ${width}`).toBe(false);
     expect(geometry.hidden, `${label} wordmark hidden from assistive tech at ${width}`).toBe(false);
+    await assertHeadingLastLineNotAlone(page, `${label} at ${width}`);
   }
+}
+
+/**
+ * The title of a page whose bar holds only the brand never leaves one word alone on its last line (#459 minor
+ * finding: "Choose a new password" left "password" alone at 320). Each word's first line box is measured in the
+ * rendered page, so the check follows the real font, width and language rather than a class name.
+ */
+async function assertHeadingLastLineNotAlone(page: Page, label: string) {
+  const lines = await page.getByRole('heading', { level: 1 }).evaluate((heading) => {
+    const tops: number[] = [];
+    const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent ?? '';
+      for (const match of text.matchAll(/\S+/g)) {
+        const range = document.createRange();
+        range.setStart(node, match.index ?? 0);
+        range.setEnd(node, (match.index ?? 0) + match[0].length);
+        const box = range.getClientRects()[0];
+        if (box) tops.push(Math.round(box.top));
+      }
+    }
+    const rows: number[] = [];
+    for (const top of tops) {
+      if (rows.length === 0 || Math.abs(top - rows[rows.length - 1]) > 2) rows.push(top);
+    }
+    return { rows: rows.length, last: tops.filter((top) => Math.abs(top - rows[rows.length - 1]) <= 2).length };
+  });
+  if (lines.rows > 1) expect(lines.last, `${label}: words on the title's last line`).toBeGreaterThan(1);
 }
 
 async function captureScreen(page: Page, base: string, fullPage = false) {

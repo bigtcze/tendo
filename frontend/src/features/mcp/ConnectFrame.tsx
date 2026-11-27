@@ -3,7 +3,7 @@ import { Layout } from '../../app/Layout';
 import { useI18n, type MessageKey } from '../../i18n';
 
 /** The auth-shell heading: centered like the sign-in and password-reset screens, and wrapping long client names. */
-export const HEADING_CLASS = 'text-center text-h1 leading-8 font-semibold text-ink [overflow-wrap:anywhere]';
+export const HEADING_CLASS = 'text-center text-h1 leading-8 font-semibold text-balance text-ink [overflow-wrap:anywhere]';
 
 /**
  * A catalog sentence with its values filled in as nodes. Values come from the app or the client (a client name, a
