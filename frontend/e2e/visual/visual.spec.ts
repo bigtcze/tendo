@@ -139,8 +139,9 @@ async function assertSignedOutBrandNamed(page: Page, label: string) {
  * whole heading, so a word split over text nodes (a value in `bdi`) counts once, and each word is placed on the line
  * where it starts, measured in the rendered page with Inter loaded, so the check follows the real font, width and
  * language rather than a class name. A title that carries an app's own name (`bdi`, the consent pages) is checked
- * as a measurement only and exempt from the rule: its words are the app's, and "Connect Notes Assistant?" cannot
- * wrap at 320 without leaving one of them alone, balanced or not.
+ * as a measurement only and exempt from the rule: its words are the app's, and a three-word title such as
+ * "Connect Notes Assistant?" always leaves one word alone on one of its two lines at 320, so the app's own name
+ * decides which line that is.
  */
 async function assertHeadingLastLineNotAlone(page: Page, label: string) {
   await assertInterReady(page, label);
