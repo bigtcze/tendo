@@ -53,7 +53,13 @@ describe('UI primitive behavior', () => {
     expect(new Set(ids).size).toBe(2);
     expect(dialogs[0].className).toContain('w-full');
     // From md the sheet is centred by layout, never by a half-pixel transform (#459 add-cs-1440 flake).
-    expect(dialogs[0].className.split(' ')).toEqual(expect.arrayContaining(['md:inset-0', 'md:m-auto', 'md:h-fit']));
+    expect(dialogs[0].className.split(' ')).toEqual(expect.arrayContaining(['md:inset-0', 'md:m-auto']));
+    // A centred dialog's height is rounded up to an even pixel count, so its centred top edge is a whole pixel and
+    // its text and pinned bands never straddle device rows (#459 home-add-1440 flake). Phone sheets fill the viewport.
+    const snapped = 'h-fit-snapped';
+    expect(dialogs[0].className.split(' ')).toEqual(expect.arrayContaining(['h-dvh', `md:${snapped}`]));
+    expect(dialogs[0].className.split(' ')).not.toContain(snapped);
+    expect(dialogs[1].className.split(' ')).toContain(snapped);
     expect(dialogs[0].className).not.toMatch(/(^|\s)(md:)?-?translate-/);
     expect(dialogs[0].className).not.toContain('max-w-xl rounded-2xl');
     // Non-sheet dialogs win back the centring the UA reset loses to preflight's zero margin.

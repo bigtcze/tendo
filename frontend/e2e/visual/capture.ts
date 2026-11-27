@@ -66,20 +66,25 @@ export async function assertSelectsUseAppChevron(page: Page, label: string) {
  * fractional transform is not, so `translateY(-50%)` on a dialog of odd height left its pinned header's edge
  * straddling a device-pixel row. We attribute the intermittent 1 px row of dots under the Add dialog's header in
  * `add-cs-1440` (#459) to Chromium keeping a stale raster of that row. This runs before the screenshot disables
- * animations, so a transform-based open animation on a dialog fails here too, by design.
+ * animations, so a transform-based open animation on a dialog fails here too, by design. It also asserts that every
+ * dialog starts on a whole device pixel: a fractional layout origin let the Add dialog's form rows round 1 px apart
+ * between rasterizations (`home-add-*-1440`, #459), so `h-fit-snapped` keeps centred dialogs on whole pixels.
  */
 export async function assertDialogsUntransformed(page: Page, label: string) {
   const dialogs = await page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((dialog) => {
     // Tailwind v4 translate utilities set the individual `translate` property, which `transform` does not report.
     const style = getComputedStyle(dialog);
+    const box = dialog.getBoundingClientRect();
     return {
       name: dialog.querySelector('h2')?.textContent ?? '', transform: style.transform, translate: style.translate,
-      rotate: style.rotate, scale: style.scale,
+      rotate: style.rotate, scale: style.scale, top: box.top * devicePixelRatio, left: box.left * devicePixelRatio,
     };
   }));
   for (const dialog of dialogs) {
     expect(dialog, `dialog ${dialog.name} is positioned without a transform in ${label}`)
       .toMatchObject({ transform: 'none', translate: 'none', rotate: 'none', scale: 'none' });
+    expect({ top: dialog.top, left: dialog.left }, `dialog ${dialog.name} starts on a whole device pixel in ${label}`)
+      .toEqual({ top: Math.round(dialog.top), left: Math.round(dialog.left) });
   }
 }
 

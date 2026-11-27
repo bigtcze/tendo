@@ -4,6 +4,18 @@
 /* Phone/tablet viewport too short for a fixed bottom bar (landscape phones, 200–400% zoom). */
 @custom-variant short (@media (max-height: 30rem) and (width < 64rem));
 
+/*
+ * Fit-content height rounded up to an even pixel count. A centred dialog's top edge sits at half its free height, so
+ * a fractional or odd height leaves it, its sticky bands and its text between device rows, where Chromium may round
+ * them differently from one raster to the next (#459 Add dialog flake). The top stays whole only on an even viewport
+ * height and while the dialog is not capped by its max-height (a fractional cap such as 90dvh is not rounded).
+ * Browsers without calc-size() keep the plain fit-content declaration.
+ */
+@utility h-fit-snapped {
+  height: fit-content;
+  height: calc-size(fit-content, round(up, size, 2px));
+}
+
 @theme {
   /* Inter Variable is self-hosted (see src/fonts.css); system faces are only a loading/unavailable fallback. */
   --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
