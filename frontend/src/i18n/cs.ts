@@ -7,7 +7,7 @@ export const cs: Record<MessageKey, string> = {
   'app.error.title': 'S Tendem se teď nedaří spojit.',
   'app.error.body': 'Nepodařilo se to načíst. Zkuste to za chvíli znovu.',
   'app.notFound.title': 'Tuto stránku jsme nenašli.',
-  'app.notFound.body': 'Adresa už nemusí platit. Pokračujte do své domácnosti.',
+  'app.notFound.body': 'Adresa už nemusí platit. Přejděte do své domácnosti.',
   'app.notFound.bodySignedOut': 'Adresa už nemusí platit. Pro pokračování se přihlaste.',
   'app.notFound.home': 'Přejít do domácnosti',
   'app.notFound.signIn': 'Přihlásit se',
