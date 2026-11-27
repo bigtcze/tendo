@@ -36,15 +36,18 @@ type ItemsScreenProps = {
 
 /**
  * Opens the add form once for a request made elsewhere; the ref keeps a StrictMode re-run from opening it twice. A
- * form already open (a create being recovered) is left as it is: the request is spent without reopening it.
+ * form already open (a create being recovered) is left as it is: the request is spent without reopening it. A first
+ * load that failed keeps the request until Retry succeeds, so the form still follows the user's choice.
  */
-function useRequestedAdd(requested: boolean, ready: boolean, adding: boolean, open: () => void, handled: (() => void) | undefined) {
+function useRequestedAdd({ requested, ready, adding, open, handled }: {
+  requested: boolean; ready: boolean; adding: boolean; open: () => Promise<void>; handled?: () => void;
+}) {
   const openedRef = useRef(false);
   useEffect(() => {
     if (!requested || !ready || openedRef.current) return;
     openedRef.current = true;
     handled?.();
-    if (!adding) open();
+    if (!adding) void open();
   }, [requested, ready, adding, open, handled]);
 }
 
@@ -130,7 +133,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const homeReady = home.itemsRequestComplete && (!home.error || !!home.summary);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
-  useRequestedAdd(addRequested, homeReady, adding, () => void add.openAddForm(), onAddRequestHandled);
+  useRequestedAdd({ requested: addRequested, ready: homeReady, adding, open: add.openAddForm, handled: onAddRequestHandled });
 
   return <div data-home-screen className="min-w-0 space-y-6">
     <HomeHeader ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />

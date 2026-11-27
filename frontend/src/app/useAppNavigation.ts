@@ -178,15 +178,17 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   // A deep link or reload of the archive opens with Archive (and phone More) current from the first render.
   const [archivedView, setArchivedView] = useState(() => route.kind === 'allItems' && isArchivedSearch(window.location.search));
   const [adminTargetName, setAdminTargetName] = useState<AdminTargetName | null>(null);
-  // A one-shot request from another screen to open Add item on Home. It is screen state, never history state, so Back
-  // or Forward to Home (and any other move) never reopens the form.
-  const [addItemRequested, setAddItemRequested] = useState(false);
   const userId = state.kind === 'signedIn' ? state.session.userId : null;
+  // A one-shot request from another screen to open Add item on Home. It is screen state, never history state, so Back
+  // or Forward to Home (and any other move) never reopens the form. It names the account and household it was made
+  // for, so signing out, another sign-in or a household switch while Home is still loading can never inherit it.
+  const homeKey = state.kind === 'signedIn' ? `${state.session.userId}:${state.session.defaultHouseholdId ?? ''}` : null;
+  const [addItemFor, setAddItemFor] = useState<string | null>(null);
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
   const clearTransient = useCallback(() => {
     setOidcOutcome(null);
     clearHomeNotice();
-    setAddItemRequested(false);
+    setAddItemFor(null);
   }, [clearHomeNotice, setOidcOutcome]);
   const actions = useNavigationActions({
     setRoute, transitionedRef, setAllItemsVisit, setItemOrigin, setArchivedView, clearTransient,
@@ -200,10 +202,11 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   ), [adminTargetName, userId]);
   const { goHome } = actions;
   /** Add item lives on Home: go there and ask it to open the form once it is ready. */
-  const openAddItem = useCallback(() => { goHome(); setAddItemRequested(true); }, [goHome]);
-  const addItemHandled = useCallback(() => setAddItemRequested(false), []);
-  // Leaving Home before it was ready spends the request too: it never opens the form on a later visit.
-  if (addItemRequested && route.kind !== 'home') setAddItemRequested(false);
+  const openAddItem = useCallback(() => { goHome(); setAddItemFor(homeKey); }, [goHome, homeKey]);
+  const addItemHandled = useCallback(() => setAddItemFor(null), []);
+  // Leaving Home, or the session or household changing, before Home was ready spends the request too.
+  if (addItemFor !== null && (route.kind !== 'home' || addItemFor !== homeKey)) setAddItemFor(null);
+  const addItemRequested = addItemFor !== null;
   return { ...actions, itemOrigin, archivedView, adminTargetNameFor, openAddItem, addItemRequested, addItemHandled };
 }
 

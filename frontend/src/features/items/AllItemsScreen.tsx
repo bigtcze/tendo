@@ -2,17 +2,16 @@ import { useEffect } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
-import { Button } from '../../components/ui/button';
 import { LoadError } from '../../components/ui/load-error';
 import { LoadingLine } from '../../components/ui/loading-line';
 import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
+import { AddItemButton } from './AddItemButton';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
 import { AllItemsResults, outcomeText, resultsView } from './AllItemsResults';
 import { buildQuery } from './allItemsUrl';
 import { useAllItems } from './useAllItems';
 import { useAllItemsFacets } from './useAllItemsFacets';
-import { PlusIcon } from './HomeIcons';
 
 export function AllItemsScreen({ householdId, login, userId, onAdd, onSignedOut, onOpenItem, onArchivedViewChange }: {
   householdId: string;
@@ -39,10 +38,7 @@ export function AllItemsScreen({ householdId, login, userId, onAdd, onSignedOut,
       {/* The same compact band as Home: the screen name and its one primary action on the same line. */}
       <header className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <Heading className="min-w-0 text-h1 font-semibold text-ink">{t('allItems.title')}</Heading>
-        <Button type="button" onClick={onAdd} className="min-h-11 shrink-0 gap-1.5 px-4">
-          <PlusIcon className="size-4" />
-          {t('items.add')}
-        </Button>
+        <AddItemButton onClick={onAdd} />
       </header>
       <div className="min-w-0 rounded-2xl border border-line bg-raised p-4 sm:p-5">
         <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
