@@ -33,7 +33,7 @@ export const en = {
   'onboarding.owner.section': 'Create your administrator account',
   'onboarding.owner.intro': 'You’ll use this username and password to sign in and look after your household.',
   'onboarding.setupCode': 'One-time setup code',
-  'onboarding.setupCode.hint': 'Find it in the private .env file on the computer where Tendo was installed. Never share this code.',
+  'onboarding.setupCode.hint': 'Whoever installed Tendo has this code; the installation guide shows how to display it. Never share it.',
   'onboarding.householdName': 'Household name',
   'onboarding.householdName.placeholder': 'The Novák family',
   'onboarding.login': 'Username',
