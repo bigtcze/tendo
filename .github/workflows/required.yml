@@ -137,6 +137,8 @@ jobs:
           SQL
       - name: PostgreSQL integration tests
         run: bash scripts/setup-integration.sh
+      - name: Go statement coverage (unit + PostgreSQL, floor 80%)
+        run: bash scripts/go-coverage.sh
       - name: sqlc generated output is current
         run: bash scripts/check-sqlc.sh
 

@@ -49,5 +49,14 @@ export default defineConfig({
     // Whole-App journeys take ~1 s on a normal runner; a 5 s default failed run 39868344136 when every test ran 3–6x slower.
     // 20 s still fails a genuine hang while tolerating slow shared CI runners.
     testTimeout: 20_000,
+    // `npm run test:coverage` (part of `npm run check`) measures statement coverage of authored src code and fails below the floor
+    // (docs/development/testing.md "Test coverage").
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**'],
+      reporter: ['text-summary'],
+      thresholds: { statements: 80 },
+    },
   },
 });

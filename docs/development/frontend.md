@@ -89,7 +89,7 @@ npm run check
 npm audit --audit-level=moderate
 ```
 
-`npm run check` runs lint, type check, unit tests, and a production build. Run the scripts separately when debugging: `lint`, `typecheck`, `test`, `build`.
+`npm run check` runs lint, type check, unit tests with the statement coverage floor ([test coverage](testing.md#test-coverage)), and a production build. Run the scripts separately when debugging: `lint`, `typecheck`, `test` (no coverage), `test:coverage`, `build`.
 
 ## End-to-end tests
 
