@@ -22,14 +22,15 @@ unit=$(go list ./... | grep -v -e '/internal/identity/postgres$' -e '/internal/h
 
 echo "--> unit suite"
 # shellcheck disable=SC2086 # $unit is a newline-separated package list
-go test -count=1 -covermode=set -coverpkg="$coverpkg" -coverprofile="$out/unit.out" $unit >/dev/null
+go test -count=1 -covermode=set -coverpkg="$coverpkg" -coverprofile="$out/unit.out" $unit >"$out/unit.log" 2>&1 || { cat "$out/unit.log"; exit 1; }
 echo "--> PostgreSQL integration suite"
 python3 "$root/scripts/postgres-test-service.py" \
-  go test -p 1 -count=1 -covermode=set -coverpkg="$coverpkg" -coverprofile="$out/integration.out" "${integration[@]}" >/dev/null
+  go test -p 1 -count=1 -covermode=set -coverpkg="$coverpkg" -coverprofile="$out/integration.out" "${integration[@]}" >"$out/integration.log" 2>&1 || { cat "$out/integration.log"; exit 1; }
 
 # Generated sqlc and oapi-codegen files carry the standard header; their
 # statements are not hand-written and are left out of the measurement.
-grep -rlx --include='*.go' '// Code generated .* DO NOT EDIT\.' . | sed "s|^\./|${module}/|; s|\$|:|" >"$out/generated"
+find . -name '*.go' -type f -exec awk 'FNR == 1 { header = 1 } /^package / { header = 0 } header && /^\/\/ Code generated .* DO NOT EDIT\.$/ { print FILENAME; header = 0 }' {} + |
+  sed "s|^\./|${module}/|; s|\$|:|" >"$out/generated"
 [[ -s "$out/generated" ]]
 {
   echo 'mode: set'
